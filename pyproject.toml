@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nebo"
+dynamic = "version"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10.15"
+dependencies = [
+    "fastapi>=0.100.0",
+    "httpx>=0.24.0",
+    "rich>=13.0.0",
+    "uvicorn>=0.23.0",
+    "websockets>=11.0"
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.2.0",
+    "pytest-asyncio>=0.23.8",
+    "sphinxcontrib-applehelp>=1.0.8",
+    "sphinxcontrib-devhelp>=1.0.6",
+    "sphinxcontrib-htmlhelp>=2.0.5",
+    "sphinxcontrib-jquery>=4.1",
+    "sphinxcontrib-jsmath>=1.0.1",
+    "sphinxcontrib-qthelp>=1.0.7",
+    "sphinxcontrib-serializinghtml>=1.1.10",
+    "sphinx-sitemap>=2.6.0",
+    "sphinxawesome-theme>=5.2.0",
+    "sphinx-design>=0.6.1",
+    "selenium>=4.28.1",
+    "webdriver-manager>=4.0.2",
+]
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build]
+exclude = ["graphbook/beta/server/static/.gitkeep"]
+
+[tool.hatch.build.force-include]
+"graphbook/beta/server/static" = "graphbook/beta/server/static"
