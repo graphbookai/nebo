@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from graphbook.beta.core.client import DaemonClient
+from nebo.core.client import DaemonClient
 
 
 class TestDaemonClient:
@@ -48,33 +48,33 @@ class TestDaemonClient:
 
 
 class TestModeDetection:
-    """Tests for mode detection in gb.init()."""
+    """Tests for mode detection in nb.init()."""
 
     def setup_method(self) -> None:
-        import graphbook.beta as gb
-        from graphbook.beta.core.state import SessionState
+        import nebo as nb
+        from nebo.core.state import SessionState
         SessionState.reset_singleton()
-        gb._auto_init_done = False
+        nb._auto_init_done = False
 
     def test_local_mode_when_no_daemon(self) -> None:
         """Should fall back to local mode when daemon is not running."""
         import os
         # Clear any environment overrides
-        for key in ["GRAPHBOOK_MODE", "GRAPHBOOK_SERVER_PORT", "GRAPHBOOK_RUN_ID"]:
+        for key in ["NEBO_MODE", "NEBO_SERVER_PORT", "NEBO_RUN_ID"]:
             os.environ.pop(key, None)
 
-        import graphbook.beta as gb
-        gb.init(port=19999, mode="auto", terminal=False)
+        import nebo as nb
+        nb.init(port=19999, mode="auto", terminal=False)
 
-        from graphbook.beta.core.state import get_state
+        from nebo.core.state import get_state
         state = get_state()
         assert state._mode == "local"
 
     def test_explicit_local_mode(self) -> None:
         """Should use local mode when explicitly set."""
-        import graphbook.beta as gb
-        gb.init(mode="local", terminal=False)
+        import nebo as nb
+        nb.init(mode="local", terminal=False)
 
-        from graphbook.beta.core.state import get_state
+        from nebo.core.state import get_state
         state = get_state()
         assert state._mode == "local"

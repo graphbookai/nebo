@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 import pytest
 
-from graphbook.beta.logging.queue import LogQueue
+from nebo.logging.queue import LogQueue
 
 
 class TestLogQueue:

@@ -6,7 +6,7 @@ from typing import List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
-from graphbook.beta.core.decorators import fn
+from nebo.core.decorators import fn
 
 
 @fn()
@@ -57,7 +57,7 @@ def to_tensor(image: np.ndarray) -> "Any":
     try:
         import torch
     except ImportError:
-        raise ImportError("torch is required for to_tensor. Install with: pip install graphbook[cv]")
+        raise ImportError("torch is required for to_tensor. Install with: pip install nebo[cv]")
 
     if image.dtype == np.uint8:
         image = image.astype(np.float32) / 255.0
@@ -95,7 +95,7 @@ def detect_edges(
     try:
         import cv2
     except ImportError:
-        raise ImportError("opencv-python is required for detect_edges. Install with: pip install graphbook[cv]")
+        raise ImportError("opencv-python is required for detect_edges. Install with: pip install nebo[cv]")
 
     # Convert to grayscale if needed
     if image.ndim == 3:
@@ -136,7 +136,7 @@ def draw_boxes(
     try:
         import cv2
     except ImportError:
-        raise ImportError("opencv-python is required for draw_boxes. Install with: pip install graphbook[cv]")
+        raise ImportError("opencv-python is required for draw_boxes. Install with: pip install nebo[cv]")
 
     result = image.copy()
     for i, box in enumerate(boxes):
@@ -166,7 +166,7 @@ def color_convert(
     try:
         import cv2
     except ImportError:
-        raise ImportError("opencv-python is required for color_convert. Install with: pip install graphbook[cv]")
+        raise ImportError("opencv-python is required for color_convert. Install with: pip install nebo[cv]")
 
     conversions = {
         "bgr2rgb": cv2.COLOR_BGR2RGB,

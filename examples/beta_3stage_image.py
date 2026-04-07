@@ -12,10 +12,10 @@ Stages per image:
 
 import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter
-import graphbook.beta as gb
+import nebo as nb
 
 
-gb.md("# 3-Stage Image Pipeline\nCreate → Warm Tint → Sharpen (×500 images)")
+nb.md("# 3-Stage Image Pipeline\nCreate → Warm Tint → Sharpen (×500 images)")
 
 
 def _make_gradient(index: int, size: int = 128) -> Image.Image:
@@ -30,19 +30,19 @@ def _make_gradient(index: int, size: int = 128) -> Image.Image:
     return Image.fromarray(arr)
 
 
-@gb.fn()
+@nb.fn()
 def create_images(num_images: int = 500, size: int = 128) -> list[Image.Image]:
     """Generate base gradient images."""
     images = []
     for i in range(num_images):
         img = _make_gradient(i, size)
-        gb.log(f"Created gradient image {i}", step=i)
-        gb.log_image(img, name="created", step=i)
+        nb.log(f"Created gradient image {i}", step=i)
+        nb.log_image(img, name="created", step=i)
         images.append(img)
     return images
 
 
-@gb.fn()
+@nb.fn()
 def warm_tint(images: list[Image.Image]) -> list[Image.Image]:
     """Apply a warm tint: boost reds, reduce blues."""
     result = []
@@ -51,32 +51,32 @@ def warm_tint(images: list[Image.Image]) -> list[Image.Image]:
         arr[:, :, 0] = np.clip(arr[:, :, 0] * 1.3, 0, 255)
         arr[:, :, 2] = np.clip(arr[:, :, 2] * 0.6, 0, 255)
         out = Image.fromarray(arr.astype(np.uint8))
-        gb.log(f"Applied warm tint to image {i}", step=i)
-        gb.log_image(out, name="warm_tint", step=i)
+        nb.log(f"Applied warm tint to image {i}", step=i)
+        nb.log_image(out, name="warm_tint", step=i)
         result.append(out)
     return result
 
 
-@gb.fn()
+@nb.fn()
 def sharpen(images: list[Image.Image]) -> list[Image.Image]:
     """Sharpen and boost contrast."""
     result = []
     for i, img in enumerate(images):
         sharpened = img.filter(ImageFilter.SHARPEN)
         out = ImageEnhance.Contrast(sharpened).enhance(1.5)
-        gb.log(f"Sharpened image {i}", step=i)
-        gb.log_image(out, name="sharpened", step=i)
+        nb.log(f"Sharpened image {i}", step=i)
+        nb.log_image(out, name="sharpened", step=i)
         result.append(out)
     return result
 
 
-@gb.fn()
+@nb.fn()
 def run_pipeline() -> list[Image.Image]:
     """Run all 3 stages across multiple images."""
     images = create_images()
     images = warm_tint(images)
     images = sharpen(images)
-    gb.log("Pipeline complete")
+    nb.log("Pipeline complete")
     return images
 
 

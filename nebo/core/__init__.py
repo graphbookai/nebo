@@ -1,1 +1,1 @@
-"""Core module for graphbook beta."""
+"""Core module for nebo."""

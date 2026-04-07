@@ -1,4 +1,4 @@
-"""Client-server message protocol for graphbook beta."""
+"""Client-server message protocol for nebo."""
 
 from __future__ import annotations
 

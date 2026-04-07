@@ -1,4 +1,4 @@
-"""Rich-based terminal dashboard for the graphbook daemon.
+"""Rich-based terminal dashboard for the nebo daemon.
 
 Shows live pipeline status, run history, progress bars, logs, and errors.
 Works in both daemon mode (polling server) and local mode (reading in-process state).
@@ -144,8 +144,8 @@ class TerminalDisplay:
 
     def _read_local_state(self) -> dict:
         """Read from in-process SessionState."""
-        from graphbook.beta.core.state import get_state
-        from graphbook.beta.core.dag import get_dag_summary
+        from nebo.core.state import get_state
+        from nebo.core.dag import get_dag_summary
 
         state = get_state()
         nodes = {}
@@ -319,7 +319,7 @@ class TerminalDisplay:
 
         panel = Panel(
             Group(*parts),
-            title="Graphbook",
+            title="Nebo",
             border_style="blue",
         )
         return panel

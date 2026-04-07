@@ -1,1 +1,1 @@
-"""Terminal display module for graphbook beta."""
+"""Terminal display module for nebo."""

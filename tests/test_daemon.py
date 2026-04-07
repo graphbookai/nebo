@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from graphbook.beta.server.daemon import DaemonState, Run, NodeState, LogEntry, ErrorEntry
+from nebo.server.daemon import DaemonState, Run, NodeState, LogEntry, ErrorEntry
 
 
 class TestDaemonState:

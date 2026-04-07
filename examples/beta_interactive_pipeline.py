@@ -1,43 +1,43 @@
-"""Example 5: Interactive Pipeline with gb.ask()
+"""Example 5: Interactive Pipeline with nb.ask()
 
 Demonstrates:
-- gb.ask() for pausing execution and prompting the user
-- gb.ask() with constrained options
-- gb.ask() with free-form text input
+- nb.ask() for pausing execution and prompting the user
+- nb.ask() with constrained options
+- nb.ask() with free-form text input
 - Branching pipeline logic based on user responses
 """
 
 import time
-import graphbook.beta as gb
+import nebo as nb
 
 
-gb.md("An interactive pipeline that asks the user for input at key decision points.")
+nb.md("An interactive pipeline that asks the user for input at key decision points.")
 
 
-@gb.fn()
+@nb.fn()
 def collect_preferences() -> dict:
     """Gather user preferences to configure the pipeline."""
-    name = gb.ask("What is your name?")
-    gb.log(f"User: {name}")
+    name = nb.ask("What is your name?")
+    nb.log(f"User: {name}")
 
-    mode = gb.ask("Which processing mode?", options=["fast", "balanced", "thorough"])
-    gb.log(f"Mode: {mode}")
+    mode = nb.ask("Which processing mode?", options=["fast", "balanced", "thorough"])
+    nb.log(f"Mode: {mode}")
 
     return {"name": name, "mode": mode}
 
 
-@gb.fn()
+@nb.fn()
 def generate_data(mode: str) -> list[float]:
     """Generate data with size based on the chosen mode."""
     sizes = {"fast": 10, "balanced": 50, "thorough": 200}
     n = sizes.get(mode, 50)
     data = [i * 0.1 for i in range(n)]
-    gb.log(f"Generated {n} data points in '{mode}' mode")
+    nb.log(f"Generated {n} data points in '{mode}' mode")
     time.sleep(0.3)
     return data
 
 
-@gb.fn()
+@nb.fn()
 def process(data: list[float]) -> dict:
     """Process the data and compute summary statistics."""
     result = {
@@ -45,25 +45,25 @@ def process(data: list[float]) -> dict:
         "sum": sum(data),
         "mean": sum(data) / len(data) if data else 0,
     }
-    gb.log(f"Processed {result['count']} points: mean={result['mean']:.2f}")
+    nb.log(f"Processed {result['count']} points: mean={result['mean']:.2f}")
     time.sleep(0.3)
     return result
 
 
-@gb.fn()
+@nb.fn()
 def review_results(prefs: dict, result: dict) -> str:
     """Present results and ask the user whether to accept or retry."""
-    gb.log(f"Results for {prefs['name']}: count={result['count']}, mean={result['mean']:.2f}")
+    nb.log(f"Results for {prefs['name']}: count={result['count']}, mean={result['mean']:.2f}")
 
-    decision = gb.ask(
+    decision = nb.ask(
         f"Mean is {result['mean']:.2f}. Accept these results?",
         options=["yes", "no"],
     )
-    gb.log(f"Decision: {decision}")
+    nb.log(f"Decision: {decision}")
     return decision
 
 
-@gb.fn()
+@nb.fn()
 def run_pipeline() -> dict:
     """Interactive pipeline: collect preferences, generate, process, review."""
     prefs = collect_preferences()
@@ -72,11 +72,11 @@ def run_pipeline() -> dict:
 
     decision = review_results(prefs, result)
     if decision == "no":
-        gb.log("User rejected results — re-running with thorough mode")
+        nb.log("User rejected results — re-running with thorough mode")
         data = generate_data("thorough")
         result = process(data)
 
-    gb.log(f"Final result: {result}")
+    nb.log(f"Final result: {result}")
     return result
 
 

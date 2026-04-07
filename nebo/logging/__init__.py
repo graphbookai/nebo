@@ -1,1 +1,1 @@
-"""Logging module for graphbook beta."""
+"""Logging module for nebo."""

@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any, Iterable, Iterator, Optional, TypeVar
 
-from graphbook.beta.core.state import _current_node, get_state
+from nebo.core.state import _current_node, get_state
 
 T = TypeVar("T")
 

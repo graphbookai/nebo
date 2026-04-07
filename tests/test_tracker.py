@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from graphbook.beta.core.state import SessionState, get_state
-from graphbook.beta.core.tracker import track
-from graphbook.beta.core.decorators import fn
+from nebo.core.state import SessionState, get_state
+from nebo.core.tracker import track
+from nebo.core.decorators import fn
 
 
 class TestTracker:
-    """Tests for gb.track() iterable wrapper."""
+    """Tests for nb.track() iterable wrapper."""
 
     def setup_method(self) -> None:
         SessionState.reset_singleton()

@@ -1,4 +1,4 @@
-"""MCP tool implementations for graphbook beta.
+"""MCP tool implementations for nebo.
 
 Observation tools query pipeline state. Action tools control pipeline lifecycle.
 All tools communicate with the daemon server via HTTP using only stdlib (no httpx needed).
@@ -47,7 +47,7 @@ async def get_graph(run_id: Optional[str] = None, server_url: str = _DEFAULT_URL
         else:
             return _get(f"{server_url}/graph")
     except Exception:
-        from graphbook.beta.core.state import get_state
+        from nebo.core.state import get_state
         return get_state().get_graph_dict()
 
 
@@ -59,7 +59,7 @@ async def get_node_status(name: str, run_id: Optional[str] = None, server_url: s
         else:
             return _get(f"{server_url}/nodes/{name}")
     except Exception:
-        from graphbook.beta.core.state import get_state
+        from nebo.core.state import get_state
         state = get_state()
         node = state.nodes.get(name)
         if node is None:
@@ -91,7 +91,7 @@ async def get_logs(
             url = f"{server_url}/logs?{qs}"
         return _get(url)
     except Exception:
-        from graphbook.beta.core.state import get_state
+        from nebo.core.state import get_state
         state = get_state()
         all_logs = []
         for nid, n in state.nodes.items():
@@ -121,7 +121,7 @@ async def get_metrics(
     except Exception:
         pass
     # Fallback to local state
-    from graphbook.beta.core.state import get_state
+    from nebo.core.state import get_state
     state = get_state()
     node_info = state.nodes.get(node)
     if node_info is None:
@@ -146,7 +146,7 @@ async def get_errors(run_id: Optional[str] = None, server_url: str = _DEFAULT_UR
             url = f"{server_url}/errors"
         return _get(url)
     except Exception:
-        from graphbook.beta.core.state import get_state
+        from nebo.core.state import get_state
         state = get_state()
         all_errors = []
         for n in state.nodes.values():
@@ -168,7 +168,7 @@ async def get_description(server_url: str = _DEFAULT_URL) -> dict[str, Any]:
         }
     except Exception:
         pass
-    from graphbook.beta.core.state import get_state
+    from nebo.core.state import get_state
     state = get_state()
     return {
         "workflow_description": state.workflow_description,
@@ -208,9 +208,9 @@ async def run_pipeline(
         import os
 
         env = os.environ.copy()
-        env["GRAPHBOOK_SERVER_PORT"] = str(server_url.split(":")[-1])
-        env["GRAPHBOOK_RUN_ID"] = run_id
-        env["GRAPHBOOK_MODE"] = "server"
+        env["NEBO_SERVER_PORT"] = str(server_url.split(":")[-1])
+        env["NEBO_RUN_ID"] = run_id
+        env["NEBO_MODE"] = "server"
 
         proc = subprocess.Popen(
             [sys.executable, script_path] + (args or []),

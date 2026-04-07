@@ -1,6 +1,6 @@
 """MCP stdio transport that bridges stdin/stdout to the daemon's HTTP API.
 
-Used by Claude Code: `graphbook mcp-stdio` runs this as a subprocess,
+Used by Claude Code: `nb mcp-stdio` runs this as a subprocess,
 reading JSON-RPC from stdin and forwarding tool calls to the daemon.
 """
 
@@ -14,7 +14,7 @@ from typing import Any
 
 async def _handle_request(request: dict, server_url: str) -> dict:
     """Handle a single MCP JSON-RPC request."""
-    from graphbook.beta.mcp.server import MCP_TOOLS, handle_tool_call
+    from nebo.mcp.server import MCP_TOOLS, handle_tool_call
 
     method = request.get("method", "")
     req_id = request.get("id")
@@ -31,8 +31,8 @@ async def _handle_request(request: dict, server_url: str) -> dict:
                     "notifications": True,
                 },
                 "serverInfo": {
-                    "name": "graphbook",
-                    "version": "0.14.0-beta",
+                    "name": "nebo",
+                    "version": "0.1.0",
                 },
             },
         }

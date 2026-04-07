@@ -1,4 +1,4 @@
-"""MCP server for graphbook beta.
+"""MCP server for nebo.
 
 Exposes both observation tools (query state) and action tools (control pipelines)
 via the Model Context Protocol.
@@ -10,7 +10,7 @@ import asyncio
 import json
 from typing import Any, Optional
 
-from graphbook.beta.mcp import tools
+from nebo.mcp import tools
 
 
 MCP_TOOLS = [
@@ -222,5 +222,5 @@ async def handle_tool_call(name: str, arguments: dict[str, Any], server_url: str
 
 def run_mcp_server(port: int = 2048) -> None:
     """Run the MCP server in stdio mode (JSON-RPC over stdin/stdout)."""
-    from graphbook.beta.mcp.stdio import run_stdio_bridge
+    from nebo.mcp.stdio import run_stdio_bridge
     run_stdio_bridge(port=port)

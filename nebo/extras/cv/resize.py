@@ -6,7 +6,7 @@ from typing import Optional, Tuple, Union
 
 import numpy as np
 
-from graphbook.beta.core.decorators import fn
+from nebo.core.decorators import fn
 
 
 @fn()
@@ -30,7 +30,7 @@ def resize(
     try:
         import cv2
     except ImportError:
-        raise ImportError("opencv-python is required for resize. Install with: pip install graphbook[cv]")
+        raise ImportError("opencv-python is required for resize. Install with: pip install nebo[cv]")
 
     interp_map = {
         "nearest": cv2.INTER_NEAREST,

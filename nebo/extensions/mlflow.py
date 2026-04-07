@@ -1,8 +1,8 @@
-"""MLflow logging backend extension for graphbook beta.
+"""MLflow logging backend extension for nebo.
 
 Usage:
-    from graphbook.beta.extensions.mlflow import MLflowBackend
-    gb.init(backends=[MLflowBackend(experiment_name="my_exp")])
+    from nebo.extensions.mlflow import MLflowBackend
+    nb.init(backends=[MLflowBackend(experiment_name="my_exp")])
 """
 
 from __future__ import annotations
@@ -14,12 +14,12 @@ class MLflowBackend:
     """Logging backend that writes to MLflow.
 
     Requires mlflow to be installed:
-        pip install graphbook[mlflow]
+        pip install nebo[mlflow]
     """
 
     def __init__(
         self,
-        experiment_name: str = "graphbook",
+        experiment_name: str = "nebo",
         run_name: Optional[str] = None,
         tracking_uri: Optional[str] = None,
     ) -> None:
@@ -35,7 +35,7 @@ class MLflowBackend:
         except ImportError:
             raise ImportError(
                 "mlflow is required for MLflowBackend. "
-                "Install with: pip install graphbook[mlflow]"
+                "Install with: pip install nebo[mlflow]"
             )
 
         if tracking_uri:

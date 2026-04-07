@@ -1,17 +1,17 @@
-"""Logging functions for graphbook beta."""
+"""Logging functions for nebo."""
 
 from __future__ import annotations
 
 import time
 from typing import Any, Optional, Union
 
-from graphbook.beta.core.state import _current_node, get_state
+from nebo.core.state import _current_node, get_state
 
 
 def _ensure_initialized() -> None:
     """Trigger auto-init if not yet initialized."""
     try:
-        from graphbook.beta import _ensure_init
+        from nebo import _ensure_init
         _ensure_init()
     except ImportError:
         pass
@@ -185,7 +185,7 @@ def log_image(image: Any, *, name: Optional[str] = None, step: Optional[int] = N
         step: Optional step counter.
     """
     _ensure_initialized()
-    from graphbook.beta.logging.serializers import serialize_image
+    from nebo.logging.serializers import serialize_image
 
     import base64
 
@@ -230,7 +230,7 @@ def log_audio(audio: Any, sr: int = 16000, *, name: Optional[str] = None, step: 
         sr: Sample rate.
     """
     _ensure_initialized()
-    from graphbook.beta.logging.serializers import serialize_audio
+    from nebo.logging.serializers import serialize_audio
 
     import base64
 

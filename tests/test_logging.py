@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from graphbook.beta.core.state import SessionState, get_state, _current_node
-from graphbook.beta.core.decorators import fn
-from graphbook.beta.logging.logger import log, log_metric, log_text, md
-from graphbook.beta.core.config import log_cfg
+from nebo.core.state import SessionState, get_state, _current_node
+from nebo.core.decorators import fn
+from nebo.logging.logger import log, log_metric, log_text, md
+from nebo.core.config import log_cfg
 
 
 class TestLogging:
-    """Tests for gb.log(), gb.log_metric(), etc."""
+    """Tests for nb.log(), nb.log_metric(), etc."""
 
     def setup_method(self) -> None:
         SessionState.reset_singleton()
@@ -115,7 +115,7 @@ class TestLogNumpy:
 
 
 class TestLogCfg:
-    """Tests for gb.log_cfg()."""
+    """Tests for nb.log_cfg()."""
 
     def setup_method(self) -> None:
         SessionState.reset_singleton()

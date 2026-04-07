@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import pytest
 
-from graphbook.beta.server.protocol import Message, MessageType, encode_batch, decode_batch
+from nebo.server.protocol import Message, MessageType, encode_batch, decode_batch
 
 
 class TestProtocol:
@@ -58,7 +58,7 @@ class TestDaemonIngest:
     @pytest.mark.asyncio
     async def test_ingest_log_event(self) -> None:
         """Daemon state should ingest log events."""
-        from graphbook.beta.server.daemon import DaemonState
+        from nebo.server.daemon import DaemonState
 
         state = DaemonState()
         state.create_run("test.py", run_id="r1")
@@ -78,7 +78,7 @@ class TestDaemonIngest:
     @pytest.mark.asyncio
     async def test_ingest_edge(self) -> None:
         """Daemon state should track edges."""
-        from graphbook.beta.server.daemon import DaemonState
+        from nebo.server.daemon import DaemonState
 
         state = DaemonState()
         state.create_run("test.py", run_id="r1")
@@ -96,7 +96,7 @@ class TestDaemonIngest:
     @pytest.mark.asyncio
     async def test_ingest_error(self) -> None:
         """Daemon state should capture errors."""
-        from graphbook.beta.server.daemon import DaemonState
+        from nebo.server.daemon import DaemonState
 
         state = DaemonState()
         state.create_run("test.py", run_id="r1")

@@ -1,13 +1,13 @@
-"""CLI entry points for graphbook beta.
+"""CLI entry points for nebo.
 
 Commands:
-    graphbook serve   — Start the persistent daemon server
-    graphbook run     — Run a pipeline as a managed subprocess
-    graphbook status  — Show daemon status and recent runs
-    graphbook stop    — Stop the daemon
-    graphbook logs    — View logs from runs
-    graphbook errors  — View errors from runs
-    graphbook mcp     — Print MCP connection config for Claude Code
+    nb serve   — Start the persistent daemon server
+    nb run     — Run a pipeline as a managed subprocess
+    nb status  — Show daemon status and recent runs
+    nb stop    — Stop the daemon
+    nb logs    — View logs from runs
+    nb errors  — View errors from runs
+    nb mcp     — Print MCP connection config for Claude Code
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ import sys
 import time
 from pathlib import Path
 
-_PID_DIR = Path.home() / ".graphbook"
+_PID_DIR = Path.home() / ".nebo"
 _PID_FILE = _PID_DIR / "server.pid"
 
 
@@ -69,21 +69,21 @@ def cmd_serve(args: argparse.Namespace) -> None:
     host = args.host
 
     if _is_alive(port):
-        print(f"Graphbook daemon is already running on {host}:{port}")
+        print(f"Nebo daemon is already running on {host}:{port}")
         return
 
     if args.daemon:
         # Background mode
         cmd = [
             sys.executable, "-m", "uvicorn",
-            "graphbook.beta.server.daemon:create_daemon_app",
+            "nebo.server.daemon:create_daemon_app",
             "--factory",
             "--host", host,
             "--port", str(port),
             "--log-level", "warning",
         ]
         env = os.environ.copy()
-        env["GRAPHBOOK_DAEMON_PORT"] = str(port)
+        env["NEBO_DAEMON_PORT"] = str(port)
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
@@ -96,21 +96,21 @@ def cmd_serve(args: argparse.Namespace) -> None:
         # Wait for server to come up
         for _ in range(50):
             if _is_alive(port):
-                print(f"Graphbook daemon started on {host}:{port} (PID {proc.pid})")
+                print(f"Nebo daemon started on {host}:{port} (PID {proc.pid})")
                 return
             time.sleep(0.1)
 
-        print(f"Graphbook daemon started (PID {proc.pid}), but health check pending...")
+        print(f"Nebo daemon started (PID {proc.pid}), but health check pending...")
     else:
         # Foreground mode
         _write_pid(os.getpid())
-        os.environ["GRAPHBOOK_DAEMON_PORT"] = str(port)
-        print(f"Starting Graphbook daemon on {host}:{port}...")
+        os.environ["NEBO_DAEMON_PORT"] = str(port)
+        print(f"Starting Nebo daemon on {host}:{port}...")
         print("Press Ctrl+C to stop.\n")
         import uvicorn
         try:
             uvicorn.run(
-                "graphbook.beta.server.daemon:create_daemon_app",
+                "nebo.server.daemon:create_daemon_app",
                 factory=True,
                 host=host,
                 port=port,
@@ -120,7 +120,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
             pass
         finally:
             _remove_pid()
-            print("\nGraphbook daemon stopped.")
+            print("\nNebo daemon stopped.")
 
 
 def cmd_run(args: argparse.Namespace) -> None:
@@ -147,10 +147,10 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     # Set environment so SDK auto-connects
     env = os.environ.copy()
-    env["GRAPHBOOK_SERVER_PORT"] = str(port)
-    env["GRAPHBOOK_RUN_ID"] = run_id
-    env["GRAPHBOOK_MODE"] = "server"
-    env["GRAPHBOOK_FLUSH_INTERVAL"] = str(args.flush_interval)
+    env["NEBO_SERVER_PORT"] = str(port)
+    env["NEBO_RUN_ID"] = run_id
+    env["NEBO_MODE"] = "server"
+    env["NEBO_FLUSH_INTERVAL"] = str(args.flush_interval)
 
     cmd = [sys.executable, script] + script_args
 
@@ -190,7 +190,7 @@ def cmd_status(args: argparse.Namespace) -> None:
     port = args.port
 
     if not _is_alive(port):
-        print("Graphbook daemon is not running.")
+        print("Nebo daemon is not running.")
         pid = _read_pid()
         if pid:
             print(f"  Stale PID file found: {pid}")
@@ -205,7 +205,7 @@ def cmd_status(args: argparse.Namespace) -> None:
         print(f"Error connecting to daemon: {e}")
         return
 
-    print(f"Graphbook daemon: running on port {port}")
+    print(f"Nebo daemon: running on port {port}")
     print(f"  Active run: {health.get('active_run', 'none')}")
     print(f"  Total runs: {health.get('total_runs', 0)}")
 
@@ -232,11 +232,11 @@ def cmd_stop(args: argparse.Namespace) -> None:
                 break
             time.sleep(0.1)
         _remove_pid()
-        print("Graphbook daemon stopped.")
+        print("Nebo daemon stopped.")
     elif _is_alive(port):
         print(f"Daemon is running on port {port} but PID unknown. Use kill manually.")
     else:
-        print("Graphbook daemon is not running.")
+        print("Nebo daemon is not running.")
         _remove_pid()
 
 
@@ -245,7 +245,7 @@ def cmd_logs(args: argparse.Namespace) -> None:
     port = args.port
 
     if not _is_alive(port):
-        print("Graphbook daemon is not running.")
+        print("Nebo daemon is not running.")
         return
 
     import httpx
@@ -281,7 +281,7 @@ def cmd_errors(args: argparse.Namespace) -> None:
     port = args.port
 
     if not _is_alive(port):
-        print("Graphbook daemon is not running.")
+        print("Nebo daemon is not running.")
         return
 
     import httpx
@@ -316,8 +316,8 @@ def cmd_mcp(args: argparse.Namespace) -> None:
     """Print MCP connection config for Claude Code."""
     config = {
         "mcpServers": {
-            "graphbook": {
-                "command": "graphbook",
+            "nebo": {
+                "command": "nb",
                 "args": ["mcp-stdio"],
                 "env": {},
             }
@@ -329,15 +329,15 @@ def cmd_mcp(args: argparse.Namespace) -> None:
 
 def cmd_mcp_stdio(args: argparse.Namespace) -> None:
     """Run the MCP stdio transport (bridges stdio <-> daemon HTTP)."""
-    from graphbook.beta.mcp.stdio import run_stdio_bridge
+    from nebo.mcp.stdio import run_stdio_bridge
     run_stdio_bridge(port=args.port)
 
 
 def main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
-        prog="graphbook",
-        description="Graphbook — Lightweight observability for Python pipelines",
+        prog="nb",
+        description="Nebo — Lightweight observability for Python pipelines",
     )
     parser.add_argument("--port", type=int, default=2048, help="Daemon port (default: 2048)")
     subparsers = parser.add_subparsers(dest="command")

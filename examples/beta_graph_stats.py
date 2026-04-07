@@ -1,6 +1,6 @@
 """Example 5: Inspecting Graph State After Execution
 
-Demonstrates how to query the graphbook state API after running a pipeline:
+Demonstrates how to query the nebo state API after running a pipeline:
 - DAG topology: get_dag_summary(), get_sources(), get_topology_order()
 - Node details: exec_count, logs, metrics, errors, params
 - Edge listing
@@ -14,35 +14,35 @@ then inspect the resulting state.
 
 import time
 
-import graphbook.beta as gb
-from graphbook.beta.core.state import get_state
-from graphbook.beta.core.dag import get_dag_summary, get_sources, get_topology_order
+import nebo as nb
+from nebo.core.state import get_state
+from nebo.core.dag import get_dag_summary, get_sources, get_topology_order
 
 
 # --- Small pipeline to generate some state ---
 
-@gb.fn()
+@nb.fn()
 def load_data(path: str = "data.csv", limit: int = 100) -> list[dict]:
     """Load raw records from a data source."""
     records = [{"id": i, "value": i * 0.5} for i in range(limit)]
-    gb.log(f"Loaded {len(records)} records from {path}")
+    nb.log(f"Loaded {len(records)} records from {path}")
     time.sleep(0.3)
     return records
 
 
-@gb.fn()
+@nb.fn()
 def transform(records: list[dict]) -> list[dict]:
     """Normalize values and tag each record."""
     transformed = []
-    for r in gb.track(records, name="transforming"):
+    for r in nb.track(records, name="transforming"):
         transformed.append({**r, "value": r["value"] / 50.0, "tagged": True})
-    gb.log(f"Transformed {len(transformed)} records")
-    gb.log_metric("record_count", float(len(transformed)))
+    nb.log(f"Transformed {len(transformed)} records")
+    nb.log_metric("record_count", float(len(transformed)))
     time.sleep(0.3)
     return transformed
 
 
-@gb.fn()
+@nb.fn()
 def aggregate(records: list[dict]) -> dict:
     """Compute summary statistics over the transformed dataset."""
     values = [r["value"] for r in records]
@@ -52,13 +52,13 @@ def aggregate(records: list[dict]) -> dict:
         "min": min(values),
         "max": max(values),
     }
-    gb.log(f"Aggregated: mean={stats['mean']:.4f}, count={stats['count']}")
-    gb.log_metric("mean_value", stats["mean"])
+    nb.log(f"Aggregated: mean={stats['mean']:.4f}, count={stats['count']}")
+    nb.log_metric("mean_value", stats["mean"])
     time.sleep(0.3)
     return stats
 
 
-@gb.fn()
+@nb.fn()
 def run(path: str = "data.csv") -> dict:
     """Top-level runner: load → transform → aggregate."""
     records = load_data(path=path)
@@ -68,8 +68,8 @@ def run(path: str = "data.csv") -> dict:
 
 # --- Configure and execute ---
 
-gb.configure({"model": {"path": "data.csv", "limit": 50}})
-gb.md("A minimal ETL pipeline used to demonstrate state inspection.")
+nb.configure({"model": {"path": "data.csv", "limit": 50}})
+nb.md("A minimal ETL pipeline used to demonstrate state inspection.")
 
 
 def main():

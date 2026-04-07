@@ -1,4 +1,4 @@
-"""Pipeline subprocess management for the graphbook daemon."""
+"""Pipeline subprocess management for the nebo daemon."""
 
 from __future__ import annotations
 
@@ -67,9 +67,9 @@ class PipelineRunner:
             cmd.extend(args)
 
         process_env = os.environ.copy()
-        process_env["GRAPHBOOK_SERVER_PORT"] = str(port)
-        process_env["GRAPHBOOK_RUN_ID"] = run_id
-        process_env["GRAPHBOOK_MODE"] = "server"
+        process_env["NEBO_SERVER_PORT"] = str(port)
+        process_env["NEBO_RUN_ID"] = run_id
+        process_env["NEBO_MODE"] = "server"
         if env:
             process_env.update(env)
 

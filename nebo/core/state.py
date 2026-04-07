@@ -1,4 +1,4 @@
-"""Global session state for graphbook beta."""
+"""Global session state for nebo."""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ class DAGEdge:
 
 
 class SessionState:
-    """Global singleton managing all graphbook beta state."""
+    """Global singleton managing all nebo state."""
 
     _instance: Optional[SessionState] = None
     _lock = threading.Lock()

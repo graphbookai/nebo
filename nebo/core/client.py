@@ -1,4 +1,4 @@
-"""SDK client that connects to the graphbook daemon server.
+"""SDK client that connects to the nebo daemon server.
 
 In server mode, all events (logs, metrics, node registrations, etc.) are
 forwarded to the daemon via HTTP. If the daemon disconnects, the client

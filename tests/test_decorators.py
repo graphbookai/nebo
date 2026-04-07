@@ -4,21 +4,21 @@ from __future__ import annotations
 
 import pytest
 
-import graphbook.beta as gb
-from graphbook.beta.core.state import SessionState, _current_node, get_state
-from graphbook.beta.core.decorators import fn
-from graphbook.beta.core.dag import get_sources, get_topology_order, get_dag_summary
+import nebo as nb
+from nebo.core.state import SessionState, _current_node, get_state
+from nebo.core.decorators import fn
+from nebo.core.dag import get_sources, get_topology_order, get_dag_summary
 
 
 def _reset_gb() -> None:
-    """Reset graphbook state and force local mode so tests never contact a daemon."""
+    """Reset nebo state and force local mode so tests never contact a daemon."""
     SessionState.reset_singleton()
-    gb._auto_init_done = False
-    gb.init(mode="local")
+    nb._auto_init_done = False
+    nb.init(mode="local")
 
 
 class TestFnDecorator:
-    """Tests for the @gb.fn() decorator."""
+    """Tests for the @nb.fn() decorator."""
 
     def setup_method(self) -> None:
         """Reset state before each test."""
@@ -188,14 +188,14 @@ class TestDAGInference:
 
 
 class TestLogCfgWithFn:
-    """Tests for log_cfg() working with @fn."""
+    """Tests for log_cfg() working with @nb.fn."""
 
     def setup_method(self) -> None:
         _reset_gb()
 
     def test_log_cfg_shows_in_node_params(self) -> None:
         """log_cfg() inside a node should populate node.params."""
-        from graphbook.beta.core.config import log_cfg
+        from nebo.core.config import log_cfg
 
         @fn()
         def train():
@@ -210,7 +210,7 @@ class TestLogCfgWithFn:
 
     def test_log_cfg_merges_across_calls(self) -> None:
         """Multiple log_cfg() calls merge params."""
-        from graphbook.beta.core.config import log_cfg
+        from nebo.core.config import log_cfg
 
         @fn()
         def train():

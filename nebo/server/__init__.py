@@ -1,1 +1,1 @@
-"""Server module for graphbook beta."""
+"""Server module for nebo."""

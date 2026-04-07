@@ -1,12 +1,12 @@
-"""Graphbook Beta — Lightweight observability for Python programs.
+"""Nebo — Lightweight observability for Python programs.
 
 Usage:
-    import graphbook.beta as gb
+    import nebo as nb
 
-    @gb.fn()
+    @nb.fn()
     def my_function():
-        gb.log("hello")
-        gb.log_metric("loss", 0.5)
+        nb.log("hello")
+        nb.log_metric("loss", 0.5)
 """
 
 from __future__ import annotations
@@ -18,11 +18,11 @@ import uuid
 import logging as _stdlib_logging
 from typing import Any, Literal, Optional, TypeVar
 
-from graphbook.beta.core.decorators import fn
-from graphbook.beta.core.tracker import track
-from graphbook.beta.core.config import log_cfg
-from graphbook.beta.core.state import _current_node, get_state, LoggingBackend
-from graphbook.beta.logging.logger import (
+from nebo.core.decorators import fn
+from nebo.core.tracker import track
+from nebo.core.config import log_cfg
+from nebo.core.state import _current_node, get_state, LoggingBackend
+from nebo.logging.logger import (
     log,
     log_metric,
     log_image,
@@ -61,10 +61,10 @@ def _start_pause_poll() -> None:
 
 
 def _ensure_init() -> None:
-    """Lazily auto-initialize on first gb.* call.
+    """Lazily auto-initialize on first nb.* call.
 
     Called by the @fn decorator wrapper and logging functions on first
-    execution. If the user already called gb.init(), this is a no-op.
+    execution. If the user already called nb.init(), this is a no-op.
     """
     global _auto_init_done
     if _auto_init_done:
@@ -76,7 +76,7 @@ def _ensure_init() -> None:
         _auto_init_done = True
         return
 
-    # Auto-connect to daemon. Env vars from `graphbook-beta run`
+    # Auto-connect to daemon. Env vars from `nb run`
     # take priority if present.
     init(mode="auto", _internal=True)
 
@@ -91,10 +91,10 @@ def init(
     flush_interval: float = 0.1,
     _internal: bool = False,
 ) -> None:
-    """Initialize graphbook beta.
+    """Initialize nebo.
 
     Mode detection (when mode='auto'):
-    1. Check environment variables (set by 'graphbook run')
+    1. Check environment variables (set by 'nb run')
     2. Check for daemon at host:port
     3. If found -> server mode (stream events to daemon)
     4. If not found -> local mode (in-process rich terminal only)
@@ -117,9 +117,9 @@ def init(
     if _auto_init_done and not _internal:
         import warnings
         warnings.warn(
-            "graphbook was already implicitly initialized by a prior gb.* call. "
-            "Call gb.init() before any @gb.fn() execution, gb.log(), gb.md(), etc. "
-            "This gb.init() call will be ignored.",
+            "nebo was already implicitly initialized by a prior nb.* call. "
+            "Call nb.init() before any @nb.fn() execution, nb.log(), nb.md(), etc. "
+            "This nb.init() call will be ignored.",
             stacklevel=2,
         )
         return
@@ -132,12 +132,12 @@ def init(
     if backends:
         state.backends.extend(backends)
 
-    # Check environment overrides (set by `graphbook run`)
-    env_mode = os.environ.get("GRAPHBOOK_MODE")
-    env_port = os.environ.get("GRAPHBOOK_SERVER_PORT")
-    env_run_id = os.environ.get("GRAPHBOOK_RUN_ID")
+    # Check environment overrides (set by `nb run`)
+    env_mode = os.environ.get("NEBO_MODE")
+    env_port = os.environ.get("NEBO_SERVER_PORT")
+    env_run_id = os.environ.get("NEBO_RUN_ID")
 
-    env_flush_interval = os.environ.get("GRAPHBOOK_FLUSH_INTERVAL")
+    env_flush_interval = os.environ.get("NEBO_FLUSH_INTERVAL")
 
     if env_port:
         port = int(env_port)
@@ -160,7 +160,7 @@ def init(
     if resolved_mode == "auto":
         # Try to connect to daemon
         try:
-            from graphbook.beta.core.client import DaemonClient
+            from nebo.core.client import DaemonClient
             client = DaemonClient(host=host, port=port, run_id=run_id, flush_interval=flush_interval)
             if client.connect():
                 resolved_mode = "server"
@@ -170,10 +170,10 @@ def init(
         except Exception:
             resolved_mode = "local"
     elif resolved_mode == "server":
-        from graphbook.beta.core.client import DaemonClient
+        from nebo.core.client import DaemonClient
         client = DaemonClient(host=host, port=port, run_id=run_id, flush_interval=flush_interval)
         if not client.connect():
-            print(f"Warning: Could not connect to graphbook daemon at {host}:{port}. Falling back to local mode.")
+            print(f"Warning: Could not connect to nebo daemon at {host}:{port}. Falling back to local mode.")
             resolved_mode = "local"
         else:
             state._client = client
@@ -189,7 +189,7 @@ def init(
 
     if terminal:
         try:
-            from graphbook.beta.terminal.display import TerminalDisplay
+            from nebo.terminal.display import TerminalDisplay
             import atexit
             if state._display is None:
                 state._display = TerminalDisplay()

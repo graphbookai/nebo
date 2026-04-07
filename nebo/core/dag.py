@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from graphbook.beta.core.state import get_state
+from nebo.core.state import get_state
 
 
 def add_edge(source: str, target: str) -> None:

@@ -1,10 +1,10 @@
-"""Configuration logging for graphbook beta."""
+"""Configuration logging for nebo."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from graphbook.beta.core.state import _current_node, get_state
+from nebo.core.state import _current_node, get_state
 
 
 def log_cfg(cfg: dict[str, Any]) -> None:
@@ -22,10 +22,10 @@ def log_cfg(cfg: dict[str, Any]) -> None:
 
     Example::
 
-        @gb.fn()
+        @nb.fn()
         def train(data):
-            gb.log_cfg({"model": "resnet50", "batch_size": 32})
-            gb.log_cfg({"lr": 0.001})
+            nb.log_cfg({"model": "resnet50", "batch_size": 32})
+            nb.log_cfg({"lr": 0.001})
             # info tab shows: model=resnet50, batch_size=32, lr=0.001
     """
     state = get_state()

@@ -1,1 +1,1 @@
-"""MCP module for graphbook beta."""
+"""MCP module for nebo."""

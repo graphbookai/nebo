@@ -1,8 +1,8 @@
-"""TensorBoard logging backend extension for graphbook beta.
+"""TensorBoard logging backend extension for nebo.
 
 Usage:
-    from graphbook.beta.extensions.tensorboard import TensorboardBackend
-    gb.init(backends=[TensorboardBackend(log_dir="runs/exp1")])
+    from nebo.extensions.tensorboard import TensorboardBackend
+    nb.init(backends=[TensorboardBackend(log_dir="runs/exp1")])
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ class TensorboardBackend:
     """Logging backend that writes to TensorBoard.
 
     Requires tensorboard to be installed:
-        pip install graphbook[tensorboard]
+        pip install nebo[tensorboard]
     """
 
     def __init__(self, log_dir: str = "runs", comment: str = "") -> None:
@@ -30,7 +30,7 @@ class TensorboardBackend:
         except ImportError:
             raise ImportError(
                 "tensorboard is required for TensorboardBackend. "
-                "Install with: pip install graphbook[tensorboard]"
+                "Install with: pip install nebo[tensorboard]"
             )
         self._step_counters: dict[str, int] = {}
 

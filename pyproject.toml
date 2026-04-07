@@ -1,10 +1,9 @@
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
+requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
 name = "nebo"
-dynamic = "version"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -35,11 +34,11 @@ dev = [
     "webdriver-manager>=4.0.2",
 ]
 
-[tool.hatch.version]
-source = "vcs"
+[project.scripts]
+nb = "nebo.cli:main"
 
 [tool.hatch.build]
-exclude = ["graphbook/beta/server/static/.gitkeep"]
+exclude = ["nebo/server/static/.gitkeep"]
 
 [tool.hatch.build.force-include]
-"graphbook/beta/server/static" = "graphbook/beta/server/static"
+"nebo/server/static" = "nebo/server/static"

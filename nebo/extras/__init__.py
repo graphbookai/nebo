@@ -1,1 +1,1 @@
-"""Extras modules for graphbook beta."""
+"""Extras modules for nebo."""

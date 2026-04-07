@@ -1,4 +1,4 @@
-"""The @fn decorator for graphbook beta."""
+"""The @fn decorator for nebo."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import time
 import traceback
 from typing import Any, Callable, Optional, TypeVar, overload
 
-from graphbook.beta.core.state import _current_node, get_state
+from nebo.core.state import _current_node, get_state
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -32,10 +32,10 @@ def fn(
 
     Can be used as::
 
-        @gb.fn
-        @gb.fn()
-        @gb.fn(depends_on=[other_fn])
-        @gb.fn(pausable=True)
+        @nb.fn
+        @nb.fn()
+        @nb.fn(depends_on=[other_fn])
+        @nb.fn(pausable=True)
 
     DAG edges are inferred automatically from data flow between
     **sibling** nodes (nodes sharing the same parent/caller). An object
@@ -46,7 +46,7 @@ def fn(
     For dependencies that cannot be detected automatically (shared mutable
     state, class attributes, globals), use ``depends_on``::
 
-        @gb.fn(depends_on=[foo])
+        @nb.fn(depends_on=[foo])
         def bar(self):
             # bar depends on foo via shared state, not via arguments
             ...
@@ -79,7 +79,7 @@ def fn(
             nonlocal registered
             # Auto-init on first execution
             try:
-                from graphbook.beta import _ensure_init
+                from nebo import _ensure_init
                 _ensure_init()
             except ImportError:
                 pass
@@ -195,5 +195,5 @@ def fn(
         return decorator(func)
     raise TypeError(
         f"fn() got an unexpected positional argument {func!r}. "
-        "Use @gb.fn or @gb.fn() instead."
+        "Use @nb.fn or @nb.fn() instead."
     )

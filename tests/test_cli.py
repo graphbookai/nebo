@@ -7,14 +7,14 @@ import json
 
 import pytest
 
-from graphbook.beta.cli import cmd_mcp
+from nebo.cli import cmd_mcp
 
 
 class TestCLI:
     """Tests for CLI commands."""
 
     def test_mcp_outputs_valid_json(self, capsys: pytest.CaptureFixture) -> None:
-        """graphbook mcp should output valid JSON config."""
+        """nb mcp should output valid JSON config."""
         args = argparse.Namespace()
         cmd_mcp(args)
         captured = capsys.readouterr()
@@ -26,9 +26,9 @@ class TestCLI:
         json_str = "\n".join(lines[1:])
         config = json.loads(json_str)
         assert "mcpServers" in config
-        assert "graphbook" in config["mcpServers"]
-        assert config["mcpServers"]["graphbook"]["command"] == "graphbook"
-        assert "mcp-stdio" in config["mcpServers"]["graphbook"]["args"]
+        assert "nebo" in config["mcpServers"]
+        assert config["mcpServers"]["nebo"]["command"] == "nb"
+        assert "mcp-stdio" in config["mcpServers"]["nebo"]["args"]
 
 
 class TestRunnerModule:
@@ -36,18 +36,18 @@ class TestRunnerModule:
 
     def test_runner_import(self) -> None:
         """PipelineRunner should be importable."""
-        from graphbook.beta.server.runner import PipelineRunner
+        from nebo.server.runner import PipelineRunner
         runner = PipelineRunner()
         assert runner is not None
 
     def test_runner_not_running(self) -> None:
         """is_running should return False for unknown run IDs."""
-        from graphbook.beta.server.runner import PipelineRunner
+        from nebo.server.runner import PipelineRunner
         runner = PipelineRunner()
         assert runner.is_running("nonexistent") is False
 
     def test_runner_stop_unknown(self) -> None:
         """stop() should return None for unknown run IDs."""
-        from graphbook.beta.server.runner import PipelineRunner
+        from nebo.server.runner import PipelineRunner
         runner = PipelineRunner()
         assert runner.stop("nonexistent") is None

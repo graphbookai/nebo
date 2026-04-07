@@ -1,8 +1,8 @@
-"""Extensions module for graphbook beta.
+"""Extensions module for nebo.
 
 Provides logging backend extensions for integrating with external tools.
 """
 
-from graphbook.beta.core.state import LoggingBackend
+from nebo.core.state import LoggingBackend
 
 __all__ = ["LoggingBackend"]

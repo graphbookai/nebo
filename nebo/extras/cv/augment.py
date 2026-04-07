@@ -7,7 +7,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from graphbook.beta.core.decorators import fn
+from nebo.core.decorators import fn
 
 
 @fn()
