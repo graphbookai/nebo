@@ -18,6 +18,7 @@ import dagre from '@dagrejs/dagre'
 import '@xyflow/react/dist/style.css'
 import { useStore } from '@/store'
 import { GraphbookNode } from './GraphbookNode'
+import { GroupNode } from './GroupNode'
 import { GraphbookEdge } from './GraphbookEdge'
 import { GraphToolbar } from './GraphToolbar'
 import { DescriptionOverlay } from './DescriptionOverlay'
@@ -30,6 +31,7 @@ interface DagGraphProps {
 
 const nodeTypes: NodeTypes = {
   graphbook: GraphbookNode,
+  group: GroupNode,
 }
 
 const edgeTypes = {
@@ -88,6 +90,57 @@ function getMeasuredDimensions(nodes: Node[]): Map<string, { width: number; heig
   return dims
 }
 
+function computeGroupNodes(
+  layoutedNodes: Node[],
+  graphNodes: Record<string, { group: string | null; [key: string]: unknown }>,
+  measured?: Map<string, { width: number; height: number }>,
+): Node[] {
+  const groups = new Map<string, string[]>()
+  for (const [nodeId, nodeData] of Object.entries(graphNodes)) {
+    if (nodeData.group) {
+      if (!groups.has(nodeData.group)) {
+        groups.set(nodeData.group, [])
+      }
+      groups.get(nodeData.group)!.push(nodeId)
+    }
+  }
+
+  const groupNodes: Node[] = []
+  for (const [groupName, memberIds] of groups) {
+    const memberNodes = layoutedNodes.filter(n => memberIds.includes(n.id))
+    if (memberNodes.length === 0) continue
+
+    const padding = 24
+    const headerHeight = 28
+    const minX = Math.min(...memberNodes.map(n => n.position.x)) - padding
+    const minY = Math.min(...memberNodes.map(n => n.position.y)) - padding - headerHeight
+    const maxX = Math.max(...memberNodes.map(n => {
+      const dims = measured?.get(n.id)
+      return n.position.x + (dims?.width ?? n.measured?.width ?? DEFAULT_WIDTH)
+    })) + padding
+    const maxY = Math.max(...memberNodes.map(n => {
+      const dims = measured?.get(n.id)
+      return n.position.y + (dims?.height ?? n.measured?.height ?? DEFAULT_HEIGHT)
+    })) + padding
+
+    groupNodes.push({
+      id: `group-${groupName}`,
+      type: 'group',
+      position: { x: minX, y: minY },
+      data: {
+        label: groupName,
+        width: maxX - minX,
+        height: maxY - minY,
+      },
+      style: { zIndex: -1 },
+      selectable: false,
+      draggable: false,
+    })
+  }
+
+  return groupNodes
+}
+
 function DagGraphInner({ runId }: DagGraphProps) {
   const runState = useStore(s => s.runs.get(runId))
   const updateNodePosition = useStore(s => s.updateNodePosition)
@@ -119,7 +172,11 @@ function DagGraphInner({ runId }: DagGraphProps) {
     const execKey = hideUncalled
       ? Object.entries(graph.nodes).map(([id, n]) => `${id}:${n.exec_count > 0 ? 1 : 0}`).sort().join(',')
       : ''
-    return `${nodeKeys}|${edgeKeys}|${execKey}|${hideUncalled}`
+    const groupKey = Object.entries(graph.nodes)
+      .filter(([, n]) => n.group)
+      .map(([id, n]) => `${id}@${n.group}`)
+      .sort().join(',')
+    return `${nodeKeys}|${edgeKeys}|${execKey}|${hideUncalled}|${groupKey}`
   }, [graph, hideUncalled])
 
   // Build base nodes and edges — only recomputes on structural changes, not exec_count/progress
@@ -167,7 +224,9 @@ function DagGraphInner({ runId }: DagGraphProps) {
       return
     }
     const laid = runDagreLayout(baseNodes, baseEdges, undefined, dagDirection)
-    setNodes(laid)
+    const g = graphRef.current
+    const groups = g ? computeGroupNodes(laid, g.nodes) : []
+    setNodes([...groups, ...laid])
     setEdges(baseEdges)
     edgesRef.current = baseEdges
     initialLayoutDone.current = false
@@ -178,11 +237,15 @@ function DagGraphInner({ runId }: DagGraphProps) {
     if (!nodesInitialized || initialLayoutDone.current || nodes.length === 0) return
 
     const currentNodes = getNodes()
-    const dims = getMeasuredDimensions(currentNodes)
-    if (dims.size === currentNodes.length) {
+    // Filter out group nodes for layout — they aren't in dagre
+    const regularNodes = currentNodes.filter(n => n.type !== 'group')
+    const dims = getMeasuredDimensions(regularNodes)
+    if (dims.size === regularNodes.length) {
       initialLayoutDone.current = true
-      const laid = runDagreLayout(currentNodes, edgesRef.current, dims, dagDirection)
-      setNodes(laid)
+      const laid = runDagreLayout(regularNodes, edgesRef.current, dims, dagDirection)
+      const g = graphRef.current
+      const groups = g ? computeGroupNodes(laid, g.nodes, dims) : []
+      setNodes([...groups, ...laid])
       requestAnimationFrame(() => fitView({ duration: 200 }))
     }
   }, [nodesInitialized, nodes.length, getNodes, setNodes, fitView, dagDirection])
@@ -196,10 +259,13 @@ function DagGraphInner({ runId }: DagGraphProps) {
     // Delay for React to measure new dimensions after expand/collapse
     const timer = setTimeout(() => {
       const currentNodes = getNodes()
-      const dims = getMeasuredDimensions(currentNodes)
+      const regularNodes = currentNodes.filter(n => n.type !== 'group')
+      const dims = getMeasuredDimensions(regularNodes)
       if (dims.size > 0) {
-        const laid = runDagreLayout(currentNodes, edgesRef.current, dims, dagDirection)
-        setNodes(laid)
+        const laid = runDagreLayout(regularNodes, edgesRef.current, dims, dagDirection)
+        const g = graphRef.current
+        const groups = g ? computeGroupNodes(laid, g.nodes, dims) : []
+        setNodes([...groups, ...laid])
       }
     }, 100)
 
@@ -208,10 +274,13 @@ function DagGraphInner({ runId }: DagGraphProps) {
 
   const onResetLayout = useCallback(() => {
     const currentNodes = getNodes()
-    const dims = getMeasuredDimensions(currentNodes)
+    const regularNodes = currentNodes.filter(n => n.type !== 'group')
+    const dims = getMeasuredDimensions(regularNodes)
     if (dims.size > 0) {
-      const laid = runDagreLayout(currentNodes, edgesRef.current, dims, dagDirection)
-      setNodes(laid)
+      const laid = runDagreLayout(regularNodes, edgesRef.current, dims, dagDirection)
+      const g = graphRef.current
+      const groups = g ? computeGroupNodes(laid, g.nodes, dims) : []
+      setNodes([...groups, ...laid])
       requestAnimationFrame(() => fitView({ duration: 200 }))
     }
   }, [getNodes, setNodes, fitView, dagDirection])

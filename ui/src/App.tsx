@@ -5,7 +5,9 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { MobileNav } from '@/components/layout/MobileNav'
 import { RunDetailView } from '@/components/layout/RunDetailView'
+import { RightPanel } from '@/components/layout/RightPanel'
 import { RunList } from '@/components/runs/RunList'
+import { PanelRight } from 'lucide-react'
 
 export default function App() {
   useWebSocket()
@@ -13,6 +15,8 @@ export default function App() {
   const selectedRunId = useStore(s => s.selectedRunId)
   const reconnecting = useStore(s => s.reconnecting)
   const connected = useStore(s => s.connected)
+  const rightPanelOpen = useStore(s => s.rightPanelOpen)
+  const toggleRightPanel = useStore(s => s.toggleRightPanel)
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
@@ -24,23 +28,40 @@ export default function App() {
       )}
       {!connected && !reconnecting && (
         <div className="bg-muted border-b border-border px-4 py-1.5 text-xs text-muted-foreground text-center shrink-0">
-          Not connected to daemon. Start one with <code className="bg-background px-1 py-0.5 rounded">graphbook serve</code>
+          Not connected to daemon. Start one with <code className="bg-background px-1 py-0.5 rounded">nebo serve</code>
         </div>
       )}
 
       {isDesktop ? (
-        /* Desktop: sidebar + detail */
+        /* Desktop: sidebar + detail + right panel */
         <div className="flex flex-1 overflow-hidden">
           <div className="w-64 shrink-0 overflow-hidden">
             <ErrorBoundary label="Sidebar">
               <Sidebar />
             </ErrorBoundary>
           </div>
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-hidden relative">
             <ErrorBoundary label="RunDetailView">
               <RunDetailView />
             </ErrorBoundary>
+            {/* Right panel toggle */}
+            {selectedRunId && (
+              <button
+                onClick={toggleRightPanel}
+                className="absolute top-2 right-2 z-10 p-1.5 rounded-md bg-card border border-border shadow-sm hover:bg-accent transition-colors"
+                title={rightPanelOpen ? 'Close trace panel' : 'Open trace panel'}
+              >
+                <PanelRight className="h-4 w-4 text-muted-foreground" />
+              </button>
+            )}
           </div>
+          {selectedRunId && rightPanelOpen && (
+            <div className="w-80 shrink-0 overflow-hidden">
+              <ErrorBoundary label="RightPanel">
+                <RightPanel runId={selectedRunId} />
+              </ErrorBoundary>
+            </div>
+          )}
         </div>
       ) : (
         /* Mobile: full-screen switching */

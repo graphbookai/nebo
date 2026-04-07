@@ -40,6 +40,8 @@ export interface GraphData {
     pausable: boolean
     params: Record<string, unknown>
     progress: { current: number; total: number; name?: string } | null
+    group: string | null
+    ui_hints: Record<string, unknown> | null
   }>
   edges: { source: string; target: string }[]
   workflow_description: string | null

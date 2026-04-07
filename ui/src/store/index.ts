@@ -173,6 +173,12 @@ interface GraphbookStore {
   desktopViewMode: 'graph' | 'grid'
   setDesktopViewMode: (mode: 'graph' | 'grid') => void
 
+  // Right panel (trace + chat)
+  rightPanelTab: 'trace' | 'chat'
+  rightPanelOpen: boolean
+  setRightPanelTab: (tab: 'trace' | 'chat') => void
+  toggleRightPanel: () => void
+
   // Timeline
   timeline: TimelineState
   setTimelineMode: (mode: TimelineMode) => void
@@ -360,6 +366,11 @@ export const useStore = create<GraphbookStore>((set, get) => ({
   desktopViewMode: 'graph' as const,
   setDesktopViewMode: (mode) => set({ desktopViewMode: mode }),
 
+  rightPanelTab: 'trace' as const,
+  rightPanelOpen: false,
+  setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
+  toggleRightPanel: () => set(state => ({ rightPanelOpen: !state.rightPanelOpen })),
+
   timeline: { mode: 'time', timeStart: null, timeEnd: null, step: null },
   setTimelineMode: (mode) => set(state => ({ timeline: { ...state.timeline, mode } })),
   setTimeRange: (start, end) => set(state => ({ timeline: { ...state.timeline, timeStart: start, timeEnd: end } })),
@@ -528,6 +539,8 @@ export const useStore = create<GraphbookStore>((set, get) => ({
           pausable: false,
           params: {},
           progress: null,
+          group: (data.group as string) || null,
+          ui_hints: (data.ui_hints as Record<string, unknown>) || null,
         }
       }
       run.summary.node_count = Object.keys(run.graph.nodes).length
@@ -805,6 +818,8 @@ export const useStore = create<GraphbookStore>((set, get) => ({
                     pausable: isPausable,
                     params: {},
                     progress: null,
+                    group: (data.group as string) || null,
+                    ui_hints: (data.ui_hints as Record<string, unknown>) || null,
                   },
                 },
               }
