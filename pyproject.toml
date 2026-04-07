@@ -44,6 +44,3 @@ source = "vcs"
 
 [tool.hatch.build]
 exclude = ["nebo/server/static/.gitkeep"]
-
-[tool.hatch.build.force-include]
-"nebo/server/static" = "nebo/server/static"
