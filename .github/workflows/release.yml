@@ -14,6 +14,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history needed for hatch-vcs version inference
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -43,11 +45,6 @@ jobs:
         run: |
           rm -rf nebo/server/static/*
           cp -r ui/dist/* nebo/server/static/
-
-      - name: Set version from tag
-        run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          sed -i "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
 
       - name: Build Python package
         run: uv build

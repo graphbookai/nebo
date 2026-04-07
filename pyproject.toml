@@ -1,13 +1,14 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "nebo"
-version = "0.1.0"
-description = "Add your description here"
+dynamic = ["version"]
+description = "AI-native observability for Python pipelines and agentic workflows"
 readme = "README.md"
-requires-python = ">=3.10.15"
+license = "MIT"
+requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.100.0",
     "httpx>=0.24.0",
@@ -37,6 +38,9 @@ dev = [
 
 [project.scripts]
 nb = "nebo.cli:main"
+
+[tool.hatch.version]
+source = "vcs"
 
 [tool.hatch.build]
 exclude = ["nebo/server/static/.gitkeep"]
