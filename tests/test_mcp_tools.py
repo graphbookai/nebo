@@ -7,6 +7,28 @@ import pytest
 from nebo.core.state import SessionState
 
 
+class TestMCPToolNames:
+    """Tests for MCP tool naming convention."""
+
+    def test_all_tool_names_use_nebo_prefix(self) -> None:
+        """All MCP tools should use nebo_ prefix, not graphbook_."""
+        from nebo.mcp.server import MCP_TOOLS
+        for tool in MCP_TOOLS:
+            assert tool["name"].startswith("nebo_"), f"Tool {tool['name']} should start with nebo_"
+            assert "graphbook" not in tool["name"], f"Tool {tool['name']} still contains graphbook"
+
+    def test_dispatcher_handles_nebo_prefixed_tools(self) -> None:
+        """handle_tool_call should recognize nebo_ prefixed tool names."""
+        from nebo.mcp.server import handle_tool_call
+        import asyncio
+        # This should not return "Unknown tool" error
+        result = asyncio.get_event_loop().run_until_complete(
+            handle_tool_call("nebo_get_run_history", {}, "http://localhost:19999")
+        )
+        # It may fail to connect, but should not say "Unknown tool"
+        assert "Unknown tool" not in str(result.get("error", ""))
+
+
 class TestMCPObservationTools:
     """Tests for MCP observation tools against in-process state."""
 

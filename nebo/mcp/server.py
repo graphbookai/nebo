@@ -16,7 +16,7 @@ from nebo.mcp import tools
 MCP_TOOLS = [
     # ── Observation Tools ──
     {
-        "name": "graphbook_get_graph",
+        "name": "nebo_get_graph",
         "description": "Get the full DAG structure of the running pipeline. Returns nodes (with docstrings, source/non-source status, execution counts), edges, and workflow description.",
         "inputSchema": {
             "type": "object",
@@ -26,7 +26,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "graphbook_get_node_status",
+        "name": "nebo_get_node_status",
         "description": "Get detailed status for a specific node. Includes execution count, params, docstring, recent logs, errors.",
         "inputSchema": {
             "type": "object",
@@ -38,7 +38,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "graphbook_get_logs",
+        "name": "nebo_get_logs",
         "description": "Get recent log entries, optionally filtered by node and run.",
         "inputSchema": {
             "type": "object",
@@ -50,7 +50,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "graphbook_get_metrics",
+        "name": "nebo_get_metrics",
         "description": "Get metric time series for a node.",
         "inputSchema": {
             "type": "object",
@@ -62,7 +62,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "graphbook_get_errors",
+        "name": "nebo_get_errors",
         "description": "Get all errors with full tracebacks, node context, and param values.",
         "inputSchema": {
             "type": "object",
@@ -72,13 +72,13 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "graphbook_get_description",
+        "name": "nebo_get_description",
         "description": "Get workflow-level description and all node docstrings.",
         "inputSchema": {"type": "object", "properties": {}},
     },
     # ── Action Tools ──
     {
-        "name": "graphbook_run_pipeline",
+        "name": "nebo_run_pipeline",
         "description": "Start a pipeline script. Returns a run_id for tracking.",
         "inputSchema": {
             "type": "object",
@@ -91,7 +91,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "graphbook_stop_pipeline",
+        "name": "nebo_stop_pipeline",
         "description": "Stop a running pipeline by run ID.",
         "inputSchema": {
             "type": "object",
@@ -102,7 +102,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "graphbook_restart_pipeline",
+        "name": "nebo_restart_pipeline",
         "description": "Stop and re-run a pipeline with the same script and args.",
         "inputSchema": {
             "type": "object",
@@ -113,7 +113,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "graphbook_get_run_status",
+        "name": "nebo_get_run_status",
         "description": "Get the status of a run: running, completed, crashed, stopped. Includes exit code, duration, error summary.",
         "inputSchema": {
             "type": "object",
@@ -124,12 +124,12 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "graphbook_get_run_history",
+        "name": "nebo_get_run_history",
         "description": "List all runs with outcomes, timestamps, and error counts.",
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
-        "name": "graphbook_get_source_code",
+        "name": "nebo_get_source_code",
         "description": "Read the pipeline source file.",
         "inputSchema": {
             "type": "object",
@@ -140,7 +140,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "graphbook_write_source_code",
+        "name": "nebo_write_source_code",
         "description": "Write or patch a pipeline source file. Provide either full content or patches.",
         "inputSchema": {
             "type": "object",
@@ -163,7 +163,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "graphbook_wait_for_event",
+        "name": "nebo_wait_for_event",
         "description": "Block until a pipeline event occurs or timeout. Returns event details on match, or timeout status.",
         "inputSchema": {
             "type": "object",
@@ -179,7 +179,7 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "graphbook_ask_user",
+        "name": "nebo_ask_user",
         "description": "Send a question to the user via the terminal dashboard.",
         "inputSchema": {
             "type": "object",
@@ -197,22 +197,22 @@ async def handle_tool_call(name: str, arguments: dict[str, Any], server_url: str
     """Dispatch an MCP tool call to the appropriate handler."""
     handlers = {
         # Observation
-        "graphbook_get_graph": lambda a: tools.get_graph(a.get("run_id"), server_url),
-        "graphbook_get_node_status": lambda a: tools.get_node_status(a["name"], a.get("run_id"), server_url),
-        "graphbook_get_logs": lambda a: tools.get_logs(a.get("node"), a.get("run_id"), a.get("limit", 100), server_url),
-        "graphbook_get_metrics": lambda a: tools.get_metrics(a["node"], a.get("name"), server_url),
-        "graphbook_get_errors": lambda a: tools.get_errors(a.get("run_id"), server_url),
-        "graphbook_get_description": lambda a: tools.get_description(server_url),
+        "nebo_get_graph": lambda a: tools.get_graph(a.get("run_id"), server_url),
+        "nebo_get_node_status": lambda a: tools.get_node_status(a["name"], a.get("run_id"), server_url),
+        "nebo_get_logs": lambda a: tools.get_logs(a.get("node"), a.get("run_id"), a.get("limit", 100), server_url),
+        "nebo_get_metrics": lambda a: tools.get_metrics(a["node"], a.get("name"), server_url),
+        "nebo_get_errors": lambda a: tools.get_errors(a.get("run_id"), server_url),
+        "nebo_get_description": lambda a: tools.get_description(server_url),
         # Action
-        "graphbook_run_pipeline": lambda a: tools.run_pipeline(a["script_path"], a.get("args"), a.get("name"), server_url),
-        "graphbook_stop_pipeline": lambda a: tools.stop_pipeline(a["run_id"], server_url),
-        "graphbook_restart_pipeline": lambda a: tools.restart_pipeline(a["run_id"], server_url),
-        "graphbook_get_run_status": lambda a: tools.get_run_status(a["run_id"], server_url),
-        "graphbook_get_run_history": lambda a: tools.get_run_history(server_url),
-        "graphbook_get_source_code": lambda a: tools.get_source_code(a["file_path"], server_url),
-        "graphbook_write_source_code": lambda a: tools.write_source_code(a["file_path"], a.get("content"), a.get("patches"), server_url),
-        "graphbook_wait_for_event": lambda a: tools.wait_for_event(a.get("timeout", 300), a.get("events"), a.get("run_id"), server_url),
-        "graphbook_ask_user": lambda a: tools.ask_user(a["question"], a.get("options"), server_url),
+        "nebo_run_pipeline": lambda a: tools.run_pipeline(a["script_path"], a.get("args"), a.get("name"), server_url),
+        "nebo_stop_pipeline": lambda a: tools.stop_pipeline(a["run_id"], server_url),
+        "nebo_restart_pipeline": lambda a: tools.restart_pipeline(a["run_id"], server_url),
+        "nebo_get_run_status": lambda a: tools.get_run_status(a["run_id"], server_url),
+        "nebo_get_run_history": lambda a: tools.get_run_history(server_url),
+        "nebo_get_source_code": lambda a: tools.get_source_code(a["file_path"], server_url),
+        "nebo_write_source_code": lambda a: tools.write_source_code(a["file_path"], a.get("content"), a.get("patches"), server_url),
+        "nebo_wait_for_event": lambda a: tools.wait_for_event(a.get("timeout", 300), a.get("events"), a.get("run_id"), server_url),
+        "nebo_ask_user": lambda a: tools.ask_user(a["question"], a.get("options"), server_url),
     }
     handler = handlers.get(name)
     if handler is None:
