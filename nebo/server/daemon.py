@@ -440,6 +440,18 @@ class DaemonState:
             script_path = data.get("script_path", "")
             if script_path:
                 run.script_path = script_path
+            # Enable storage if SDK requests it and daemon allows it
+            store = data.get("store", True)
+            if store and not os.environ.get("NEBO_NO_STORE") and not getattr(run, "_file_writer", None):
+                from nebo.core.fileformat import NeboFileWriter
+                self.init_storage()
+                timestamp = time.strftime("%Y-%m-%d_%H%M%S")
+                filepath = os.path.join(NEBO_STORAGE_DIR, f"{timestamp}_{run.id}.nebo")
+                run._file_stream = open(filepath, "wb")
+                run._file_writer = NeboFileWriter(
+                    run._file_stream, run_id=run.id, script_path=script_path, args=run.args,
+                )
+                run._file_writer.write_header()
 
         elif etype == "run_completed":
             data = event.get("data", {})
@@ -560,10 +572,11 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         script_path = body.get("script_path", "")
         args = body.get("args", [])
         run_id = body.get("run_id") or f"run_{int(time.time())}_{len(state.runs)}"
+        store = not os.environ.get("NEBO_NO_STORE")
         if not script_path:
             return JSONResponse(status_code=400, content={"error": "script_path is required"})
         try:
-            run = state.create_run(script_path, args, run_id)
+            run = state.create_run(script_path, args, run_id, store=store)
             proc = runner.start(
                 run_id=run_id,
                 script_path=script_path,
@@ -894,6 +907,43 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
             "exec_count": n.exec_count, "is_source": n.is_source, "params": n.params,
             "recent_logs": n.logs[-20:], "errors": n.errors,
         }
+
+    @app.post("/load")
+    async def load_file(body: dict[str, Any]):
+        """Load a .nebo file into the daemon for viewing and Q&A."""
+        filepath = body.get("filepath", "")
+        if not filepath or not os.path.exists(filepath):
+            return JSONResponse(status_code=404, content={"error": f"File not found: {filepath}"})
+        try:
+            await state.load_nebo_file(filepath)
+            return {"status": "loaded", "filepath": filepath}
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)})
+
+    @app.post("/chat")
+    async def chat(body: dict[str, Any]):
+        """Q&A via Claude Code CLI with streaming response."""
+        import json as _json
+        from starlette.responses import StreamingResponse
+
+        question = body.get("question", "")
+        run_id = body.get("run_id") or state.active_run_id
+
+        if not run_id:
+            return JSONResponse(status_code=400, content={"error": "No run specified"})
+        if not question:
+            return JSONResponse(status_code=400, content={"error": "No question provided"})
+
+        from nebo.server.chat import stream_chat_response
+
+        server_url = f"http://localhost:{port}"
+
+        async def generate():
+            async for chunk in stream_chat_response(question, run_id, server_url):
+                yield f"data: {_json.dumps({'text': chunk})}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(generate(), media_type="text/event-stream")
 
     @app.websocket("/stream")
     async def websocket_endpoint(ws: WebSocket):

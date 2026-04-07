@@ -72,6 +72,9 @@ def cmd_serve(args: argparse.Namespace) -> None:
         print(f"Nebo daemon is already running on {host}:{port}")
         return
 
+    if getattr(args, "no_store", False):
+        os.environ["NEBO_NO_STORE"] = "1"
+
     if args.daemon:
         # Background mode
         cmd = [
@@ -84,6 +87,8 @@ def cmd_serve(args: argparse.Namespace) -> None:
         ]
         env = os.environ.copy()
         env["NEBO_DAEMON_PORT"] = str(port)
+        if getattr(args, "no_store", False):
+            env["NEBO_NO_STORE"] = "1"
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,

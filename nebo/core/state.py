@@ -278,6 +278,7 @@ class SessionState:
                     "group": n.group,
                 }
                 for nid, n in self.nodes.items()
+                if n.materialized
             },
             "edges": [{"source": e.source, "target": e.target} for e in self.edges],
             "workflow_description": self.workflow_description,
