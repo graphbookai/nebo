@@ -190,6 +190,38 @@ MCP_TOOLS = [
             "required": ["question"],
         },
     },
+    {
+        "name": "nebo_load_file",
+        "description": "Load a .nebo log file into the daemon for viewing and Q&A. The file will appear as a historical run.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "filepath": {
+                    "type": "string",
+                    "description": "Absolute path to the .nebo file",
+                },
+            },
+            "required": ["filepath"],
+        },
+    },
+    {
+        "name": "nebo_chat",
+        "description": "Ask a question about a run. Uses the run's logs, metrics, graph, and errors to generate an answer.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": "The question to ask about the run",
+                },
+                "run_id": {
+                    "type": "string",
+                    "description": "The run ID to query. If omitted, uses the active run.",
+                },
+            },
+            "required": ["question"],
+        },
+    },
 ]
 
 
@@ -213,6 +245,8 @@ async def handle_tool_call(name: str, arguments: dict[str, Any], server_url: str
         "nebo_write_source_code": lambda a: tools.write_source_code(a["file_path"], a.get("content"), a.get("patches"), server_url),
         "nebo_wait_for_event": lambda a: tools.wait_for_event(a.get("timeout", 300), a.get("events"), a.get("run_id"), server_url),
         "nebo_ask_user": lambda a: tools.ask_user(a["question"], a.get("options"), server_url),
+        "nebo_load_file": lambda a: tools.load_file(a["filepath"], server_url),
+        "nebo_chat": lambda a: tools.chat(a["question"], a.get("run_id"), server_url),
     }
     handler = handlers.get(name)
     if handler is None:

@@ -129,6 +129,44 @@ class TestMCPActionTools:
         assert "error" in result
 
 
+class TestMCPNewTools:
+    """Tests for new MCP tools: nebo_load_file and nebo_chat."""
+
+    def test_load_file_tool_exists(self) -> None:
+        """nebo_load_file should be in MCP_TOOLS."""
+        from nebo.mcp.server import MCP_TOOLS
+        names = [t["name"] for t in MCP_TOOLS]
+        assert "nebo_load_file" in names
+
+    def test_chat_tool_exists(self) -> None:
+        """nebo_chat should be in MCP_TOOLS."""
+        from nebo.mcp.server import MCP_TOOLS
+        names = [t["name"] for t in MCP_TOOLS]
+        assert "nebo_chat" in names
+
+    @pytest.mark.asyncio
+    async def test_handle_load_file_tool(self) -> None:
+        """nebo_load_file should handle nonexistent files gracefully."""
+        from nebo.mcp.server import handle_tool_call
+        result = await handle_tool_call(
+            "nebo_load_file",
+            {"filepath": "/nonexistent/file.nebo"},
+            "http://localhost:19999",
+        )
+        assert "error" in result or "status" in result
+
+    @pytest.mark.asyncio
+    async def test_handle_chat_tool(self) -> None:
+        """nebo_chat should handle missing daemon gracefully."""
+        from nebo.mcp.server import handle_tool_call
+        result = await handle_tool_call(
+            "nebo_chat",
+            {"question": "What happened?"},
+            "http://localhost:19999",
+        )
+        assert "error" in result or "answer" in result
+
+
 class TestMCPDispatcher:
     """Tests for the MCP tool dispatcher."""
 
