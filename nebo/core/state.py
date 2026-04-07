@@ -39,6 +39,9 @@ class NodeInfo:
     images: list = field(default_factory=list)
     audio: list = field(default_factory=list)
     progress: Optional[dict] = None  # {current, total, name}
+    materialized: bool = False
+    group: Optional[str] = None  # Class name if method is in a decorated class
+    ui_hints: Optional[dict] = None  # Per-node UI display hints
 
 
 @dataclass
@@ -88,6 +91,7 @@ class SessionState:
         self._pause_event = threading.Event()
         self._pause_event.set()  # starts unpaused
         self._has_pausable = False
+        self.ui_config: Optional[dict] = None  # Run-level UI defaults
 
     def ensure_display(self) -> None:
         """Ensure the terminal display is created and started."""
@@ -111,9 +115,14 @@ class SessionState:
         func_name: str,
         docstring: Optional[str] = None,
         pausable: bool = False,
+        group: Optional[str] = None,
+        ui_hints: Optional[dict] = None,
     ) -> NodeInfo:
-        """Register a new node or return existing one."""
-        created = False
+        """Register a new node locally but do NOT send node_register event.
+
+        The node stays unmaterialized until ensure_node() is called
+        (triggered by the first log/metric/image/audio/text call).
+        """
         with self._lock_state:
             if node_id not in self.nodes:
                 self.nodes[node_id] = NodeInfo(
@@ -121,22 +130,33 @@ class SessionState:
                     func_name=func_name,
                     docstring=docstring,
                     pausable=pausable,
+                    group=group,
+                    ui_hints=ui_hints,
                 )
                 if pausable:
                     self._has_pausable = True
-                created = True
-        if created:
-            self._send_to_client({
-                "type": "node_register",
-                "node": node_id,
-                "data": {
-                    "node_id": node_id,
-                    "func_name": func_name,
-                    "docstring": docstring,
-                    "pausable": pausable,
-                },
-            })
+            elif group is not None and self.nodes[node_id].group is None:
+                self.nodes[node_id].group = group
         return self.nodes[node_id]
+
+    def ensure_node(self, node_id: str) -> None:
+        """Materialize a node on first log call. Sends node_register event."""
+        node = self.nodes.get(node_id)
+        if node is None or node.materialized:
+            return
+        node.materialized = True
+        self._send_to_client({
+            "type": "node_register",
+            "node": node_id,
+            "data": {
+                "node_id": node_id,
+                "func_name": node.func_name,
+                "docstring": node.docstring,
+                "pausable": node.pausable,
+                "group": node.group,
+                "ui_hints": node.ui_hints,
+            },
+        })
 
     def wait_if_paused(self) -> None:
         """Block until unpaused. Used by pausable @fn nodes.
@@ -255,6 +275,7 @@ class SessionState:
                     "is_source": n.is_source,
                     "params": n.params,
                     "progress": n.progress,
+                    "group": n.group,
                 }
                 for nid, n in self.nodes.items()
             },
@@ -279,6 +300,7 @@ class SessionState:
             self._mode = "local"
             self._pause_event.set()
             self._has_pausable = False
+            self.ui_config = None
 
     @classmethod
     def reset_singleton(cls) -> None:
@@ -292,6 +314,9 @@ class SessionState:
 
 # ContextVar for tracking current executing node
 _current_node: ContextVar[Optional[str]] = ContextVar("current_node", default=None)
+
+# ContextVar for tracking current class group context
+_current_group: ContextVar[Optional[str]] = ContextVar("current_group", default=None)
 
 
 def get_state() -> SessionState:

@@ -99,6 +99,9 @@ def log(message: Union[str, Any], *, step: Optional[int] = None) -> None:
     node_id = _current_node.get()
     timestamp = time.time()
 
+    if node_id:
+        state.ensure_node(node_id)
+
     entry = {
         "type": "log",
         "node": node_id,
@@ -137,6 +140,9 @@ def log_metric(name: str, value: float, step: Optional[int] = None) -> None:
     state = get_state()
     node_id = _current_node.get()
     timestamp = time.time()
+
+    if node_id:
+        state.ensure_node(node_id)
 
     if step is None:
         # Auto-increment step
@@ -192,6 +198,10 @@ def log_image(image: Any, *, name: Optional[str] = None, step: Optional[int] = N
     state = get_state()
     node_id = _current_node.get()
     timestamp = time.time()
+
+    if node_id:
+        state.ensure_node(node_id)
+
     image_bytes = serialize_image(image)
 
     entry = {
@@ -237,6 +247,10 @@ def log_audio(audio: Any, sr: int = 16000, *, name: Optional[str] = None, step: 
     state = get_state()
     node_id = _current_node.get()
     timestamp = time.time()
+
+    if node_id:
+        state.ensure_node(node_id)
+
     audio_bytes = serialize_audio(audio, sr)
 
     entry = {
@@ -278,6 +292,9 @@ def log_text(name: str, text: str) -> None:
     state = get_state()
     node_id = _current_node.get()
     timestamp = time.time()
+
+    if node_id:
+        state.ensure_node(node_id)
 
     entry = {
         "type": "text",

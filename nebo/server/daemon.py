@@ -22,6 +22,8 @@ from nebo.server.protocol import MessageType, decode_batch
 
 RunStatus = Literal["starting", "running", "completed", "crashed", "stopped"]
 
+NEBO_STORAGE_DIR = os.path.join(os.getcwd(), ".nebo")
+
 
 @dataclass
 class LogEntry:
@@ -90,6 +92,7 @@ class Run:
     workflow_description: Optional[str] = None
     config: dict = field(default_factory=dict)
     paused: bool = False
+    ui_config: Optional[dict] = None
     stdout_lines: list[str] = field(default_factory=list)
     stderr_lines: list[str] = field(default_factory=list)
     significant_events: list[dict] = field(default_factory=list)
@@ -147,11 +150,16 @@ class DaemonState:
         self._event_notify: asyncio.Condition = asyncio.Condition()
         self._media_store: dict[str, str] = {}  # media_id -> base64 data
 
+    def init_storage(self) -> None:
+        """Create the .nebo storage directory if it doesn't exist."""
+        os.makedirs(NEBO_STORAGE_DIR, exist_ok=True)
+
     def create_run(
         self,
         script_path: str,
         args: list[str] | None = None,
         run_id: str | None = None,
+        store: bool = False,
     ) -> Run:
         """Create a new run entry."""
         if run_id is None:
@@ -172,7 +180,54 @@ class DaemonState:
         )
         self.runs[run_id] = run
         self.active_run_id = run_id
+
+        if store:
+            from nebo.core.fileformat import NeboFileWriter
+            timestamp = time.strftime("%Y-%m-%d_%H%M%S")
+            filepath = os.path.join(NEBO_STORAGE_DIR, f"{timestamp}_{run_id}.nebo")
+            run._file_stream = open(filepath, "wb")
+            run._file_writer = NeboFileWriter(
+                run._file_stream, run_id=run_id, script_path=script_path, args=args or [],
+            )
+            run._file_writer.write_header()
+        else:
+            run._file_stream = None
+            run._file_writer = None
+
         return run
+
+    def finalize_run(self, run_id: str) -> None:
+        """Close the .nebo file for a run if storage was enabled."""
+        run = self.runs.get(run_id)
+        if run and getattr(run, "_file_stream", None):
+            run._file_writer.close()
+            run._file_stream.close()
+            run._file_stream = None
+            run._file_writer = None
+
+    async def load_nebo_file(self, filepath: str) -> None:
+        """Load a .nebo file and reconstruct a Run from it."""
+        from nebo.core.fileformat import NeboFileReader
+
+        with open(filepath, "rb") as f:
+            reader = NeboFileReader(f)
+            meta = reader.read_header()
+            run_id = meta["run_id"]
+
+            run = self.create_run(
+                meta["script_path"],
+                meta.get("args", []),
+                run_id,
+                store=False,
+            )
+            run.status = "completed"
+
+            events = list(reader.read_entries())
+            event_dicts = [
+                {"type": e["type"], **e["payload"]}
+                for e in events
+            ]
+            await self.ingest_events(event_dicts, run_id=run_id)
 
     def get_active_run(self) -> Optional[Run]:
         """Return the currently active run, if any."""
@@ -220,6 +275,12 @@ class DaemonState:
 
     def _process_event(self, run: Run, event: dict) -> None:
         """Process a single event into run state."""
+        # Write to .nebo file if storage is enabled
+        writer = getattr(run, "_file_writer", None)
+        if writer is not None:
+            entry_type = event.get("type", "log")
+            writer.write_entry(entry_type, dict(event))
+
         etype = event.get("type", "")
         node_id = event.get("node")
 
@@ -370,6 +431,9 @@ class DaemonState:
             run.config = cfg
             if node_id and node_id in run.nodes:
                 run.nodes[node_id].params.update(cfg)
+
+        elif etype == "ui_config":
+            run.ui_config = event.get("data", {})
 
         elif etype == "run_start":
             data = event.get("data", {})

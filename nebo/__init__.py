@@ -89,6 +89,7 @@ def init(
     terminal: bool = True,
     dag_strategy: Literal["object", "stack", "both", "none"] = "object",
     flush_interval: float = 0.1,
+    store: bool = True,
     _internal: bool = False,
 ) -> None:
     """Initialize nebo.
@@ -110,6 +111,7 @@ def init(
             fallback. 'stack' uses caller-to-callee edges only. 'both'
             is the union of object and stack edges.
         flush_interval: Seconds between event flushes (default 0.1).
+        store: Whether to persist events to .nebo files (default True).
     """
     global _auto_init_done
 
@@ -182,7 +184,7 @@ def init(
     if state._client is not None and script_name:
         state._send_to_client({
             "type": "run_start",
-            "data": {"script_path": script_name},
+            "data": {"script_path": script_name, "store": store},
         })
 
     state._mode = resolved_mode
@@ -277,6 +279,46 @@ def ask(
             display.resume()
 
 
+def ui(
+    layout: Optional[Literal["horizontal", "vertical"]] = None,
+    view: Optional[Literal["dag", "grid"]] = None,
+    collapsed: Optional[bool] = None,
+    minimap: Optional[bool] = None,
+    theme: Optional[Literal["dark", "light"]] = None,
+) -> None:
+    """Set run-level UI defaults.
+
+    These are sent to the daemon and UI as defaults.
+    The user can still override them in the UI.
+
+    Args:
+        layout: DAG layout direction ("horizontal" or "vertical").
+        view: Default view mode ("dag" or "grid").
+        collapsed: Default node collapse state.
+        minimap: Show minimap.
+        theme: Color theme ("dark" or "light").
+    """
+    _ensure_init()
+    state = get_state()
+    config: dict[str, Any] = {}
+    if layout is not None:
+        config["layout"] = layout
+    if view is not None:
+        config["view"] = view
+    if collapsed is not None:
+        config["collapsed"] = collapsed
+    if minimap is not None:
+        config["minimap"] = minimap
+    if theme is not None:
+        config["theme"] = theme
+
+    state.ui_config = config
+    state._send_to_client({
+        "type": "ui_config",
+        "data": config,
+    })
+
+
 __all__ = [
     "fn",
     "track",
@@ -289,6 +331,7 @@ __all__ = [
     "log_text",
     "md",
     "ask",
+    "ui",
     "get_state",
     "LoggingBackend",
 ]

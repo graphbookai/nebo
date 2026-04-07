@@ -327,6 +327,29 @@ def cmd_mcp(args: argparse.Namespace) -> None:
     print(json.dumps(config, indent=2))
 
 
+def cmd_load(args: argparse.Namespace) -> None:
+    """Load a .nebo file into the daemon."""
+    import httpx
+
+    port = args.port
+    filepath = os.path.abspath(args.file)
+    if not os.path.exists(filepath):
+        print(f"Error: File not found: {filepath}")
+        sys.exit(1)
+
+    if not _is_alive(port):
+        print(f"Nebo daemon is not running on port {port}.")
+        sys.exit(1)
+
+    url = f"http://localhost:{port}/load"
+    resp = httpx.post(url, json={"filepath": filepath}, timeout=10.0)
+    data = resp.json()
+    if "error" in data:
+        print(f"Error: {data['error']}")
+        sys.exit(1)
+    print(f"Loaded: {filepath}")
+
+
 def cmd_mcp_stdio(args: argparse.Namespace) -> None:
     """Run the MCP stdio transport (bridges stdio <-> daemon HTTP)."""
     from nebo.mcp.stdio import run_stdio_bridge
@@ -347,6 +370,7 @@ def main() -> None:
     p_serve.add_argument("--host", default="localhost", help="Host to bind (default: localhost)")
     p_serve.add_argument("--port", type=int, default=2048, help="Port (default: 2048)")
     p_serve.add_argument("--daemon", "-d", action="store_true", help="Run in background")
+    p_serve.add_argument("--no-store", action="store_true", help="Disable .nebo file storage")
 
     # run
     p_run = subparsers.add_parser("run", help="Run a pipeline managed by the daemon")
@@ -376,6 +400,11 @@ def main() -> None:
     p_errors.add_argument("--run", help="Run ID")
     p_errors.add_argument("--port", type=int, default=2048)
 
+    # load
+    p_load = subparsers.add_parser("load", help="Load a .nebo file into the daemon")
+    p_load.add_argument("file", help="Path to .nebo file")
+    p_load.add_argument("--port", type=int, default=2048)
+
     # mcp
     p_mcp = subparsers.add_parser("mcp", help="Print MCP config for Claude Code")
 
@@ -392,6 +421,7 @@ def main() -> None:
         "stop": cmd_stop,
         "logs": cmd_logs,
         "errors": cmd_errors,
+        "load": cmd_load,
         "mcp": cmd_mcp,
         "mcp-stdio": cmd_mcp_stdio,
     }

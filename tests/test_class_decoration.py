@@ -1,0 +1,166 @@
+"""Tests for class decoration with @nb.fn()."""
+
+import warnings
+import pytest
+from nebo.core.state import SessionState
+
+
+@pytest.fixture
+def reset_state():
+    SessionState.reset_singleton()
+    import nebo as nb
+    nb._auto_init_done = False
+    nb.init(mode="local")
+    yield
+    SessionState.reset_singleton()
+
+
+def test_class_decoration_wraps_methods(reset_state):
+    """Decorating a class wraps all methods with scope tracking."""
+    import nebo as nb
+    from nebo.core.state import get_state
+
+    @nb.fn()
+    class MyProcessor:
+        def process(self):
+            nb.log("processing")
+
+        def finalize(self):
+            nb.log("finalizing")
+
+    p = MyProcessor()
+    p.process()
+    p.finalize()
+
+    state = get_state()
+    assert "MyProcessor.process" in state.nodes
+    assert "MyProcessor.finalize" in state.nodes
+    assert state.nodes["MyProcessor.process"].materialized
+    assert state.nodes["MyProcessor.finalize"].materialized
+
+
+def test_class_group_field(reset_state):
+    """Methods in a decorated class have the group field set."""
+    import nebo as nb
+    from nebo.core.state import get_state
+
+    @nb.fn()
+    class MyAgent:
+        def think(self):
+            nb.log("thinking")
+
+    agent = MyAgent()
+    agent.think()
+
+    state = get_state()
+    node = state.nodes["MyAgent.think"]
+    assert node.group == "MyAgent"
+
+
+def test_no_log_no_node_in_class(reset_state):
+    """Methods that don't call log functions don't materialize."""
+    import nebo as nb
+    from nebo.core.state import get_state
+
+    @nb.fn()
+    class MyClass:
+        def logs(self):
+            nb.log("visible")
+
+        def silent(self):
+            return 42
+
+    obj = MyClass()
+    obj.logs()
+    obj.silent()
+
+    state = get_state()
+    assert state.nodes["MyClass.logs"].materialized
+    node = state.nodes.get("MyClass.silent")
+    assert node is None or not node.materialized
+
+
+def test_redundant_decorator_warning(reset_state):
+    """@nb.fn() on a method inside a decorated class issues a warning."""
+    import nebo as nb
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+
+        @nb.fn()
+        class MyClass:
+            @nb.fn()
+            def my_method(self):
+                nb.log("hello")
+
+        assert len(w) == 1
+        assert "redundant" in str(w[0].message).lower()
+
+
+def test_decorated_method_in_undecorated_class(reset_state):
+    """@nb.fn() on a method in an undecorated class is a standalone node."""
+    import nebo as nb
+    from nebo.core.state import get_state
+
+    class MyClass:
+        @nb.fn()
+        def my_method(self):
+            nb.log("standalone")
+
+    obj = MyClass()
+    obj.my_method()
+
+    state = get_state()
+    node_id = next(nid for nid in state.nodes if "my_method" in nid)
+    assert state.nodes[node_id].materialized
+    assert state.nodes[node_id].group is None
+
+
+def test_called_fn_inside_class_group(reset_state):
+    """A standalone @nb.fn() function called from a decorated class
+    appears inside the class group."""
+    import nebo as nb
+    from nebo.core.state import get_state
+
+    @nb.fn()
+    def helper():
+        nb.log("helping")
+
+    @nb.fn()
+    class MyClass:
+        def run(self):
+            nb.log("running")
+            helper()
+
+    obj = MyClass()
+    obj.run()
+
+    state = get_state()
+    # helper was called within MyClass context, so it should be in the group
+    node_id = next(nid for nid in state.nodes if "helper" in nid)
+    assert state.nodes[node_id].group == "MyClass"
+
+
+def test_dunder_methods_are_wrapped(reset_state):
+    """Dunder methods (__init__, __call__, etc.) should be wrapped with scope tracking."""
+    import nebo as nb
+    from nebo.core.state import get_state
+
+    @nb.fn()
+    class MyCallable:
+        def __init__(self):
+            nb.log("initializing")
+
+        def __call__(self, x):
+            nb.log(f"called with {x}")
+            return x * 2
+
+    obj = MyCallable()
+    result = obj(5)
+
+    state = get_state()
+    assert "MyCallable.__init__" in state.nodes
+    assert state.nodes["MyCallable.__init__"].materialized
+    assert "MyCallable.__call__" in state.nodes
+    assert state.nodes["MyCallable.__call__"].materialized
+    assert result == 10

@@ -732,3 +732,62 @@ class TestDAGStrategy:
         assert state.dag_strategy == "stack"
         state.reset()
         assert state.dag_strategy == "object"
+
+
+class TestLazyMaterialization:
+    """Tests for lazy node materialization."""
+
+    def setup_method(self) -> None:
+        _reset_gb()
+
+    def test_node_not_materialized_without_log(self) -> None:
+        """A decorated function that never logs should not appear as materialized."""
+
+        @fn()
+        def silent_function(x):
+            return x + 1
+
+        result = silent_function(5)
+        state = get_state()
+        # Node exists in metadata but is not materialized
+        node_id = next((nid for nid in state.nodes if "silent_function" in nid), None)
+        assert node_id is not None, "Node should be registered"
+        assert state.nodes[node_id].materialized is False
+        assert result == 6
+
+    def test_node_materializes_on_first_log(self) -> None:
+        """A decorated function should materialize when it first calls nb.log()."""
+        from nebo.logging.logger import log
+
+        @fn()
+        def logging_function():
+            log("hello")
+
+        logging_function()
+        state = get_state()
+        node_id = next((nid for nid in state.nodes if "logging_function" in nid), None)
+        assert node_id is not None
+        assert state.nodes[node_id].materialized is True
+
+    def test_node_materializes_on_log_metric(self) -> None:
+        """Node should materialize on log_metric() call."""
+        from nebo.logging.logger import log_metric
+
+        @fn()
+        def metric_function():
+            log_metric("loss", 0.5)
+
+        metric_function()
+        state = get_state()
+        node_id = next((nid for nid in state.nodes if "metric_function" in nid), None)
+        assert node_id is not None
+        assert state.nodes[node_id].materialized is True
+
+    def test_silent_node_preserves_return_value(self) -> None:
+        """A non-materialized node should still return values correctly."""
+
+        @fn()
+        def compute(x, y):
+            return x * y
+
+        assert compute(3, 7) == 21
