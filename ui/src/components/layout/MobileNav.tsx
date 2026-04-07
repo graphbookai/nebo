@@ -43,7 +43,7 @@ export function MobileNav() {
 
   return (
     <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-background">
-      <h1 className="text-lg font-semibold">Graphbook</h1>
+      <h1 className="text-lg font-semibold">Nebo</h1>
       <div className="flex items-center gap-1">
         {connected ? (
           <Wifi className="h-4 w-4 text-green-500" />

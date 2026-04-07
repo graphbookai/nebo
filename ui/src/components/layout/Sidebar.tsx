@@ -10,7 +10,7 @@ export function Sidebar() {
     <div className="flex flex-col h-full bg-sidebar border-r border-sidebar-border">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-sidebar-border">
-        <h1 className="text-lg font-semibold text-sidebar-foreground">Graphbook</h1>
+        <h1 className="text-lg font-semibold text-sidebar-foreground">Nebo</h1>
         <div className="flex items-center gap-1">
           {connected ? (
             <Wifi className="h-4 w-4 text-green-500" />

@@ -28,7 +28,7 @@ export default function App() {
       )}
       {!connected && !reconnecting && (
         <div className="bg-muted border-b border-border px-4 py-1.5 text-xs text-muted-foreground text-center shrink-0">
-          Not connected to daemon. Start one with <code className="bg-background px-1 py-0.5 rounded">nebo serve</code>
+          Not connected to daemon. Start one with <code className="bg-background px-1 py-0.5 rounded">nb serve</code>
         </div>
       )}
 
