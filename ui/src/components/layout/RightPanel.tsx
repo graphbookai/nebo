@@ -1,6 +1,7 @@
 import { memo } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { TraceTab } from '@/components/trace/TraceTab'
+import { ChatTab } from '@/components/chat/ChatTab'
 import { useStore } from '@/store'
 
 export const RightPanel = memo(function RightPanel({ runId }: { runId: string }) {
@@ -18,7 +19,7 @@ export const RightPanel = memo(function RightPanel({ runId }: { runId: string })
           <TraceTab runId={runId} />
         </TabsContent>
         <TabsContent value="chat" className="flex-1 mt-0 overflow-hidden">
-          <div className="p-4 text-sm text-muted-foreground">Chat coming soon</div>
+          <ChatTab runId={runId} />
         </TabsContent>
       </Tabs>
     </div>

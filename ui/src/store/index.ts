@@ -109,6 +109,12 @@ export interface ComparisonGroup {
   createdAt: Date
 }
 
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: number
+}
+
 export interface RunState {
   summary: RunSummary
   graph: GraphData | null
@@ -119,6 +125,7 @@ export interface RunState {
   nodeAudio: Record<string, AudioEntry[]>
   inspections: Record<string, Record<string, unknown>>
   pendingAsks: Map<string, AskPrompt>
+  chatMessages: ChatMessage[]
   paused: boolean
   loaded: boolean
 }
@@ -228,6 +235,9 @@ interface GraphbookStore {
 
   updateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void
 
+  // Chat
+  sendChatMessage: (runId: string, question: string) => Promise<void>
+
   processWsEvents: (runId: string, events: WsEvent[]) => void
 }
 
@@ -256,6 +266,7 @@ function ensureRun(state: GraphbookStore, runId: string): RunState {
       nodeAudio: {},
       inspections: {},
       pendingAsks: new Map(),
+      chatMessages: [],
       paused: false,
       loaded: false,
     }
@@ -395,6 +406,7 @@ export const useStore = create<GraphbookStore>((set, get) => ({
           nodeAudio: {},
           inspections: {},
           pendingAsks: new Map(),
+          chatMessages: [],
           paused: false,
           loaded: false,
         })
@@ -702,6 +714,76 @@ export const useStore = create<GraphbookStore>((set, get) => ({
     return { settings: next }
   }),
 
+  sendChatMessage: async (runId, question) => {
+    set(state => {
+      const runs = new Map(state.runs)
+      const run = runs.get(runId)
+      if (run) {
+        run.chatMessages = [...run.chatMessages, {
+          role: 'user' as const,
+          content: question,
+          timestamp: Date.now() / 1000,
+        }]
+      }
+      return { runs }
+    })
+
+    try {
+      const response = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question, run_id: runId }),
+      })
+
+      const reader = response.body?.getReader()
+      const decoder = new TextDecoder()
+      let fullResponse = ''
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          const text = decoder.decode(value)
+          const lines = text.split('\n')
+          for (const line of lines) {
+            if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+              try {
+                const data = JSON.parse(line.slice(6))
+                fullResponse += data.text
+              } catch { /* skip malformed lines */ }
+            }
+          }
+        }
+      }
+
+      set(state => {
+        const runs = new Map(state.runs)
+        const run = runs.get(runId)
+        if (run) {
+          run.chatMessages = [...run.chatMessages, {
+            role: 'assistant' as const,
+            content: fullResponse || 'No response received.',
+            timestamp: Date.now() / 1000,
+          }]
+        }
+        return { runs }
+      })
+    } catch (err) {
+      set(state => {
+        const runs = new Map(state.runs)
+        const run = runs.get(runId)
+        if (run) {
+          run.chatMessages = [...run.chatMessages, {
+            role: 'assistant' as const,
+            content: `Error: ${err instanceof Error ? err.message : 'Failed to get response'}`,
+            timestamp: Date.now() / 1000,
+          }]
+        }
+        return { runs }
+      })
+    }
+  },
+
   processWsEvents: (runId, events) => {
     // Single batched set() — avoids N re-renders per WS batch
     set(state => {
@@ -732,12 +814,13 @@ export const useStore = create<GraphbookStore>((set, get) => ({
           nodeAudio: {},
           inspections: {},
           pendingAsks: new Map(),
+          chatMessages: [],
           paused: false,
           loaded: false,
         }
       }
       // Clone run so selectors see a new reference
-      run = { ...run }
+      run = { ...run } as RunState
       runs.set(runId, run)
 
       // Accumulate new logs/errors/collapsed so we can spread once at the end
