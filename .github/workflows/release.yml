@@ -46,6 +46,9 @@ jobs:
           rm -rf nebo/server/static/*
           cp -r ui/dist/* nebo/server/static/
 
+      - name: Set version from tag
+        run: echo "SETUPTOOLS_SCM_PRETEND_VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+
       - name: Build Python package
         run: uv build
 
