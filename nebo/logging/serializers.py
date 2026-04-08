@@ -16,34 +16,42 @@ def serialize_image(image: Any) -> bytes:
 
     Returns:
         PNG-encoded bytes.
+
+    Raises:
+        TypeError: If *image* is not a supported type.
+        Any exception raised by the underlying conversion (e.g. a
+        broken numpy array, bad PIL dtype) is propagated unmodified
+        rather than being silently remapped to "unsupported type".
     """
     # PIL Image
     try:
-        from PIL import Image
-        if isinstance(image, Image.Image):
-            buf = io.BytesIO()
-            image.save(buf, format="PNG")
-            return buf.getvalue()
+        from PIL import Image as _PILImage
     except ImportError:
-        pass
+        _PILImage = None
+
+    if _PILImage is not None and isinstance(image, _PILImage.Image):
+        buf = io.BytesIO()
+        image.save(buf, format="PNG")
+        return buf.getvalue()
 
     # Torch tensor
     try:
         import torch
-        if isinstance(image, torch.Tensor):
-            import numpy as np
-            arr = image.detach().cpu().numpy()
-            return _numpy_to_png(arr)
     except ImportError:
-        pass
+        torch = None
+
+    if torch is not None and isinstance(image, torch.Tensor):
+        arr = image.detach().cpu().numpy()
+        return _numpy_to_png(arr)
 
     # Numpy array
     try:
         import numpy as np
-        if isinstance(image, np.ndarray):
-            return _numpy_to_png(image)
     except ImportError:
-        pass
+        np = None
+
+    if np is not None and isinstance(image, np.ndarray):
+        return _numpy_to_png(image)
 
     raise TypeError(f"Cannot serialize image of type {type(image).__name__}")
 

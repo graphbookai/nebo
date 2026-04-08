@@ -169,3 +169,60 @@ class TestLogCfg:
         node = next(n for n in state.nodes.values() if n.func_name == "train")
         assert "lr" in node.params
         assert "callback" not in node.params
+
+
+class TestImageSerializer:
+    """Tests for image serialization via nb.log_image."""
+
+    def setup_method(self) -> None:
+        SessionState.reset_singleton()
+
+    def test_serialize_numpy_array_uint8_hwc(self) -> None:
+        """serialize_image should accept a (H, W, 3) uint8 numpy array and return PNG bytes."""
+        import numpy as np
+        from nebo.logging.serializers import serialize_image
+
+        arr = np.zeros((10, 10, 3), dtype=np.uint8)
+        png = serialize_image(arr)
+        assert isinstance(png, bytes)
+        assert png[:8] == b"\x89PNG\r\n\x1a\n"
+
+    def test_serialize_numpy_grayscale(self) -> None:
+        """serialize_image should accept a (H, W) grayscale numpy array."""
+        import numpy as np
+        from nebo.logging.serializers import serialize_image
+
+        arr = np.zeros((8, 8), dtype=np.uint8)
+        png = serialize_image(arr)
+        assert png[:8] == b"\x89PNG\r\n\x1a\n"
+
+    def test_serialize_pil_image(self) -> None:
+        """serialize_image should accept a PIL.Image directly."""
+        from PIL import Image
+        from nebo.logging.serializers import serialize_image
+
+        img = Image.new("RGB", (4, 4), color=(10, 20, 30))
+        png = serialize_image(img)
+        assert png[:8] == b"\x89PNG\r\n\x1a\n"
+
+    def test_serialize_unsupported_type_raises_typeerror(self) -> None:
+        """serialize_image should raise TypeError for unsupported types, not ImportError."""
+        from nebo.logging.serializers import serialize_image
+
+        with pytest.raises(TypeError, match="Cannot serialize"):
+            serialize_image("not an image")
+
+    def test_log_image_numpy_end_to_end(self) -> None:
+        """nb.log_image(numpy_array) should attach an image to the current node."""
+        import numpy as np
+        from nebo.logging.logger import log_image
+
+        @fn()
+        def f():
+            log_image(np.zeros((10, 10, 3), dtype=np.uint8), name="x")
+
+        f()
+        state = get_state()
+        node = next(n for n in state.nodes.values() if n.func_name == "f")
+        assert len(node.images) == 1
+        assert node.images[0]["name"] == "x"
