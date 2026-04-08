@@ -88,6 +88,63 @@ class TestDaemonEventIngestion:
         assert run.status == "running"  # auto-transitions from starting
 
     @pytest.mark.asyncio
+    async def test_ingest_node_register_preserves_group(self) -> None:
+        """node_register events carrying 'group' must land on NodeState.group."""
+        run = self.state.create_run("s.py", run_id="r1")
+        await self.state.ingest_events([
+            {
+                "type": "node_register",
+                "data": {
+                    "node_id": "Agent.think",
+                    "func_name": "think",
+                    "docstring": None,
+                    "group": "Agent",
+                },
+            },
+        ], "r1")
+        node = run.nodes["Agent.think"]
+        assert node.group == "Agent"
+        # And it must be exposed by the graph API payload the UI consumes.
+        graph = run.get_graph()
+        assert graph["nodes"]["Agent.think"]["group"] == "Agent"
+
+    @pytest.mark.asyncio
+    async def test_ingest_node_register_preserves_ui_hints(self) -> None:
+        """node_register events carrying 'ui_hints' must reach the graph payload."""
+        run = self.state.create_run("s.py", run_id="r1")
+        await self.state.ingest_events([
+            {
+                "type": "node_register",
+                "data": {
+                    "node_id": "train",
+                    "func_name": "train",
+                    "ui_hints": {"collapsed": True, "color": "blue"},
+                },
+            },
+        ], "r1")
+        node = run.nodes["train"]
+        assert node.ui_hints == {"collapsed": True, "color": "blue"}
+        graph = run.get_graph()
+        assert graph["nodes"]["train"]["ui_hints"] == {"collapsed": True, "color": "blue"}
+
+    @pytest.mark.asyncio
+    async def test_ingest_node_register_without_group_defaults_to_none(self) -> None:
+        """A plain @nb.fn node without a group should still register, with group=None."""
+        run = self.state.create_run("s.py", run_id="r1")
+        await self.state.ingest_events([
+            {
+                "type": "node_register",
+                "data": {"node_id": "plain", "func_name": "plain"},
+            },
+        ], "r1")
+        node = run.nodes["plain"]
+        assert node.group is None
+        assert node.ui_hints is None
+        graph = run.get_graph()
+        assert graph["nodes"]["plain"]["group"] is None
+        assert graph["nodes"]["plain"]["ui_hints"] is None
+
+    @pytest.mark.asyncio
     async def test_ingest_log(self) -> None:
         """Should append log entries."""
         self.state.create_run("s.py", run_id="r1")

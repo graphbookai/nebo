@@ -284,6 +284,7 @@ class SessionState:
                     "params": n.params,
                     "progress": n.progress,
                     "group": n.group,
+                    "ui_hints": n.ui_hints,
                 }
                 for nid, n in self.nodes.items()
                 if n.materialized

@@ -67,6 +67,8 @@ class NodeState:
     images: list[dict] = field(default_factory=list)
     audio: list[dict] = field(default_factory=list)
     progress: Optional[dict] = None
+    group: Optional[str] = None  # Class name if this node is a method of a decorated class
+    ui_hints: Optional[dict] = None  # Per-node UI display hints from @nb.fn(ui=...)
 
 
 @dataclass
@@ -110,6 +112,8 @@ class Run:
                     "pausable": n.pausable,
                     "params": n.params,
                     "progress": n.progress,
+                    "group": n.group,
+                    "ui_hints": n.ui_hints,
                 }
                 for nid, n in self.nodes.items()
             },
@@ -343,6 +347,8 @@ class DaemonState:
                     func_name=data.get("func_name", ""),
                     docstring=data.get("docstring"),
                     pausable=data.get("pausable", False),
+                    group=data.get("group"),
+                    ui_hints=data.get("ui_hints"),
                 )
 
         elif etype == "node_executed":
