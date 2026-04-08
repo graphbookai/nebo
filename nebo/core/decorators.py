@@ -166,6 +166,11 @@ def _decorate_function(f, depends_on, pausable, group=None, ui_hints=None):
             if node and node.group is None:
                 node.group = effective_group
 
+        # Materialize the node as soon as the wrapper starts executing, so
+        # decorated functions that never call nb.log* still appear in the
+        # graph and act as real links in dependency chains.
+        state.ensure_node(node_id)
+
         state.ensure_display()
         parent = _current_node.get()
         token = _current_node.set(node_id)

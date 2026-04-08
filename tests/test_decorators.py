@@ -734,14 +734,14 @@ class TestDAGStrategy:
         assert state.dag_strategy == "object"
 
 
-class TestLazyMaterialization:
-    """Tests for lazy node materialization."""
+class TestNodeMaterialization:
+    """Tests for node materialization on execution."""
 
     def setup_method(self) -> None:
         _reset_gb()
 
-    def test_node_not_materialized_without_log(self) -> None:
-        """A decorated function that never logs should not appear as materialized."""
+    def test_silent_node_materializes_on_execution(self) -> None:
+        """A decorated function that never logs should still materialize on execution."""
 
         @fn()
         def silent_function(x):
@@ -749,14 +749,13 @@ class TestLazyMaterialization:
 
         result = silent_function(5)
         state = get_state()
-        # Node exists in metadata but is not materialized
         node_id = next((nid for nid in state.nodes if "silent_function" in nid), None)
         assert node_id is not None, "Node should be registered"
-        assert state.nodes[node_id].materialized is False
+        assert state.nodes[node_id].materialized is True
         assert result == 6
 
     def test_node_materializes_on_first_log(self) -> None:
-        """A decorated function should materialize when it first calls nb.log()."""
+        """A decorated function should also be materialized when it calls nb.log()."""
         from nebo.logging.logger import log
 
         @fn()
@@ -770,7 +769,7 @@ class TestLazyMaterialization:
         assert state.nodes[node_id].materialized is True
 
     def test_node_materializes_on_log_metric(self) -> None:
-        """Node should materialize on log_metric() call."""
+        """Node is materialized even when it only calls log_metric()."""
         from nebo.logging.logger import log_metric
 
         @fn()
@@ -784,10 +783,49 @@ class TestLazyMaterialization:
         assert state.nodes[node_id].materialized is True
 
     def test_silent_node_preserves_return_value(self) -> None:
-        """A non-materialized node should still return values correctly."""
+        """A silent decorated node should still return values correctly."""
 
         @fn()
         def compute(x, y):
             return x * y
 
         assert compute(3, 7) == 21
+
+    def test_silent_caller_materializes_in_chain(self) -> None:
+        """A decorated caller that does not log but invokes a logging callee
+        must still materialize so the dependency chain is not broken."""
+
+        @fn()
+        def logger_fn():
+            nb.log("hello")
+            return 42
+
+        @fn()
+        def silent_caller():
+            return logger_fn()
+
+        @fn()
+        def run():
+            return silent_caller()
+
+        run()
+        state = get_state()
+
+        # All three decorated functions ran, so all three should materialize.
+        for name in ("run", "silent_caller", "logger_fn"):
+            node_id = next((nid for nid in state.nodes if name in nid), None)
+            assert node_id is not None, f"Node {name!r} should be registered"
+            assert state.nodes[node_id].materialized is True, (
+                f"Node {name!r} should be materialized after execution"
+            )
+
+    def test_undecorated_function_does_not_appear_in_graph(self) -> None:
+        """An UNDECORATED function that calls nb.log() must not create a graph node."""
+
+        def plain_function():
+            # No @nb.fn — calling nb.log here should not invent a node
+            nb.log("hello from nowhere")
+
+        plain_function()
+        state = get_state()
+        assert not any("plain_function" in nid for nid in state.nodes)

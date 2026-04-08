@@ -57,8 +57,12 @@ def test_class_group_field(reset_state):
     assert node.group == "MyAgent"
 
 
-def test_no_log_no_node_in_class(reset_state):
-    """Methods that don't call log functions don't materialize."""
+def test_class_methods_materialize_on_execution(reset_state):
+    """All executed methods of a decorated class materialize, even silent ones.
+
+    Silent methods still need to appear in the graph so dependency chains
+    aren't broken when a caller method doesn't itself call nb.log.
+    """
     import nebo as nb
     from nebo.core.state import get_state
 
@@ -76,8 +80,7 @@ def test_no_log_no_node_in_class(reset_state):
 
     state = get_state()
     assert state.nodes["MyClass.logs"].materialized
-    node = state.nodes.get("MyClass.silent")
-    assert node is None or not node.materialized
+    assert state.nodes["MyClass.silent"].materialized
 
 
 def test_redundant_decorator_warning(reset_state):
