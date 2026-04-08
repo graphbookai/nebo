@@ -105,9 +105,9 @@ agent.act({"plan": "respond"})
 
 Methods appear as `Agent.think` and `Agent.act` in the DAG, grouped under `Agent`.
 
-### Lazy Materialization
+### Automatic Materialization
 
-Nodes only become visible in the DAG when they produce observable output (via `nb.log()`, `nb.log_metric()`, etc.). Functions that run silently are registered internally but don't clutter the visualization.
+Decorated functions appear in the DAG as soon as they execute for the first time — a call to `nb.log()`, `nb.log_metric()`, etc. is not required. This keeps dependency chains intact when an intermediate function only orchestrates calls to other nodes without logging anything itself.
 
 ### `depends_on` -- Explicit dependency declaration
 

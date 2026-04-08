@@ -9,7 +9,7 @@ This guide walks through building observable Python pipelines with Nebo, from ba
 Decorating Functions with ``@nb.fn()``
 =======================================
 
-The ``@nb.fn()`` decorator is the core primitive. It registers a function for scope tracking in the pipeline DAG. A node materializes only when the function calls a logging function (``nb.log``, ``nb.log_metric``, etc.). Edges are inferred from **data flow**: when a node's return value is passed as an argument to another node, an edge is created from the producer to the consumer.
+The ``@nb.fn()`` decorator is the core primitive. It registers a function for scope tracking in the pipeline DAG. A node materializes (appears in the DAG) as soon as the decorated function runs for the first time — you do not have to call a logging function to make a node show up. Edges are inferred from **data flow**: when a node's return value is passed as an argument to another node, an edge is created from the producer to the consumer.
 
 .. code-block:: python
 
@@ -94,7 +94,7 @@ In the DAG, ``DataPipeline`` appears as a transparent bounding box containing ``
 **Scoping rules:**
 
 - Every method gets its own scope. Logs inside ``transform()`` are scoped to ``DataPipeline.transform``.
-- Methods that never call a log function do not materialize as nodes.
+- Every method that runs materializes as a node, including silent methods that never call a log function — this keeps dependency chains in the DAG intact even when an intermediate method only orchestrates calls to other nodes.
 - If a method also has ``@nb.fn()`` on it, a warning is issued (the decorator is redundant).
 - A standalone ``@nb.fn()`` function called from within the class also appears inside the class group.
 - A decorated method in an **undecorated** class is a regular standalone node with no bounding box.

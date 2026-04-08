@@ -38,7 +38,7 @@ Features
 
 * **Decorator-based**: Add ``@nb.fn()`` to functions or classes — no inheritance or boilerplate
 * **Automatic DAG inference**: Edges are created from data flow between decorated functions
-* **Lazy materialization**: Nodes only appear when they actually log — silent functions stay invisible
+* **Zero-config DAG**: Decorated functions appear in the graph automatically as soon as they run — no explicit registration step
 * **Class decoration**: Decorate a class to group its methods under a transparent bounding box in the DAG
 * **Multimodal logging**: Text, scalar metrics, images (PIL/numpy/torch), and audio
 * **Progress tracking**: ``nb.track()`` for tqdm-like progress bars in the terminal and UI

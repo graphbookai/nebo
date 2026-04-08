@@ -21,7 +21,7 @@ Decorators
 
 .. function:: nb.fn(func=None, depends_on=None, pausable=False, ui=None)
 
-    Register a function or class for observability. When applied to a function, it sets up scope tracking — a node materializes only when the function calls a log function. When applied to a class, all methods are wrapped with scope tracking and the class becomes a visual grouping container in the DAG.
+    Register a function or class for observability. When applied to a function, it sets up scope tracking — the node materializes (becomes visible in the DAG) as soon as the decorated function is executed, regardless of whether it calls a log function. When applied to a class, all methods are wrapped with scope tracking and the class becomes a visual grouping container in the DAG.
 
     :param func: The function or class to decorate (when used without parentheses).
     :param depends_on: Optional list of decorated functions or node ID strings that this node depends on.
@@ -38,9 +38,9 @@ Decorators
         @nb.fn(depends_on=[setup])      # with explicit dependencies
         @nb.fn(ui={"collapsed": True})  # with per-node UI hints
 
-    **On functions:** The node ID is derived from the function's ``__qualname__``. The function's docstring becomes the node's description. The node only materializes (becomes visible) when the function calls a log function.
+    **On functions:** The node ID is derived from the function's ``__qualname__``. The function's docstring becomes the node's description. The node materializes (becomes visible) on the first call to the decorated function, so even silent functions that never log appear in the DAG and act as real links in dependency chains.
 
-    **On classes:** All methods are wrapped. The class itself is never a node — it is a transparent bounding box in the DAG. Methods that never log are invisible.
+    **On classes:** All methods are wrapped. The class itself is never a node — it is a transparent bounding box in the DAG. Every method that runs materializes as a node inside that bounding box, including methods that never call a log function.
 
 
 Logging Functions

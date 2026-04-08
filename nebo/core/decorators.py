@@ -34,6 +34,12 @@ def fn(
 ) -> Any:
     """Decorator that registers a function or class as a DAG node.
 
+    The node materializes (appears in the graph) as soon as the
+    decorated function is executed for the first time — a call to
+    ``nb.log*`` is **not** required. This keeps dependency chains
+    intact when an intermediate function only orchestrates calls to
+    other nodes without logging anything itself.
+
     Can be used as::
 
         @nb.fn

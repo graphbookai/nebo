@@ -140,7 +140,15 @@ class SessionState:
         return self.nodes[node_id]
 
     def ensure_node(self, node_id: str) -> None:
-        """Materialize a node on first log call. Sends node_register event."""
+        """Materialize a node and emit its ``node_register`` event.
+
+        Called by the ``@nb.fn`` wrapper as soon as a decorated function
+        starts executing, so every executed node appears in the graph
+        regardless of whether it calls a log function. Also called
+        defensively by the log/metric/image/audio/text paths so that
+        logging from an already-executing node is a no-op on the
+        already-materialized node (idempotent).
+        """
         node = self.nodes.get(node_id)
         if node is None or node.materialized:
             return
