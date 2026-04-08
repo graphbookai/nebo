@@ -1,4 +1,4 @@
-import { memo, useCallback, useContext, useEffect } from 'react'
+import { memo, useCallback, useContext, useEffect, type CSSProperties } from 'react'
 import { Handle, NodeResizer, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react'
 import { useStore } from '@/store'
 import { cn } from '@/lib/utils'
@@ -64,6 +64,18 @@ export const GraphbookNode = memo(function GraphbookNode({ data, id }: NodeProps
     ? 'border-dashed border-muted-foreground/40'
     : 'border-border'
 
+  // Per-node ui_hints (from @nb.fn(ui=...)) — currently we honor `color`
+  // as an explicit border color override so the hint has a visible effect
+  // in the graph. Status colors (errors/running/ask) still win because they
+  // are derived from live run state.
+  const uiHints = (nodeInfo.ui_hints ?? null) as { color?: string } | null
+  const hintColor = uiHints?.color
+  const hasStatusColor = hasErrors || hasPendingAsk || isRunning
+  const nodeStyle: CSSProperties = {
+    ...(storedSize ? { width: storedSize.width, minWidth: storedSize.width } : {}),
+    ...(hintColor && !hasStatusColor ? { borderColor: hintColor } : {}),
+  }
+
   return (
     <div
       className={cn(
@@ -74,7 +86,7 @@ export const GraphbookNode = memo(function GraphbookNode({ data, id }: NodeProps
         isRunning && !hasErrors && 'shadow-blue-500/20',
         hasPendingAsk && 'shadow-amber-500/30',
       )}
-      style={storedSize ? { width: storedSize.width, minWidth: storedSize.width } : undefined}
+      style={nodeStyle}
       {...contextMenu.handlers}
     >
       {isResizing && (

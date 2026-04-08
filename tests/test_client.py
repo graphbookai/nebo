@@ -204,3 +204,92 @@ class TestRunStartEmission:
         run_starts = [e for e in client.events if e.get("type") == "run_start"]
         assert len(run_starts) == 1
         assert run_starts[0]["data"]["store"] is False
+
+
+class TestUiConfigEmission:
+    """Regression tests for `nb.ui()` UI-config forwarding.
+
+    `nb.ui(layout="horizontal", ...)` must both update SessionState.ui_config
+    AND send a `ui_config` event to the daemon client. Without the event, the
+    daemon never learns about the run-level UI defaults so the web UI can't
+    apply them.
+    """
+
+    def setup_method(self) -> None:
+        import os
+        import nebo as nb
+        from nebo.core.state import SessionState
+
+        SessionState.reset_singleton()
+        nb._auto_init_done = False
+        self._saved_env = {
+            k: os.environ.pop(k, None)
+            for k in ["NEBO_MODE", "NEBO_SERVER_PORT", "NEBO_RUN_ID", "NEBO_FLUSH_INTERVAL"]
+        }
+        self._captured: list[_FakeClient] = []
+
+    def teardown_method(self) -> None:
+        import os
+        for k, v in self._saved_env.items():
+            if v is not None:
+                os.environ[k] = v
+
+    def _install_fake_client(self, monkeypatch) -> None:
+        import nebo.core.client as client_mod
+
+        captured = self._captured
+
+        class TrackingFake(_FakeClient):
+            def __init__(self, *a, **kw):
+                super().__init__(*a, **kw)
+                captured.append(self)
+
+        monkeypatch.setattr(client_mod, "DaemonClient", TrackingFake)
+
+    def test_ui_sends_ui_config_event(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """`nb.ui(...)` must emit a ui_config event to the client."""
+        self._install_fake_client(monkeypatch)
+
+        import nebo as nb
+        nb.init(mode="server", terminal=False)
+        nb.ui(layout="horizontal", view="dag", collapsed=True, minimap=True, theme="dark")
+
+        assert len(self._captured) == 1
+        client = self._captured[0]
+        ui_events = [e for e in client.events if e.get("type") == "ui_config"]
+        assert len(ui_events) == 1, (
+            f"expected exactly one ui_config event, got events: {client.events}"
+        )
+        data = ui_events[0]["data"]
+        assert data["layout"] == "horizontal"
+        assert data["view"] == "dag"
+        assert data["collapsed"] is True
+        assert data["minimap"] is True
+        assert data["theme"] == "dark"
+
+    def test_ui_updates_session_state(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """`nb.ui(...)` must also write into SessionState.ui_config."""
+        self._install_fake_client(monkeypatch)
+
+        import nebo as nb
+        from nebo.core.state import get_state
+
+        nb.init(mode="server", terminal=False)
+        nb.ui(layout="vertical", theme="light")
+
+        state = get_state()
+        assert state.ui_config == {"layout": "vertical", "theme": "light"}
+
+    def test_ui_omits_unspecified_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Fields left as None must not appear in the emitted ui_config event."""
+        self._install_fake_client(monkeypatch)
+
+        import nebo as nb
+        nb.init(mode="server", terminal=False)
+        nb.ui(minimap=False)
+
+        client = self._captured[0]
+        ui_events = [e for e in client.events if e.get("type") == "ui_config"]
+        assert len(ui_events) == 1
+        data = ui_events[0]["data"]
+        assert data == {"minimap": False}

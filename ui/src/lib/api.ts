@@ -47,6 +47,15 @@ export interface GraphData {
   workflow_description: string | null
   has_pausable: boolean
   paused: boolean
+  ui_config?: UiConfig | null
+}
+
+export interface UiConfig {
+  layout?: 'horizontal' | 'vertical'
+  view?: 'dag' | 'grid'
+  collapsed?: boolean
+  minimap?: boolean
+  theme?: 'dark' | 'light'
 }
 
 export interface LogEntry {

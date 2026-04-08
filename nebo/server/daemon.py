@@ -121,6 +121,7 @@ class Run:
             "workflow_description": self.workflow_description,
             "has_pausable": any(n.pausable for n in self.nodes.values()),
             "paused": self.paused,
+            "ui_config": self.ui_config,
         }
 
     def get_summary(self) -> dict:

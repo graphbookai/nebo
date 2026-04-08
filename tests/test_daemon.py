@@ -207,6 +207,48 @@ class TestDaemonEventIngestion:
         ])
         assert len(self.state.runs) == 1
 
+    @pytest.mark.asyncio
+    async def test_ingest_ui_config_exposed_via_get_graph(self) -> None:
+        """ui_config events must reach the graph payload the UI consumes."""
+        run = self.state.create_run("s.py", run_id="r1")
+        await self.state.ingest_events([
+            {
+                "type": "ui_config",
+                "data": {
+                    "layout": "horizontal",
+                    "view": "grid",
+                    "collapsed": True,
+                    "minimap": False,
+                    "theme": "dark",
+                },
+            },
+        ], "r1")
+        assert run.ui_config == {
+            "layout": "horizontal",
+            "view": "grid",
+            "collapsed": True,
+            "minimap": False,
+            "theme": "dark",
+        }
+        graph = run.get_graph()
+        assert graph["ui_config"] == {
+            "layout": "horizontal",
+            "view": "grid",
+            "collapsed": True,
+            "minimap": False,
+            "theme": "dark",
+        }
+
+    @pytest.mark.asyncio
+    async def test_get_graph_ui_config_defaults_to_none(self) -> None:
+        """When no ui_config event is sent, get_graph() exposes None."""
+        run = self.state.create_run("s.py", run_id="r1")
+        await self.state.ingest_events([
+            {"type": "node_register", "data": {"node_id": "n1", "func_name": "n1"}},
+        ], "r1")
+        graph = run.get_graph()
+        assert graph["ui_config"] is None
+
 
 class TestRunSummary:
     """Tests for Run serialization methods."""

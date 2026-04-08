@@ -162,6 +162,11 @@ interface GraphbookStore {
   dagDirection: 'TB' | 'LR'
   toggleDagDirection: () => void
 
+  // Tracks which runs have already had their server-sent ui_config
+  // applied to the UI defaults, so user overrides aren't clobbered
+  // on graph refetch.
+  appliedUiConfigRuns: Set<string>
+
   // Pinned panels
   pinnedPanels: PinnedPanel[]
 
@@ -355,6 +360,8 @@ export const useStore = create<GraphbookStore>((set, get) => ({
     layoutTrigger: state.layoutTrigger + 1,
   })),
 
+  appliedUiConfigRuns: new Set<string>(),
+
   pinnedPanels: [],
 
   nodePositions: new Map(),
@@ -437,7 +444,55 @@ export const useStore = create<GraphbookStore>((set, get) => ({
       run.paused = graph.paused ?? false
       run.loaded = true
     }
-    return { runs }
+
+    // Apply run-level UI defaults from nb.ui() exactly once per run so the
+    // user's subsequent interactive changes are not clobbered on every
+    // refetch. We touch only the fields the server explicitly provided.
+    const patch: Partial<GraphbookStore> = { runs }
+    const ui = graph.ui_config
+    const alreadyApplied = state.appliedUiConfigRuns.has(runId)
+    if (ui && !alreadyApplied) {
+      const applied = new Set(state.appliedUiConfigRuns)
+      applied.add(runId)
+      patch.appliedUiConfigRuns = applied
+
+      if (ui.layout === 'horizontal') {
+        patch.dagDirection = 'LR'
+      } else if (ui.layout === 'vertical') {
+        patch.dagDirection = 'TB'
+      }
+
+      if (ui.view === 'dag') {
+        patch.desktopViewMode = 'graph'
+      } else if (ui.view === 'grid') {
+        patch.desktopViewMode = 'grid'
+      }
+
+      if (ui.collapsed === true) {
+        const collapsed = new Set<string>()
+        for (const nid of Object.keys(graph.nodes)) collapsed.add(nid)
+        patch.collapsedGraphNodes = collapsed
+      }
+
+      if (ui.theme === 'dark' || ui.theme === 'light') {
+        const nextSettings = { ...state.settings, theme: ui.theme }
+        saveSettings(nextSettings)
+        document.documentElement.classList.toggle('dark', ui.theme === 'dark')
+        patch.settings = nextSettings
+      }
+
+      if (ui.minimap === true || ui.minimap === false) {
+        const base = patch.settings ?? state.settings
+        const nextSettings = { ...base, showMinimap: ui.minimap }
+        saveSettings(nextSettings)
+        patch.settings = nextSettings
+      }
+
+      // Kick layout to re-run with the new direction.
+      patch.layoutTrigger = state.layoutTrigger + 1
+    }
+
+    return patch
   }),
 
   setRunLogs: (runId, logs) => set(state => {
