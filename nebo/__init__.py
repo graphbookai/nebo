@@ -151,13 +151,19 @@ def init(
 
     resolved_mode = mode
 
-    # Generate a run_id if not provided by env (e.g. direct script execution)
+    # Generate a run_id if not provided by env (e.g. direct script execution).
+    # Compute script_name whenever we may end up in a non-local mode, so the
+    # `run_start` event fires regardless of whether run_id came from the
+    # environment (nb run) or was freshly generated (direct python execution).
+    # Without this, `nb run` would set NEBO_RUN_ID, skip script_name, skip
+    # run_start, and the daemon would never open its .nebo file writer.
     run_id = env_run_id
     script_name: Optional[str] = None
-    if not run_id and resolved_mode != "local":
+    if resolved_mode != "local":
         import sys
         script_name = os.path.basename(sys.argv[0]) if sys.argv else "script"
-        run_id = f"{uuid.uuid4().hex[:12]}"
+        if not run_id:
+            run_id = f"{uuid.uuid4().hex[:12]}"
 
     if resolved_mode == "auto":
         # Try to connect to daemon
