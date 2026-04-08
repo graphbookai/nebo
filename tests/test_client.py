@@ -205,6 +205,38 @@ class TestRunStartEmission:
         assert len(run_starts) == 1
         assert run_starts[0]["data"]["store"] is False
 
+    def test_run_start_script_path_is_absolute(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """run_start.data.script_path must be an absolute path.
+
+        Regression: it was previously set to `os.path.basename(sys.argv[0])`,
+        which broke `nebo_restart_pipeline` — the MCP tool reads `script_path`
+        from the stored run and feeds it to `run_pipeline`, which fails with
+        HTTP 404 "Script not found" whenever the user invoked nebo from a
+        directory other than the daemon's CWD.
+        """
+        import os
+        import sys
+
+        os.environ["NEBO_RUN_ID"] = "nbrun_abs"
+        os.environ["NEBO_MODE"] = "server"
+        self._install_fake_client(monkeypatch)
+
+        # Simulate a script invoked with only a basename in argv[0]
+        fake_argv = ["train.py"]
+        monkeypatch.setattr(sys, "argv", fake_argv)
+
+        import nebo as nb
+        nb.init(terminal=False)
+
+        client = self._captured[0]
+        run_starts = [e for e in client.events if e.get("type") == "run_start"]
+        assert len(run_starts) == 1
+        script_path = run_starts[0]["data"]["script_path"]
+        assert os.path.isabs(script_path), (
+            f"script_path must be absolute, got: {script_path!r}"
+        )
+        assert script_path.endswith("train.py")
+
 
 class TestUiConfigEmission:
     """Regression tests for `nb.ui()` UI-config forwarding.

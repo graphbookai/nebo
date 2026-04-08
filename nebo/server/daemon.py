@@ -480,6 +480,8 @@ class DaemonState:
             run.status = "completed" if exit_code == 0 else "crashed"
             run.exit_code = exit_code
             run.ended_at = datetime.now()
+            if self.active_run_id == run_id:
+                self.active_run_id = None
 
     def mark_run_stopped(self, run_id: str) -> None:
         """Mark a run as manually stopped."""
@@ -487,6 +489,8 @@ class DaemonState:
             run = self.runs[run_id]
             run.status = "stopped"
             run.ended_at = datetime.now()
+            if self.active_run_id == run_id:
+                self.active_run_id = None
 
 
 def create_daemon_app(state: DaemonState | None = None, port: int | None = None) -> Any:
@@ -913,6 +917,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
             "name": n.name, "func_name": n.func_name, "docstring": n.docstring,
             "exec_count": n.exec_count, "is_source": n.is_source, "params": n.params,
             "recent_logs": n.logs[-20:], "errors": n.errors,
+            "metrics": n.metrics, "progress": n.progress,
         }
 
     @app.post("/load")

@@ -69,6 +69,37 @@ class TestDaemonState:
         self.state.mark_run_stopped("r1")
         assert run.status == "stopped"
 
+    def test_mark_run_completed_clears_active_run_id(self) -> None:
+        """Completing the active run must clear active_run_id.
+
+        Without this, `/health` and the MCP `nebo_status` tool keep
+        reporting a stale run as "active" forever after it finishes.
+        """
+        self.state.create_run("s.py", run_id="r1")
+        assert self.state.active_run_id == "r1"
+        self.state.mark_run_completed("r1", exit_code=0)
+        assert self.state.active_run_id is None
+
+    def test_mark_run_crashed_clears_active_run_id(self) -> None:
+        """A crashed run must also clear active_run_id."""
+        self.state.create_run("s.py", run_id="r1")
+        self.state.mark_run_completed("r1", exit_code=1)
+        assert self.state.active_run_id is None
+
+    def test_mark_run_stopped_clears_active_run_id(self) -> None:
+        """A manually stopped run must also clear active_run_id."""
+        self.state.create_run("s.py", run_id="r1")
+        self.state.mark_run_stopped("r1")
+        assert self.state.active_run_id is None
+
+    def test_mark_run_completed_preserves_other_active_run(self) -> None:
+        """Completing a non-active run must not clear active_run_id."""
+        self.state.create_run("a.py", run_id="r1")
+        self.state.create_run("b.py", run_id="r2")
+        assert self.state.active_run_id == "r2"
+        self.state.mark_run_completed("r1", exit_code=0)
+        assert self.state.active_run_id == "r2"
+
 
 class TestDaemonEventIngestion:
     """Tests for event processing into run state."""
@@ -270,3 +301,50 @@ class TestRunSummary:
         assert "a" in graph["nodes"]
         assert graph["nodes"]["a"]["docstring"] == "Step A"
         assert len(graph["edges"]) == 1
+
+
+class TestGetNodeEndpoint:
+    """HTTP-level tests for the GET /nodes/{name} endpoint.
+
+    Regression: the global `/nodes/{name}` endpoint historically omitted
+    `metrics` and `progress` from its response, which broke the
+    `nebo_get_metrics` MCP tool (it reads from this endpoint and always
+    saw an empty metrics dict).
+    """
+
+    def _client_with_metric(self):
+        from fastapi.testclient import TestClient
+        from nebo.server.daemon import DaemonState, create_daemon_app
+
+        state = DaemonState()
+        run = state.create_run("s.py", run_id="r1")
+        run.status = "running"
+        import asyncio
+        asyncio.get_event_loop().run_until_complete(
+            state.ingest_events([
+                {"type": "node_register", "data": {"node_id": "train", "func_name": "train"}},
+                {"type": "metric", "node": "train", "name": "loss", "value": 0.5, "step": 0},
+                {"type": "metric", "node": "train", "name": "loss", "value": 0.3, "step": 1},
+                {"type": "progress", "node": "train", "data": {"current": 1, "total": 2, "name": "epoch"}},
+            ], "r1")
+        )
+        app = create_daemon_app(state=state)
+        return TestClient(app)
+
+    def test_get_node_returns_metrics(self) -> None:
+        """GET /nodes/{name} must include the node's metrics dict."""
+        client = self._client_with_metric()
+        resp = client.get("/nodes/train")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "metrics" in body, f"missing 'metrics' field in response: {body}"
+        assert "loss" in body["metrics"]
+        assert len(body["metrics"]["loss"]) == 2
+
+    def test_get_node_returns_progress(self) -> None:
+        """GET /nodes/{name} must include the node's progress state."""
+        client = self._client_with_metric()
+        resp = client.get("/nodes/train")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "progress" in body, f"missing 'progress' field in response: {body}"

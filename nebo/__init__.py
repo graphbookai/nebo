@@ -161,7 +161,7 @@ def init(
     script_name: Optional[str] = None
     if resolved_mode != "local":
         import sys
-        script_name = os.path.basename(sys.argv[0]) if sys.argv else "script"
+        script_name = os.path.abspath(sys.argv[0]) if sys.argv else "script"
         if not run_id:
             run_id = f"{uuid.uuid4().hex[:12]}"
 
