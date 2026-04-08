@@ -466,6 +466,8 @@ class DaemonState:
             run.status = "completed" if exit_code == 0 else "crashed"
             run.exit_code = exit_code
             run.ended_at = datetime.now()
+            if self.active_run_id == run.id:
+                self.active_run_id = None
             run.significant_events.append({
                 "type": "run_completed",
                 "timestamp": time.time(),

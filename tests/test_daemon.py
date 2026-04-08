@@ -348,3 +348,76 @@ class TestGetNodeEndpoint:
         assert resp.status_code == 200
         body = resp.json()
         assert "progress" in body, f"missing 'progress' field in response: {body}"
+
+
+class TestRunCompletedEventClearsActiveRun:
+    """Regression test for Bug 10 via the `/events` ingest path.
+
+    Pipelines started with `nb run` finalize by POSTing a `run_completed`
+    event to `/events`, which is handled inline in `ingest_events` — not
+    by `mark_run_completed`. That inline branch updates `run.status` but
+    previously never cleared `self.active_run_id`, so `/health` and
+    `nb status` kept reporting a finished run as "active" indefinitely.
+    """
+
+    def test_run_completed_event_clears_active_run_id(self) -> None:
+        from fastapi.testclient import TestClient
+        from nebo.server.daemon import DaemonState, create_daemon_app
+
+        state = DaemonState()
+        state.create_run("s.py", run_id="bug10_repro")
+        assert state.active_run_id == "bug10_repro"
+
+        app = create_daemon_app(state=state)
+        client = TestClient(app)
+
+        resp = client.post(
+            "/events?run_id=bug10_repro",
+            json=[{"type": "run_completed", "data": {"run_id": "bug10_repro", "exit_code": 0}}],
+        )
+        assert resp.status_code == 200
+
+        assert state.active_run_id is None, (
+            f"active_run_id should be None after run_completed event, "
+            f"got {state.active_run_id!r}"
+        )
+        assert state.runs["bug10_repro"].status == "completed"
+
+    def test_run_completed_event_crashed_clears_active_run_id(self) -> None:
+        """Non-zero exit_code via /events should also clear active_run_id."""
+        from fastapi.testclient import TestClient
+        from nebo.server.daemon import DaemonState, create_daemon_app
+
+        state = DaemonState()
+        state.create_run("s.py", run_id="bug10_crash")
+
+        app = create_daemon_app(state=state)
+        client = TestClient(app)
+
+        resp = client.post(
+            "/events?run_id=bug10_crash",
+            json=[{"type": "run_completed", "data": {"run_id": "bug10_crash", "exit_code": 1}}],
+        )
+        assert resp.status_code == 200
+        assert state.active_run_id is None
+        assert state.runs["bug10_crash"].status == "crashed"
+
+    def test_run_completed_event_preserves_other_active_run(self) -> None:
+        """A run_completed event for a non-active run must not clear active_run_id."""
+        from fastapi.testclient import TestClient
+        from nebo.server.daemon import DaemonState, create_daemon_app
+
+        state = DaemonState()
+        state.create_run("a.py", run_id="r1")
+        state.create_run("b.py", run_id="r2")
+        assert state.active_run_id == "r2"
+
+        app = create_daemon_app(state=state)
+        client = TestClient(app)
+
+        resp = client.post(
+            "/events?run_id=r1",
+            json=[{"type": "run_completed", "data": {"run_id": "r1", "exit_code": 0}}],
+        )
+        assert resp.status_code == 200
+        assert state.active_run_id == "r2"
