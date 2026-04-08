@@ -109,3 +109,52 @@ class TestDaemonIngest:
             "data": {"error": "something went wrong", "type": "RuntimeError"},
         }], "r1")
         assert len(state.runs["r1"].nodes["err_node"].errors) == 1
+
+
+class TestStaticAssets:
+    """Regression guards for the bundled static UI assets."""
+
+    def test_index_html_title_is_nebo(self) -> None:
+        """The built UI shipped inside the package must say 'Nebo', not 'Graphbook'."""
+        import pathlib
+        import nebo
+
+        static_index = (
+            pathlib.Path(nebo.__file__).parent
+            / "server" / "static" / "index.html"
+        )
+        assert static_index.exists(), (
+            f"Built UI index.html is missing at {static_index}. "
+            "Run `cd ui && npm run build` and copy dist/* into nebo/server/static/."
+        )
+        html = static_index.read_text()
+        assert "<title>Nebo</title>" in html, (
+            "nebo/server/static/index.html does not contain <title>Nebo</title>. "
+            "The UI bundle is stale; run `cd ui && npm run build` and copy the "
+            "dist/ output into nebo/server/static/."
+        )
+        assert "Graphbook" not in html, (
+            "nebo/server/static/index.html still contains the old 'Graphbook' "
+            "branding. Rebuild the UI and recopy dist/* into nebo/server/static/."
+        )
+
+    def test_static_assets_have_no_graphbook_references(self) -> None:
+        """No built asset in nebo/server/static should contain the old 'Graphbook' string."""
+        import pathlib
+        import nebo
+
+        static_dir = pathlib.Path(nebo.__file__).parent / "server" / "static"
+        offenders = []
+        for path in static_dir.rglob("*"):
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(errors="ignore")
+            except Exception:
+                continue
+            if "Graphbook" in text:
+                offenders.append(str(path.relative_to(static_dir)))
+        assert not offenders, (
+            "Stale UI bundle: the following static files still contain "
+            "'Graphbook' and must be rebuilt: " + ", ".join(offenders)
+        )
