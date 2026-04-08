@@ -187,6 +187,49 @@ class TestDAGInference:
         assert "→" in summary or "load" in summary
 
 
+class TestConfigure:
+    """Tests for run-level nb.configure()."""
+
+    def setup_method(self) -> None:
+        _reset_gb()
+
+    def test_configure_is_exposed_at_top_level(self) -> None:
+        """nb.configure should be callable from the top-level nebo module."""
+        assert hasattr(nb, "configure")
+        assert callable(nb.configure)
+
+    def test_configure_at_module_scope_sets_run_config(self) -> None:
+        """nb.configure() should be callable outside any @nb.fn and store run-level config."""
+        nb.configure({"model": {"path": "data.csv", "limit": 50}})
+        state = get_state()
+        assert state.config["model"] == {"path": "data.csv", "limit": 50}
+
+    def test_configure_merges_across_calls(self) -> None:
+        """Multiple nb.configure() calls should merge into state.config."""
+        nb.configure({"a": 1})
+        nb.configure({"b": 2})
+        state = get_state()
+        assert state.config["a"] == 1
+        assert state.config["b"] == 2
+
+    def test_configure_is_independent_of_log_cfg(self) -> None:
+        """nb.configure writes run-level config, log_cfg writes node params."""
+        from nebo.core.config import log_cfg
+        nb.configure({"run_level": "yes"})
+
+        @fn()
+        def train():
+            log_cfg({"node_level": "also_yes"})
+
+        train()
+        state = get_state()
+        node = next(n for n in state.nodes.values() if n.func_name == "train")
+        assert state.config.get("run_level") == "yes"
+        assert node.params.get("node_level") == "also_yes"
+        # Run-level config should not leak into node params
+        assert "run_level" not in node.params
+
+
 class TestLogCfgWithFn:
     """Tests for log_cfg() working with @nb.fn."""
 

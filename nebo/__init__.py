@@ -20,7 +20,7 @@ from typing import Any, Literal, Optional, TypeVar
 
 from nebo.core.decorators import fn
 from nebo.core.tracker import track
-from nebo.core.config import log_cfg
+from nebo.core.config import configure, log_cfg
 from nebo.core.state import _current_node, get_state, LoggingBackend
 from nebo.logging.logger import (
     log,
@@ -322,6 +322,7 @@ def ui(
 __all__ = [
     "fn",
     "track",
+    "configure",
     "log_cfg",
     "init",
     "log",
