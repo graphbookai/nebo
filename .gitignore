@@ -14,3 +14,6 @@ docs/_build
 
 # superpowers
 docs/superpowers
+
+# evaluator-only test suite (generator should not read)
+TESTS.md
