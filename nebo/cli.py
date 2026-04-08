@@ -319,11 +319,15 @@ def cmd_errors(args: argparse.Namespace) -> None:
 
 def cmd_mcp(args: argparse.Namespace) -> None:
     """Print MCP connection config for Claude Code."""
+    port = getattr(args, "port", 2048)
+    nebo_args = ["mcp-stdio"]
+    if port != 2048:
+        nebo_args += ["--port", str(port)]
     config = {
         "mcpServers": {
             "nebo": {
                 "command": "nb",
-                "args": ["mcp-stdio"],
+                "args": nebo_args,
                 "env": {},
             }
         }
@@ -412,6 +416,7 @@ def main() -> None:
 
     # mcp
     p_mcp = subparsers.add_parser("mcp", help="Print MCP config for Claude Code")
+    p_mcp.add_argument("--port", type=int, default=2048, help="Daemon port to embed in the MCP config")
 
     # mcp-stdio (internal)
     p_mcp_stdio = subparsers.add_parser("mcp-stdio", help="Run MCP stdio transport")
