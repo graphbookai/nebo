@@ -872,3 +872,54 @@ class TestNodeMaterialization:
         plain_function()
         state = get_state()
         assert not any("plain_function" in nid for nid in state.nodes)
+
+
+class _EventCapturingClient:
+    """Minimal fake for SessionState._client used to capture forwarded events."""
+
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+        self._connected = True
+        self._run_id = "test_run"
+
+    def send_event(self, event: dict) -> None:
+        self.events.append(event)
+
+    def is_connected(self) -> bool:
+        return self._connected
+
+
+class TestErrorForwarding:
+    """Decorator error capture must also be forwarded to the daemon client.
+
+    Regression for the dead `state._queue.put_event(...)` path: the error
+    handler in `@nb.fn` previously only queued errors to `state._queue`,
+    which was always None, so the daemon never received an `error` event
+    and `nb errors` / the UI would show no errors for crashed nodes.
+    """
+
+    def setup_method(self) -> None:
+        _reset_gb()
+
+    def test_error_forwarded_to_client(self) -> None:
+        """A @fn exception must emit a type=error event to the daemon client."""
+        state = get_state()
+        client = _EventCapturingClient()
+        state._client = client
+
+        @fn()
+        def boom():
+            raise ValueError("bang")
+
+        with pytest.raises(ValueError, match="bang"):
+            boom()
+
+        error_events = [e for e in client.events if e.get("type") == "error"]
+        assert len(error_events) == 1, (
+            f"expected one error event, got: {[e.get('type') for e in client.events]}"
+        )
+        data = error_events[0]["data"]
+        assert data["type"] == "ValueError"
+        assert data["error"] == "bang"
+        assert "boom" in data["node"]
+        assert "traceback" in data and "ValueError" in data["traceback"]

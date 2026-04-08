@@ -77,7 +77,6 @@ class SessionState:
         self.backends: list[LoggingBackend] = []
         self.port: int = 2048
         self.server_process: Any = None
-        self._queue: Any = None
         self._display: Any = None
         self._initialized_display: bool = False
         self._initialized_server: bool = False

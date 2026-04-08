@@ -121,12 +121,6 @@ def log(message: Union[str, Any], *, step: Optional[int] = None) -> None:
 
     state._send_to_client(entry)
 
-    if state._queue is not None:
-        try:
-            state._queue.put_event(entry)
-        except Exception:
-            pass
-
 
 def log_metric(name: str, value: float, step: Optional[int] = None) -> None:
     """Log a scalar metric value.
@@ -175,12 +169,6 @@ def log_metric(name: str, value: float, step: Optional[int] = None) -> None:
 
     state._send_to_client(entry)
 
-    if state._queue is not None:
-        try:
-            state._queue.put_event(entry)
-        except Exception:
-            pass
-
 
 def log_image(image: Any, *, name: Optional[str] = None, step: Optional[int] = None) -> None:
     """Log an image (PIL, numpy array, or torch tensor).
@@ -223,12 +211,6 @@ def log_image(image: Any, *, name: Optional[str] = None, step: Optional[int] = N
             pass
 
     state._send_to_client(entry)
-
-    if state._queue is not None:
-        try:
-            state._queue.put_event(entry)
-        except Exception:
-            pass
 
 
 def log_audio(audio: Any, sr: int = 16000, *, name: Optional[str] = None, step: Optional[int] = None) -> None:
@@ -274,12 +256,6 @@ def log_audio(audio: Any, sr: int = 16000, *, name: Optional[str] = None, step: 
 
     state._send_to_client(entry)
 
-    if state._queue is not None:
-        try:
-            state._queue.put_event(entry)
-        except Exception:
-            pass
-
 
 def log_text(name: str, text: str) -> None:
     """Log rich text or markdown content.
@@ -308,12 +284,6 @@ def log_text(name: str, text: str) -> None:
         state.nodes[node_id].logs.append(entry)
 
     state._send_to_client(entry)
-
-    if state._queue is not None:
-        try:
-            state._queue.put_event(entry)
-        except Exception:
-            pass
 
 
 def md(description: str) -> None:

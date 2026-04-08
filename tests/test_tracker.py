@@ -64,3 +64,53 @@ class TestTracker:
         items = list(track([1, 2], name="toplevel"))
         state = get_state()
         assert any("toplevel" in nid for nid in state.nodes)
+
+
+class _EventCapturingClient:
+    """Minimal fake for SessionState._client used to capture forwarded events."""
+
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+        self._connected = True
+        self._run_id = "test_run"
+
+    def send_event(self, event: dict) -> None:
+        self.events.append(event)
+
+    def is_connected(self) -> bool:
+        return self._connected
+
+
+class TestTrackerProgressForwarding:
+    """nb.track() progress updates must also reach the daemon client.
+
+    Regression for the dead `state._queue.put_event(...)` path: the
+    tracker previously only published progress to `state._queue` which
+    is always None, so the UI never got progress events in server mode.
+    """
+
+    def setup_method(self) -> None:
+        SessionState.reset_singleton()
+
+    def test_progress_forwarded_to_client_inside_fn(self) -> None:
+        """Each iteration of a tracked iterable inside @nb.fn emits a progress event."""
+        state = get_state()
+        client = _EventCapturingClient()
+        state._client = client
+
+        @fn()
+        def do_work():
+            for _ in track([1, 2, 3], name="work"):
+                pass
+
+        do_work()
+
+        progress_events = [e for e in client.events if e.get("type") == "progress"]
+        assert len(progress_events) >= 3, (
+            f"expected >= 3 progress events, got {len(progress_events)}: "
+            f"{[e.get('type') for e in client.events]}"
+        )
+        last = progress_events[-1]["data"]
+        assert last["current"] == 3
+        assert last["total"] == 3
+        assert last["name"] == "work"

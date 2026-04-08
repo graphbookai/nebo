@@ -262,15 +262,13 @@ def _decorate_function(f, depends_on, pausable, group=None, ui_hints=None):
             if node_info:
                 node_info.errors.append(error_info)
 
-            # Send to queue if available
-            if state._queue is not None:
-                try:
-                    state._queue.put_event({
-                        "type": "error",
-                        "data": error_info,
-                    })
-                except Exception:
-                    pass
+            # Forward to the daemon client so `nb errors`, the web UI, and
+            # MCP tools see the failure. Local-only mode drops the event.
+            state._send_to_client({
+                "type": "error",
+                "node": node_id,
+                "data": error_info,
+            })
 
             raise  # Re-raise original exception
         finally:

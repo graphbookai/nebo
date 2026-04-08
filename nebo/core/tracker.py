@@ -71,16 +71,13 @@ class TrackedIterable(Iterator[T]):
                 "name": self._name,
                 "elapsed": time.monotonic() - self._start_time,
             }
-            # Send progress to queue
-            if state._queue is not None:
-                try:
-                    state._queue.put_event({
-                        "type": "progress",
-                        "node": self._node_id,
-                        "data": node.progress,
-                    })
-                except Exception:
-                    pass
+            # Forward to the daemon client so the web UI shows progress
+            # bars in server mode.
+            state._send_to_client({
+                "type": "progress",
+                "node": self._node_id,
+                "data": node.progress,
+            })
 
 
 def track(
