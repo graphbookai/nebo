@@ -293,3 +293,115 @@ class TestUiConfigEmission:
         assert len(ui_events) == 1
         data = ui_events[0]["data"]
         assert data == {"minimap": False}
+
+
+class _PauseControllableFakeClient(_FakeClient):
+    """Fake client whose pause state is controlled by the test."""
+
+    _pause_state: bool = False
+
+    def get_pause_state(self) -> bool:
+        return type(self)._pause_state
+
+
+class TestPausePollStartsLazily:
+    """Regression tests for Bug 9: pausable functions never pause under `nb run`.
+
+    Root cause: `_start_pause_poll()` is called exactly once at the end of
+    `init()` and bails out early when `state._has_pausable` is False. But
+    `_has_pausable` is only set to True inside `register_node()` — which
+    fires lazily on the first @fn call, i.e. **after** `init()` has already
+    returned. So the poll thread is never started and the subprocess never
+    learns about web-UI pause/unpause commands.
+    """
+
+    def setup_method(self) -> None:
+        import os
+        import nebo as nb
+        from nebo.core.state import SessionState
+
+        SessionState.reset_singleton()
+        nb._auto_init_done = False
+        # Clear any stale poll thread reference from a previous test
+        nb._pause_poll_thread = None
+        self._saved_env = {
+            k: os.environ.pop(k, None)
+            for k in ["NEBO_MODE", "NEBO_SERVER_PORT", "NEBO_RUN_ID", "NEBO_FLUSH_INTERVAL"]
+        }
+        _PauseControllableFakeClient._pause_state = False
+
+    def teardown_method(self) -> None:
+        import os
+        for k, v in self._saved_env.items():
+            if v is not None:
+                os.environ[k] = v
+        _PauseControllableFakeClient._pause_state = False
+
+    def _install_fake_client(self, monkeypatch) -> None:
+        import nebo.core.client as client_mod
+        monkeypatch.setattr(client_mod, "DaemonClient", _PauseControllableFakeClient)
+
+    def test_pause_poll_thread_starts_after_pausable_registration(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Registering a @fn(pausable=True) AFTER init() must start the poll thread.
+
+        This is the production ordering under `nb run`: init() runs first
+        (module import), then the first decorated function call lazily
+        triggers `register_node()` and sets `_has_pausable=True`. The fix
+        must start the poll thread at that moment.
+        """
+        import time as _time
+        self._install_fake_client(monkeypatch)
+
+        import nebo as nb
+        nb.init(mode="server", terminal=False)
+
+        # At this point the poll thread must NOT have started yet because
+        # no pausable node has been registered.
+        assert nb._pause_poll_thread is None or not nb._pause_poll_thread.is_alive()
+
+        # Now define and invoke a pausable function — this mirrors what a
+        # user script does at runtime.
+        @nb.fn(pausable=True)
+        def step():
+            return 42
+
+        step()
+
+        # The poll thread must now be alive so pause commands from the
+        # daemon can reach the SDK.
+        assert nb._pause_poll_thread is not None, (
+            "Pause-poll thread was never started after a pausable node ran. "
+            "Bug 9: pausable=True functions are inoperative under nb run."
+        )
+        assert nb._pause_poll_thread.is_alive(), (
+            "Pause-poll thread exists but is not alive."
+        )
+
+        # Give the poll loop one cycle, then flip remote pause state and
+        # verify the SDK clears its pause_event within a reasonable window.
+        from nebo.core.state import get_state
+        state = get_state()
+        assert state._pause_event.is_set()  # unpaused initially
+
+        _PauseControllableFakeClient._pause_state = True
+        # Poll interval is 0.5s; allow up to 2s for propagation.
+        for _ in range(40):
+            if not state._pause_event.is_set():
+                break
+            _time.sleep(0.05)
+        assert not state._pause_event.is_set(), (
+            "SDK did not observe the remote pause flip within 2s. "
+            "Pause-poll thread is not forwarding daemon state into the SDK."
+        )
+
+        # Flip back and verify unpause propagates too.
+        _PauseControllableFakeClient._pause_state = False
+        for _ in range(40):
+            if state._pause_event.is_set():
+                break
+            _time.sleep(0.05)
+        assert state._pause_event.is_set(), (
+            "SDK did not observe the remote unpause flip within 2s."
+        )

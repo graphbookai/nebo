@@ -166,6 +166,16 @@ def _decorate_function(f, depends_on, pausable, group=None, ui_hints=None):
                 ui_hints=ui_hints,
             )
             registered = True
+            # If this is the first pausable node to be registered and we're
+            # in server mode, kick off the pause-poll thread now. It cannot
+            # be started inside nb.init() because _has_pausable only flips
+            # True here — long after init() has returned (Bug 9).
+            if pausable and state._client is not None:
+                try:
+                    from nebo import _start_pause_poll
+                    _start_pause_poll()
+                except ImportError:
+                    pass
         elif effective_group:
             # Update group if this function is being called within a class context
             node = state.nodes.get(node_id)
