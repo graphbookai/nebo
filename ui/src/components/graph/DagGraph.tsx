@@ -17,9 +17,9 @@ import {
 import dagre from '@dagrejs/dagre'
 import '@xyflow/react/dist/style.css'
 import { useStore } from '@/store'
-import { GraphbookNode } from './GraphbookNode'
+import { NeboNode } from './NeboNode'
 import { GroupNode } from './GroupNode'
-import { GraphbookEdge } from './GraphbookEdge'
+import { NeboEdge } from './NeboEdge'
 import { GraphToolbar } from './GraphToolbar'
 import { DescriptionOverlay } from './DescriptionOverlay'
 import { useContextMenu } from '@/hooks/useContextMenu'
@@ -30,12 +30,12 @@ interface DagGraphProps {
 }
 
 const nodeTypes: NodeTypes = {
-  graphbook: GraphbookNode,
-  group: GroupNode,
+  nebo: NeboNode,
+  classGroup: GroupNode,
 }
 
 const edgeTypes = {
-  graphbook: GraphbookEdge,
+  nebo: NeboEdge,
 }
 
 export const DragContext = createContext<string | null>(null)
@@ -123,16 +123,18 @@ function computeGroupNodes(
       return n.position.y + (dims?.height ?? n.measured?.height ?? DEFAULT_HEIGHT)
     })) + padding
 
+    const w = maxX - minX
+    const h = maxY - minY
     groupNodes.push({
       id: `group-${groupName}`,
-      type: 'group',
+      type: 'classGroup',
       position: { x: minX, y: minY },
       data: {
         label: groupName,
-        width: maxX - minX,
-        height: maxY - minY,
+        width: w,
+        height: h,
       },
-      style: { zIndex: -1 },
+      style: { width: w, height: h, zIndex: -1, background: 'transparent', border: 'none' },
       selectable: false,
       draggable: false,
     })
@@ -193,7 +195,7 @@ function DagGraphInner({ runId }: DagGraphProps) {
 
     const baseNodes: Node[] = visibleIds.map(id => ({
       id,
-      type: 'graphbook' as const,
+      type: 'nebo' as const,
       position: { x: 0, y: 0 },
       data: {
         nodeId: id,
@@ -208,7 +210,7 @@ function DagGraphInner({ runId }: DagGraphProps) {
         id: `${e.source}->${e.target}`,
         source: e.source,
         target: e.target,
-        type: 'graphbook',
+        type: 'nebo',
         data: { runId },
       }))
 
@@ -238,7 +240,7 @@ function DagGraphInner({ runId }: DagGraphProps) {
 
     const currentNodes = getNodes()
     // Filter out group nodes for layout — they aren't in dagre
-    const regularNodes = currentNodes.filter(n => n.type !== 'group')
+    const regularNodes = currentNodes.filter(n => n.type !== 'classGroup')
     const dims = getMeasuredDimensions(regularNodes)
     if (dims.size === regularNodes.length) {
       initialLayoutDone.current = true
@@ -259,7 +261,7 @@ function DagGraphInner({ runId }: DagGraphProps) {
     // Delay for React to measure new dimensions after expand/collapse
     const timer = setTimeout(() => {
       const currentNodes = getNodes()
-      const regularNodes = currentNodes.filter(n => n.type !== 'group')
+      const regularNodes = currentNodes.filter(n => n.type !== 'classGroup')
       const dims = getMeasuredDimensions(regularNodes)
       if (dims.size > 0) {
         const laid = runDagreLayout(regularNodes, edgesRef.current, dims, dagDirection)
@@ -274,7 +276,7 @@ function DagGraphInner({ runId }: DagGraphProps) {
 
   const onResetLayout = useCallback(() => {
     const currentNodes = getNodes()
-    const regularNodes = currentNodes.filter(n => n.type !== 'group')
+    const regularNodes = currentNodes.filter(n => n.type !== 'classGroup')
     const dims = getMeasuredDimensions(regularNodes)
     if (dims.size > 0) {
       const laid = runDagreLayout(regularNodes, edgesRef.current, dims, dagDirection)
