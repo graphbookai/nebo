@@ -316,23 +316,14 @@ Runs are persisted as `.nebo` binary files using MessagePack serialization. Each
 
 ## Architecture
 
-```
-+----------------+     +------------------+     +------------------+
-|  Your Python   |---->|    Nebo SDK      |---->|  Daemon Server   |
-|   Pipeline     |     |  (@fn, log,      |     |  (FastAPI,       |
-|                |     |   track, ...)    |     |   port 2048)     |
-+----------------+     +--------+---------+     +--------+---------+
-                                |                        |
-                        +-------v-------+ +--------------+---------------+
-                        |   Terminal    | |              |               |
-                        |   Dashboard  | |       +------v------+ +------v------+
-                        |   (Rich)     | |       |  MCP Tools  | |   Web UI    |
-                        +--------------+ |       |  (Claude)   | |             |
-                                         |       +-------------+ +-------------+
-                                   +-----v-----+
-                                   |    CLI    |
-                                   |    nebo     |
-                                   +-----------+
+```mermaid
+graph LR
+    A[Your Python Pipeline] --> B[Nebo SDK<br>@fn, log, track, ...]
+    B --> C[Daemon Server<br>FastAPI, port 2048]
+    B --> D[Terminal Dashboard<br>Rich]
+    C --> E[CLI<br>nebo]
+    C --> F[MCP Tools<br>Claude]
+    C --> G[Web UI]
 ```
 
 Two execution modes:
