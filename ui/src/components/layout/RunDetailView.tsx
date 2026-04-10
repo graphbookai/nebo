@@ -10,6 +10,8 @@ import { PinnedPanelStack } from '@/components/layout/PinnedPanelStack'
 import { TimelineScrubber } from '@/components/timeline/TimelineScrubber'
 import { RunStatusBadge } from '@/components/runs/RunStatusBadge'
 import { useState } from 'react'
+import { PanelRight } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
 export function RunDetailView() {
   const selectedRunId = useStore(s => s.selectedRunId)
@@ -24,6 +26,8 @@ export function RunDetailView() {
   const runColors = useStore(s => s.runColors)
   const runNames = useStore(s => s.runNames)
   const runs = useStore(s => s.runs)
+  const rightPanelOpen = useStore(s => s.rightPanelOpen)
+  const toggleRightPanel = useStore(s => s.toggleRightPanel)
   const [mobileTab, setMobileTab] = useState<'nodes' | 'graph'>('nodes')
 
   const duration = useRunDuration(run?.summary)
@@ -57,6 +61,14 @@ export function RunDetailView() {
                 {run.graph.workflow_description.split('\n')[0].replace(/^#\s*/, '')}
               </span>
             )}
+            <Button
+              variant="ghost"
+              onClick={toggleRightPanel}
+              className="ml-auto px-1.5 py-1 h-auto"
+              title={rightPanelOpen ? 'Close trace panel' : 'Open trace panel'}
+            >
+              <PanelRight className="h-4 w-4 text-muted-foreground" />
+            </Button>
           </div>
           {/* Comparison banner */}
           {isComparison && comparisonRunIds.length > 0 && (() => {

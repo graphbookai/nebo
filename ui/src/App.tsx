@@ -7,7 +7,6 @@ import { MobileNav } from '@/components/layout/MobileNav'
 import { RunDetailView } from '@/components/layout/RunDetailView'
 import { RightPanel } from '@/components/layout/RightPanel'
 import { RunList } from '@/components/runs/RunList'
-import { PanelRight } from 'lucide-react'
 
 export default function App() {
   useWebSocket()
@@ -16,7 +15,6 @@ export default function App() {
   const reconnecting = useStore(s => s.reconnecting)
   const connected = useStore(s => s.connected)
   const rightPanelOpen = useStore(s => s.rightPanelOpen)
-  const toggleRightPanel = useStore(s => s.toggleRightPanel)
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
@@ -40,20 +38,10 @@ export default function App() {
               <Sidebar />
             </ErrorBoundary>
           </div>
-          <div className="flex-1 overflow-hidden relative">
+          <div className="flex-1 overflow-hidden">
             <ErrorBoundary label="RunDetailView">
               <RunDetailView />
             </ErrorBoundary>
-            {/* Right panel toggle */}
-            {selectedRunId && (
-              <button
-                onClick={toggleRightPanel}
-                className="absolute top-2 right-2 z-10 p-1.5 rounded-md bg-card border border-border shadow-sm hover:bg-accent transition-colors"
-                title={rightPanelOpen ? 'Close trace panel' : 'Open trace panel'}
-              >
-                <PanelRight className="h-4 w-4 text-muted-foreground" />
-              </button>
-            )}
           </div>
           {selectedRunId && rightPanelOpen && (
             <div className="w-80 shrink-0 overflow-hidden">
