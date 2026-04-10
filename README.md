@@ -26,10 +26,10 @@ Nebo is in active development and features will roll out according to its [core 
 pip install nebo
 ```
 
-The CLI entry point is `nb`:
+The CLI entry point is `nebo`:
 
 ```bash
-nb --help
+nebo --help
 ```
 
 ## Quick Start
@@ -240,7 +240,7 @@ def review(predictions):
 ### Start the daemon server
 
 ```bash
-nb serve                  # foreground
+nebo serve                  # foreground
 nebo serve -d               # background (daemon mode)
 nebo serve --port 3000      # custom port
 nebo serve --no-store       # disable .nebo file storage
@@ -356,26 +356,7 @@ Two execution modes:
 | `track` | `track(iterable, name=None, total=None)` | Progress tracking |
 | `md` | `md(description: str)` | Set workflow description |
 | `ui` | `ui(layout, view, collapsed, minimap, theme)` | Set run-level UI defaults |
-| `init` | `init(port, host, mode, backends, terminal, dag_strategy, flush_interval, store)` | Manual initialization |
+| `init` | `init(port, host, mode, terminal, dag_strategy, flush_interval, store)` | Manual initialization |
 | `ask` | `ask(question, options=None, timeout=None)` | Human-in-the-loop prompt |
 | `get_state` | `get_state() -> SessionState` | Access the global state singleton |
 
-### Logging Backends
-
-Implement the `LoggingBackend` protocol to send events to external systems:
-
-```python
-from nebo import LoggingBackend
-
-class MyBackend:
-    def on_log(self, node: str, message: str, timestamp: float) -> None: ...
-    def on_metric(self, node: str, name: str, value: float, step: int) -> None: ...
-    def on_image(self, node: str, name: str, image_bytes: bytes, step: int) -> None: ...
-    def on_audio(self, node: str, name: str, audio_bytes: bytes, sr: int) -> None: ...
-    def on_node_start(self, node: str, params: dict) -> None: ...
-    def on_node_end(self, node: str, duration: float) -> None: ...
-    def flush(self) -> None: ...
-    def close(self) -> None: ...
-
-nb.init(backends=[MyBackend()])
-```

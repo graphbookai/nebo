@@ -105,8 +105,8 @@ class TestNamespaceImports:
 
     def test_import_extensions(self) -> None:
         """nebo.extensions should be importable."""
-        from nebo.extensions import LoggingBackend
-        assert LoggingBackend is not None
+        import nebo.extensions
+        assert nebo.extensions is not None
 
     def test_no_graphbook_references_in_init(self) -> None:
         """nebo.__init__ module docstring should not mention graphbook."""
@@ -132,12 +132,12 @@ class TestNamespaceImports:
         assert "NEBO_MODE" in source
         assert "GRAPHBOOK_" not in source
 
-    def test_pyproject_has_nb_script(self) -> None:
-        """pyproject.toml should have nb = nebo.cli:main entry point."""
+    def test_pyproject_has_nebo_script(self) -> None:
+        """pyproject.toml should have nebo = nebo.cli:main entry point."""
         from pathlib import Path
         toml_path = Path(__file__).parent.parent / "pyproject.toml"
         content = toml_path.read_text()
-        assert 'nb = "nebo.cli:main"' in content
+        assert 'nebo = "nebo.cli:main"' in content
 
     def test_pyproject_build_paths(self) -> None:
         """pyproject.toml build paths should reference nebo, not graphbook."""

@@ -21,7 +21,7 @@ from typing import Any, Literal, Optional, TypeVar
 from nebo.core.decorators import fn
 from nebo.core.tracker import track
 from nebo.core.config import configure, log_cfg
-from nebo.core.state import _current_node, get_state, LoggingBackend
+from nebo.core.state import _current_node, get_state
 from nebo.logging.logger import (
     log,
     log_metric,
@@ -85,7 +85,6 @@ def init(
     port: int = 2048,
     host: str = "localhost",
     mode: Literal["auto", "server", "local"] = "auto",
-    backends: Optional[list[Any]] = None,
     terminal: bool = True,
     dag_strategy: Literal["object", "stack", "both", "none"] = "object",
     flush_interval: float = 0.1,
@@ -104,7 +103,6 @@ def init(
         port: Daemon server port (default 2048).
         host: Daemon server host (default localhost).
         mode: 'auto', 'server', or 'local'.
-        backends: Optional list of LoggingBackend instances.
         terminal: Whether to show Rich terminal display in local mode.
         dag_strategy: How DAG edges are inferred between steps.
             'object' (default) uses sibling data-flow edges with parent
@@ -130,9 +128,6 @@ def init(
     state = get_state()
     state.port = port
     state.dag_strategy = dag_strategy
-
-    if backends:
-        state.backends.extend(backends)
 
     # Check environment overrides (set by `nebo run`)
     env_mode = os.environ.get("NEBO_MODE")
@@ -340,5 +335,4 @@ __all__ = [
     "ask",
     "ui",
     "get_state",
-    "LoggingBackend",
 ]

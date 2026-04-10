@@ -5,21 +5,7 @@ from __future__ import annotations
 import threading
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any, Optional, Protocol, runtime_checkable
-
-
-@runtime_checkable
-class LoggingBackend(Protocol):
-    """Protocol for logging backend extensions."""
-
-    def on_log(self, node: str, message: str, timestamp: float) -> None: ...
-    def on_metric(self, node: str, name: str, value: float, step: int) -> None: ...
-    def on_image(self, node: str, name: str, image_bytes: bytes, step: int) -> None: ...
-    def on_audio(self, node: str, name: str, audio_bytes: bytes, sr: int) -> None: ...
-    def on_node_start(self, node: str, params: dict) -> None: ...
-    def on_node_end(self, node: str, duration: float) -> None: ...
-    def flush(self) -> None: ...
-    def close(self) -> None: ...
+from typing import Any, Optional
 
 
 @dataclass
@@ -74,7 +60,6 @@ class SessionState:
         self._edge_set: set[tuple[str, str]] = set()
         self.config: dict[str, Any] = {}
         self.workflow_description: Optional[str] = None
-        self.backends: list[LoggingBackend] = []
         self.port: int = 2048
         self.server_process: Any = None
         self._display: Any = None
@@ -303,7 +288,6 @@ class SessionState:
             self.dag_strategy = "object"
             self.config.clear()
             self.workflow_description = None
-            self.backends.clear()
             self._initialized_server = False
             self._client = None
             self._mode = "local"

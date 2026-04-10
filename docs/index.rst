@@ -48,7 +48,6 @@ Features
 * **Q&A via AI**: Ask questions about runs — nebo delegates to Claude Code CLI via MCP
 * **MCP integration**: 17 tools for AI agents to run, monitor, and debug pipelines
 * **UI configuration from code**: ``nb.ui()`` and ``@nb.fn(ui={})`` set display defaults
-* **Custom backends**: Route events to TensorBoard, MLflow, W&B, or any external system
 * **Human-in-the-loop**: ``nb.ask()`` pauses the pipeline and prompts the user for input
 
 .. toctree::

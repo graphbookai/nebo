@@ -19,13 +19,13 @@ class TestCLI:
         return json.loads("\n".join(lines[1:]))
 
     def test_mcp_outputs_valid_json(self, capsys: pytest.CaptureFixture) -> None:
-        """nb mcp should output valid JSON config."""
+        """nebo mcp should output valid JSON config."""
         args = argparse.Namespace(port=2048)
         cmd_mcp(args)
         config = self._parse_mcp_config(capsys.readouterr().out)
         assert "mcpServers" in config
         assert "nebo" in config["mcpServers"]
-        assert config["mcpServers"]["nebo"]["command"] == "nb"
+        assert config["mcpServers"]["nebo"]["command"] == "nebo"
         assert "mcp-stdio" in config["mcpServers"]["nebo"]["args"]
 
     def test_mcp_default_port_omits_port_flag(self, capsys: pytest.CaptureFixture) -> None:
@@ -37,7 +37,7 @@ class TestCLI:
         assert "--port" not in nebo_args
 
     def test_mcp_custom_port_forwarded_to_args(self, capsys: pytest.CaptureFixture) -> None:
-        """`nb mcp --port 9000` must embed --port 9000 in the printed MCP config.
+        """`nebo mcp --port 9000` must embed --port 9000 in the printed MCP config.
 
         Without this, a daemon on a non-default port is unreachable from
         the MCP server the printed config instantiates.

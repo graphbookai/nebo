@@ -227,33 +227,15 @@ def _decorate_function(f, depends_on, pausable, group=None, ui_hints=None):
                 elif parent is not None and not depends_on_ids:
                     state.add_edge(parent, node_id)
 
-            # Notify backends
-            node_info = state.nodes.get(node_id)
-            params = node_info.params if node_info else {}
-            for backend in state.backends:
-                try:
-                    backend.on_node_start(node_id, params)
-                except Exception:
-                    pass
-
             # Block if paused (only for pausable functions)
             if pausable:
                 state.wait_if_paused()
 
             state.increment_count(node_id)
-            start_time = time.monotonic()
             result = f(*args, **kwargs)
-            duration = time.monotonic() - start_time
 
             # Track return value for data-flow edge inference
             state.track_return(node_id, result)
-
-            # Notify backends of completion
-            for backend in state.backends:
-                try:
-                    backend.on_node_end(node_id, duration)
-                except Exception:
-                    pass
 
             return result
         except Exception as exc:
@@ -272,7 +254,7 @@ def _decorate_function(f, depends_on, pausable, group=None, ui_hints=None):
             if node_info:
                 node_info.errors.append(error_info)
 
-            # Forward to the daemon client so `nb errors`, the web UI, and
+            # Forward to the daemon client so `nebo errors`, the web UI, and
             # MCP tools see the failure. Local-only mode drops the event.
             state._send_to_client({
                 "type": "error",

@@ -895,7 +895,7 @@ class TestErrorForwarding:
     Regression for the dead `state._queue.put_event(...)` path: the error
     handler in `@nb.fn` previously only queued errors to `state._queue`,
     which was always None, so the daemon never received an `error` event
-    and `nb errors` / the UI would show no errors for crashed nodes.
+    and `nebo errors` / the UI would show no errors for crashed nodes.
     """
 
     def setup_method(self) -> None:

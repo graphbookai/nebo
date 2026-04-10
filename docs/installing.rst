@@ -34,8 +34,8 @@ Or use the daemon for persistent observability with a web UI:
 
 .. code-block:: bash
 
-    nb serve -d
-    nb run my_pipeline.py
+    nebo serve -d
+    nebo run my_pipeline.py
 
 Then visit http://localhost:2048 to see the UI.
 

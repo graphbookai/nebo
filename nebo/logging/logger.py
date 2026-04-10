@@ -113,12 +113,6 @@ def log(message: Union[str, Any], *, step: Optional[int] = None) -> None:
     if node_id and node_id in state.nodes:
         state.nodes[node_id].logs.append(entry)
 
-    for backend in state.backends:
-        try:
-            backend.on_log(node_id or "", message, timestamp)
-        except Exception:
-            pass
-
     state._send_to_client(entry)
 
 
@@ -161,12 +155,6 @@ def log_metric(name: str, value: float, step: Optional[int] = None) -> None:
             node.metrics[name] = []
         node.metrics[name].append((step, value))
 
-    for backend in state.backends:
-        try:
-            backend.on_metric(node_id or "", name, value, step or 0)
-        except Exception:
-            pass
-
     state._send_to_client(entry)
 
 
@@ -203,12 +191,6 @@ def log_image(image: Any, *, name: Optional[str] = None, step: Optional[int] = N
 
     if node_id and node_id in state.nodes:
         state.nodes[node_id].images.append({"name": name, "step": step, "timestamp": timestamp})
-
-    for backend in state.backends:
-        try:
-            backend.on_image(node_id or "", name, image_bytes, step or 0)
-        except Exception:
-            pass
 
     state._send_to_client(entry)
 
@@ -247,12 +229,6 @@ def log_audio(audio: Any, sr: int = 16000, *, name: Optional[str] = None, step: 
 
     if node_id and node_id in state.nodes:
         state.nodes[node_id].audio.append({"name": name, "step": step, "sr": sr, "timestamp": timestamp})
-
-    for backend in state.backends:
-        try:
-            backend.on_audio(node_id or "", name, audio_bytes, sr)
-        except Exception:
-            pass
 
     state._send_to_client(entry)
 

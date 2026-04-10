@@ -284,7 +284,7 @@ When you run a script directly (``python my_pipeline.py``), nebo operates in loc
 Server Mode
 -----------
 
-When the daemon is running, events are streamed to it via HTTP. This is activated automatically when using ``nb run``, which sets the ``NEBO_MODE``, ``NEBO_SERVER_PORT``, and ``NEBO_RUN_ID`` environment variables.
+When the daemon is running, events are streamed to it via HTTP. This is activated automatically when using ``nebo run``, which sets the ``NEBO_MODE``, ``NEBO_SERVER_PORT``, and ``NEBO_RUN_ID`` environment variables.
 
 You can also trigger server mode manually:
 
@@ -316,56 +316,13 @@ To disable storage globally when starting the daemon:
 
 .. code-block:: bash
 
-    nb serve --no-store
+    nebo serve --no-store
 
 To load a ``.nebo`` file into the daemon for viewing and Q&A:
 
 .. code-block:: bash
 
-    nb load path/to/run.nebo
-
-
-Custom Logging Backends
-========================
-
-Implement the ``LoggingBackend`` protocol to route events to external systems (TensorBoard, MLflow, W&B, etc.):
-
-.. code-block:: python
-
-    from nebo import LoggingBackend
-
-    class TensorBoardBackend:
-        def __init__(self, log_dir="runs"):
-            from torch.utils.tensorboard import SummaryWriter
-            self.writer = SummaryWriter(log_dir)
-
-        def on_log(self, node, message, timestamp):
-            pass
-
-        def on_metric(self, node, name, value, step):
-            self.writer.add_scalar(f"{node}/{name}", value, step)
-
-        def on_image(self, node, name, image_bytes, step):
-            pass
-
-        def on_audio(self, node, name, audio_bytes, sr):
-            pass
-
-        def on_node_start(self, node, params):
-            pass
-
-        def on_node_end(self, node, duration):
-            pass
-
-        def flush(self):
-            self.writer.flush()
-
-        def close(self):
-            self.writer.close()
-
-    nb.init(backends=[TensorBoardBackend()])
-
-Multiple backends can be active simultaneously.
+    nebo load path/to/run.nebo
 
 
 MCP Integration for AI Agents
@@ -377,13 +334,13 @@ Nebo includes 17 MCP tools that allow AI agents (like Claude) to run, monitor, d
 
    .. code-block:: console
 
-       $ nb serve -d
+       $ nebo serve -d
 
 2. Get the MCP config:
 
    .. code-block:: console
 
-       $ nb mcp
+       $ nebo mcp
 
 3. Add the printed config to your Claude Desktop or Claude Code MCP configuration.
 

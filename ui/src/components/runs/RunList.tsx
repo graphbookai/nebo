@@ -29,7 +29,7 @@ export function RunList() {
     return (
       <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-6">
         <p className="text-sm">No runs yet</p>
-        <p className="text-xs mt-1">Start a pipeline with <code className="text-xs bg-muted px-1 py-0.5 rounded">nb run</code></p>
+        <p className="text-xs mt-1">Start a pipeline with <code className="text-xs bg-muted px-1 py-0.5 rounded">nebo run</code></p>
       </div>
     )
   }

@@ -136,14 +136,13 @@ UI Configuration
 Initialization
 --------------
 
-.. function:: nb.init(port: int = 2048, host: str = "localhost", mode: str = "auto", backends: list | None = None, terminal: bool = True, dag_strategy: str = "object", flush_interval: float = 0.1, store: bool = True) -> None
+.. function:: nb.init(port: int = 2048, host: str = "localhost", mode: str = "auto", terminal: bool = True, dag_strategy: str = "object", flush_interval: float = 0.1, store: bool = True) -> None
 
     Explicitly initialize nebo.
 
     :param port: Daemon server port (default: 2048).
     :param host: Daemon server host (default: ``"localhost"``).
     :param mode: ``"auto"``, ``"server"``, or ``"local"``.
-    :param backends: Optional list of ``LoggingBackend`` instances.
     :param terminal: Whether to show the Rich terminal display in local mode.
     :param dag_strategy: How DAG edges are inferred: ``"object"`` (default), ``"stack"``, ``"both"``, or ``"none"``.
     :param flush_interval: Seconds between event flushes (default: 0.1).
@@ -157,7 +156,7 @@ Initialization
 
     .. note::
 
-        You rarely need to call ``init()`` explicitly. When using ``nb run``, the SDK auto-initializes from environment variables on the first ``@fn`` execution.
+        You rarely need to call ``init()`` explicitly. When using ``nebo run``, the SDK auto-initializes from environment variables on the first ``@fn`` execution.
 
 
 Human-in-the-Loop
@@ -180,32 +179,15 @@ State Access
 
     Get the global session state singleton. Advanced usage — most users won't need this.
 
-    :returns: The ``SessionState`` instance containing all nodes, edges, and backends.
+    :returns: The ``SessionState`` instance containing all nodes, edges, and configuration.
 
 
-Protocol: ``LoggingBackend``
-----------------------------
-
-.. class:: LoggingBackend
-
-    Protocol for custom logging backend extensions. Implement all methods to route events to external systems.
-
-    .. method:: on_log(node: str, message: str, timestamp: float) -> None
-    .. method:: on_metric(node: str, name: str, value: float, step: int) -> None
-    .. method:: on_image(node: str, name: str, image_bytes: bytes, step: int) -> None
-    .. method:: on_audio(node: str, name: str, audio_bytes: bytes, sr: int) -> None
-    .. method:: on_node_start(node: str, params: dict) -> None
-    .. method:: on_node_end(node: str, duration: float) -> None
-    .. method:: flush() -> None
-    .. method:: close() -> None
-
-
-CLI Reference: ``nb``
+CLI Reference: ``nebo``
 ======================
 
 .. code-block:: text
 
-    nb <command> [options]
+    nebo <command> [options]
 
 Commands
 --------
@@ -215,7 +197,7 @@ Commands
 
     .. code-block:: console
 
-        $ nb serve [--host HOST] [--port PORT] [-d] [--no-store]
+        $ nebo serve [--host HOST] [--port PORT] [-d] [--no-store]
 
     ``--host``
         Host to bind (default: ``localhost``).
@@ -234,7 +216,7 @@ Commands
 
     .. code-block:: console
 
-        $ nb run <script> [--name NAME] [--port PORT] [--flush-interval SECS] [args...]
+        $ nebo run <script> [--name NAME] [--port PORT] [--flush-interval SECS] [args...]
 
     ``<script>``
         Path to the Python script.
@@ -247,49 +229,49 @@ Commands
 
     .. code-block:: console
 
-        $ nb status [--port PORT]
+        $ nebo status [--port PORT]
 
 ``stop``
     Stop the daemon.
 
     .. code-block:: console
 
-        $ nb stop [--port PORT]
+        $ nebo stop [--port PORT]
 
 ``logs``
     View logs from runs.
 
     .. code-block:: console
 
-        $ nb logs [--run RUN_ID] [--node NODE] [--limit N] [--port PORT]
+        $ nebo logs [--run RUN_ID] [--node NODE] [--limit N] [--port PORT]
 
 ``errors``
     View errors from runs.
 
     .. code-block:: console
 
-        $ nb errors [--run RUN_ID] [--port PORT]
+        $ nebo errors [--run RUN_ID] [--port PORT]
 
 ``load``
     Load a ``.nebo`` file into the daemon for viewing and Q&A.
 
     .. code-block:: console
 
-        $ nb load <file> [--port PORT]
+        $ nebo load <file> [--port PORT]
 
 ``mcp``
     Print MCP connection config for Claude Code / Claude Desktop.
 
     .. code-block:: console
 
-        $ nb mcp
+        $ nebo mcp
 
 ``mcp-stdio``
     Run the MCP stdio bridge (used internally).
 
     .. code-block:: console
 
-        $ nb mcp-stdio [--port PORT]
+        $ nebo mcp-stdio [--port PORT]
 
 
 MCP Tools Reference
@@ -393,7 +375,7 @@ Action Tools
 Environment Variables
 ======================
 
-These are set automatically by ``nb run`` and read by the SDK during auto-initialization:
+These are set automatically by ``nebo run`` and read by the SDK during auto-initialization:
 
 ``NEBO_MODE``
     Execution mode: ``"server"`` or ``"local"``.
