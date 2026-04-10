@@ -118,7 +118,7 @@ class TestRunStartEmission:
     """Regression tests for `run_start` event emission in nb.init().
 
     Without these, the daemon never opens its `.nebo` file writer because
-    `nb run` sets NEBO_RUN_ID, which previously suppressed the `run_start`
+    `nebo run` sets NEBO_RUN_ID, which previously suppressed the `run_start`
     event from the SDK side.
     """
 
@@ -154,10 +154,10 @@ class TestRunStartEmission:
         monkeypatch.setattr(client_mod, "DaemonClient", TrackingFake)
 
     def test_run_start_emitted_when_run_id_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When `nb run` sets NEBO_RUN_ID, SDK init must still emit run_start.
+        """When `nebo run` sets NEBO_RUN_ID, SDK init must still emit run_start.
 
         Previously, script_name was only computed if run_id was falsy, so the
-        whole `run_start` emission was suppressed under `nb run` and the daemon
+        whole `run_start` emission was suppressed under `nebo run` and the daemon
         never opened its file writer — no .nebo file got written.
         """
         import os
@@ -337,7 +337,7 @@ class _PauseControllableFakeClient(_FakeClient):
 
 
 class TestPausePollStartsLazily:
-    """Regression tests for Bug 9: pausable functions never pause under `nb run`.
+    """Regression tests for Bug 9: pausable functions never pause under `nebo run`.
 
     Root cause: `_start_pause_poll()` is called exactly once at the end of
     `init()` and bails out early when `state._has_pausable` is False. But
@@ -378,7 +378,7 @@ class TestPausePollStartsLazily:
     ) -> None:
         """Registering a @fn(pausable=True) AFTER init() must start the poll thread.
 
-        This is the production ordering under `nb run`: init() runs first
+        This is the production ordering under `nebo run`: init() runs first
         (module import), then the first decorated function call lazily
         triggers `register_node()` and sets `_has_pausable=True`. The fix
         must start the poll thread at that moment.
@@ -405,7 +405,7 @@ class TestPausePollStartsLazily:
         # daemon can reach the SDK.
         assert nb._pause_poll_thread is not None, (
             "Pause-poll thread was never started after a pausable node ran. "
-            "Bug 9: pausable=True functions are inoperative under nb run."
+            "Bug 9: pausable=True functions are inoperative under nebo run."
         )
         assert nb._pause_poll_thread.is_alive(), (
             "Pause-poll thread exists but is not alive."

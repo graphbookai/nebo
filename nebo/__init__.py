@@ -76,7 +76,7 @@ def _ensure_init() -> None:
         _auto_init_done = True
         return
 
-    # Auto-connect to daemon. Env vars from `nb run`
+    # Auto-connect to daemon. Env vars from `nebo run`
     # take priority if present.
     init(mode="auto", _internal=True)
 
@@ -95,7 +95,7 @@ def init(
     """Initialize nebo.
 
     Mode detection (when mode='auto'):
-    1. Check environment variables (set by 'nb run')
+    1. Check environment variables (set by 'nebo run')
     2. Check for daemon at host:port
     3. If found -> server mode (stream events to daemon)
     4. If not found -> local mode (in-process rich terminal only)
@@ -134,7 +134,7 @@ def init(
     if backends:
         state.backends.extend(backends)
 
-    # Check environment overrides (set by `nb run`)
+    # Check environment overrides (set by `nebo run`)
     env_mode = os.environ.get("NEBO_MODE")
     env_port = os.environ.get("NEBO_SERVER_PORT")
     env_run_id = os.environ.get("NEBO_RUN_ID")
@@ -154,8 +154,8 @@ def init(
     # Generate a run_id if not provided by env (e.g. direct script execution).
     # Compute script_name whenever we may end up in a non-local mode, so the
     # `run_start` event fires regardless of whether run_id came from the
-    # environment (nb run) or was freshly generated (direct python execution).
-    # Without this, `nb run` would set NEBO_RUN_ID, skip script_name, skip
+    # environment (nebo run) or was freshly generated (direct python execution).
+    # Without this, `nebo run` would set NEBO_RUN_ID, skip script_name, skip
     # run_start, and the daemon would never open its .nebo file writer.
     run_id = env_run_id
     script_name: Optional[str] = None

@@ -39,7 +39,7 @@ dev = [
 ]
 
 [project.scripts]
-nb = "nebo.cli:main"
+nebo = "nebo.cli:main"
 
 [tool.hatch.version]
 source = "vcs"

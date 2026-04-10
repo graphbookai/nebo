@@ -1,6 +1,6 @@
 """MCP stdio transport that bridges stdin/stdout to the daemon's HTTP API.
 
-Used by Claude Code: `nb mcp-stdio` runs this as a subprocess,
+Used by Claude Code: `nebo mcp-stdio` runs this as a subprocess,
 reading JSON-RPC from stdin and forwarding tool calls to the daemon.
 """
 

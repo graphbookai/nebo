@@ -1,13 +1,13 @@
 """CLI entry points for nebo.
 
 Commands:
-    nb serve   — Start the persistent daemon server
-    nb run     — Run a pipeline as a managed subprocess
-    nb status  — Show daemon status and recent runs
-    nb stop    — Stop the daemon
-    nb logs    — View logs from runs
-    nb errors  — View errors from runs
-    nb mcp     — Print MCP connection config for Claude Code
+    nebo serve   — Start the persistent daemon server
+    nebo run     — Run a pipeline as a managed subprocess
+    nebo status  — Show daemon status and recent runs
+    nebo stop    — Stop the daemon
+    nebo logs    — View logs from runs
+    nebo errors  — View errors from runs
+    nebo mcp     — Print MCP connection config for Claude Code
 """
 
 from __future__ import annotations
@@ -326,7 +326,7 @@ def cmd_mcp(args: argparse.Namespace) -> None:
     config = {
         "mcpServers": {
             "nebo": {
-                "command": "nb",
+                "command": "nebo",
                 "args": nebo_args,
                 "env": {},
             }
@@ -368,8 +368,8 @@ def cmd_mcp_stdio(args: argparse.Namespace) -> None:
 def main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
-        prog="nb",
-        description="Nebo — Lightweight observability for Python pipelines",
+        prog="nebo",
+        description="Nebo - Function-level logging for Python",
     )
     parser.add_argument("--port", type=int, default=2048, help="Daemon port (default: 2048)")
     subparsers = parser.add_subparsers(dest="command")

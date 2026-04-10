@@ -1,6 +1,24 @@
 # Nebo
 
-Lightweight observability for Python programs. Decorate your functions with `@nb.fn()`, and nebo automatically infers a DAG from your call graph, captures logs, metrics, inspections, and errors -- all queryable in real time via CLI, MCP tools, or a Rich terminal dashboard.
+Nebo is function-level logging for Python. Decorate your functions with `@nb.fn()` and call `nb.log()` to write logs.
+
+## Why function-level logging?
+
+Function-level logging captures logs specifically at individual functions to monitor inputs and outputs and execution flow. This granularity enables observability for applications such as:
+* Agentic workflows with multimodal data
+* DAG-structured data-processing pipelines
+* ML training + inference
+
+## Features
+
+* Captured log types: text, metrics, images, audio
+* Automatically infers a DAG from your call graph
+* MCP for AI agent query support
+* Fully self-contained log files
+* Rich terminal UI
+* Modern web UI
+
+Nebo is in active development and features will roll out according to its [core principles](https://docs.graphbook.ai).
 
 ## Installation
 
@@ -223,44 +241,44 @@ def review(predictions):
 
 ```bash
 nb serve                  # foreground
-nb serve -d               # background (daemon mode)
-nb serve --port 3000      # custom port
-nb serve --no-store       # disable .nebo file storage
+nebo serve -d               # background (daemon mode)
+nebo serve --port 3000      # custom port
+nebo serve --no-store       # disable .nebo file storage
 ```
 
 ### Run a pipeline
 
 ```bash
-nb run my_pipeline.py
-nb run my_pipeline.py --name "experiment-1"
+nebo run my_pipeline.py
+nebo run my_pipeline.py --name "experiment-1"
 ```
 
 ### Load a .nebo file
 
 ```bash
-nb load .nebo/2026-04-06_143000_run-1.nebo
+nebo load .nebo/2026-04-06_143000_run-1.nebo
 ```
 
 ### Check status, logs, errors
 
 ```bash
-nb status
-nb logs
-nb logs --run experiment-1 --node train --limit 50
-nb errors
-nb errors --run experiment-1
+nebo status
+nebo logs
+nebo logs --run experiment-1 --node train --limit 50
+nebo errors
+nebo errors --run experiment-1
 ```
 
 ### Stop the daemon
 
 ```bash
-nb stop
+nebo stop
 ```
 
 ### MCP integration
 
 ```bash
-nb mcp   # print Claude Code MCP config
+nebo mcp   # print Claude Code MCP config
 ```
 
 ## MCP Tools for AI Agents
@@ -294,7 +312,7 @@ Nebo exposes 15 MCP tools for querying and controlling pipelines from an AI agen
 
 ## .nebo File Format
 
-Runs are persisted as `.nebo` binary files using MessagePack serialization. Each file contains a header (magic, version, metadata) followed by append-only event entries. Use `nb load` to replay a file into the daemon.
+Runs are persisted as `.nebo` binary files using MessagePack serialization. Each file contains a header (magic, version, metadata) followed by append-only event entries. Use `nebo load` to replay a file into the daemon.
 
 ## Architecture
 
@@ -313,14 +331,14 @@ Runs are persisted as `.nebo` binary files using MessagePack serialization. Each
                                          |       +-------------+ +-------------+
                                    +-----v-----+
                                    |    CLI    |
-                                   |    nb     |
+                                   |    nebo     |
                                    +-----------+
 ```
 
 Two execution modes:
 
 - **Local mode** (default): In-process only. No daemon needed.
-- **Server mode**: Events stream to a persistent daemon via HTTP. Use `nb serve` to start the daemon, then `nb run` to execute pipelines.
+- **Server mode**: Events stream to a persistent daemon via HTTP. Use `nebo serve` to start the daemon, then `nebo run` to execute pipelines.
 
 ## API Reference
 
