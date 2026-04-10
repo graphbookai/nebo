@@ -130,7 +130,7 @@ export interface RunState {
   loaded: boolean
 }
 
-interface GraphbookStore {
+interface NeboStore {
   // Connection
   connected: boolean
   reconnecting: boolean
@@ -246,7 +246,7 @@ interface GraphbookStore {
   processWsEvents: (runId: string, events: WsEvent[]) => void
 }
 
-function ensureRun(state: GraphbookStore, runId: string): RunState {
+function ensureRun(state: NeboStore, runId: string): RunState {
   let run = state.runs.get(runId)
   if (!run) {
     run = {
@@ -280,7 +280,7 @@ function ensureRun(state: GraphbookStore, runId: string): RunState {
   return run
 }
 
-export const useStore = create<GraphbookStore>((set, get) => ({
+export const useStore = create<NeboStore>((set, get) => ({
   connected: false,
   reconnecting: false,
   setConnectionStatus: (connected, reconnecting) => set({ connected, reconnecting }),
@@ -347,7 +347,7 @@ export const useStore = create<GraphbookStore>((set, get) => ({
   removeComparisonGroup: (groupId) => set(state => {
     const next = new Map(state.comparisonGroups)
     next.delete(groupId)
-    const updates: Partial<GraphbookStore> = { comparisonGroups: next }
+    const updates: Partial<NeboStore> = { comparisonGroups: next }
     if (state.selectedRunId === groupId) updates.selectedRunId = null
     return updates
   }),
@@ -448,7 +448,7 @@ export const useStore = create<GraphbookStore>((set, get) => ({
     // Apply run-level UI defaults from nb.ui() exactly once per run so the
     // user's subsequent interactive changes are not clobbered on every
     // refetch. We touch only the fields the server explicitly provided.
-    const patch: Partial<GraphbookStore> = { runs }
+    const patch: Partial<NeboStore> = { runs }
     const ui = graph.ui_config
     const alreadyApplied = state.appliedUiConfigRuns.has(runId)
     if (ui && !alreadyApplied) {

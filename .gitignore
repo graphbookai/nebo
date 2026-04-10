@@ -15,5 +15,11 @@ docs/_build
 # superpowers
 docs/superpowers
 
+# playwright-mcp
+.playwright-mcp
+
+# Nebo-generated files
+*.nebo
+
 # evaluator-only test suite (generator should not read)
 TESTS.md

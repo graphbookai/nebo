@@ -2,7 +2,7 @@ import { memo } from 'react'
 import { getBezierPath, type EdgeProps } from '@xyflow/react'
 import { useStore } from '@/store'
 
-export const GraphbookEdge = memo(function GraphbookEdge({
+export const NeboEdge = memo(function NeboEdge({
   id,
   sourceX,
   sourceY,

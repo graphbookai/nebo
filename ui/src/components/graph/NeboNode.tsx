@@ -10,14 +10,14 @@ import { ContextMenu } from '@/components/shared/ContextMenu'
 import { ContextMenuItem } from '@/components/shared/ContextMenuItem'
 import { DragContext } from './DagGraph'
 
-interface GraphbookNodeData {
+interface NeboNodeData {
   nodeId: string
   runId: string
   inDag: boolean
 }
 
-export const GraphbookNode = memo(function GraphbookNode({ data, id }: NodeProps) {
-  const { nodeId, runId, inDag } = data as unknown as GraphbookNodeData
+export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
+  const { nodeId, runId, inDag } = data as unknown as NeboNodeData
 
   // Granular selectors — only re-render when THIS node's data changes, not on every log/metric append
   const nodeInfo = useStore(s => s.runs.get(runId)?.graph?.nodes[nodeId] ?? null)
