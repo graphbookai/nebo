@@ -38,6 +38,19 @@ class DAGEdge:
     target: str
 
 
+@dataclass
+class _RunSnapshot:
+    """Snapshot of per-run state fields for save/restore across runs."""
+    nodes: dict
+    edges: list
+    edge_set: set
+    return_origins: dict
+    node_parents: dict
+    workflow_description: Optional[str]
+    ui_config: Optional[dict]
+    has_pausable: bool
+
+
 class SessionState:
     """Global singleton managing all nebo state."""
 
@@ -75,6 +88,9 @@ class SessionState:
         self._pause_event.set()  # starts unpaused
         self._has_pausable = False
         self.ui_config: Optional[dict] = None  # Run-level UI defaults
+        # Multi-run support
+        self._run_snapshots: dict[str, _RunSnapshot] = {}
+        self._active_run_id: Optional[str] = None
 
     def ensure_display(self) -> None:
         """Ensure the terminal display is created and started."""
@@ -276,6 +292,48 @@ class SessionState:
             "workflow_description": self.workflow_description,
         }
 
+    def save_run_state(self, run_id: str) -> None:
+        """Snapshot current per-run fields into _run_snapshots[run_id]."""
+        with self._lock_state:
+            self._run_snapshots[run_id] = _RunSnapshot(
+                nodes=dict(self.nodes),
+                edges=list(self.edges),
+                edge_set=set(self._edge_set),
+                return_origins=dict(self._return_origins),
+                node_parents=dict(self._node_parents),
+                workflow_description=self.workflow_description,
+                ui_config=self.ui_config,
+                has_pausable=self._has_pausable,
+            )
+
+    def restore_run_state(self, run_id: str) -> None:
+        """Restore per-run fields from a snapshot."""
+        snap = self._run_snapshots.get(run_id)
+        if snap is None:
+            self.clear_run_state()
+            return
+        with self._lock_state:
+            self.nodes = dict(snap.nodes)
+            self.edges = list(snap.edges)
+            self._edge_set = set(snap.edge_set)
+            self._return_origins = dict(snap.return_origins)
+            self._node_parents = dict(snap.node_parents)
+            self.workflow_description = snap.workflow_description
+            self.ui_config = snap.ui_config
+            self._has_pausable = snap.has_pausable
+
+    def clear_run_state(self) -> None:
+        """Reset per-run fields to empty (for new runs)."""
+        with self._lock_state:
+            self.nodes.clear()
+            self.edges.clear()
+            self._edge_set.clear()
+            self._return_origins.clear()
+            self._node_parents.clear()
+            self.workflow_description = None
+            self.ui_config = None
+            self._has_pausable = False
+
     def reset(self) -> None:
         """Reset all state. Primarily for testing."""
         with self._lock_state:
@@ -292,6 +350,8 @@ class SessionState:
             self._pause_event.set()
             self._has_pausable = False
             self.ui_config = None
+            self._run_snapshots.clear()
+            self._active_run_id = None
 
     @classmethod
     def reset_singleton(cls) -> None:

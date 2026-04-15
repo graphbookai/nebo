@@ -47,6 +47,7 @@ class DaemonClient:
         self._thread: Optional[threading.Thread] = None
         self._fallback_buffer: list[dict[str, Any]] = []
         self._lock = threading.Lock()
+        self._run_completed: bool = False
 
     def connect(self) -> bool:
         """Attempt to connect to the daemon server.
@@ -91,8 +92,8 @@ class DaemonClient:
 
     def disconnect(self) -> None:
         """Disconnect from the daemon and flush remaining events."""
-        # Send run_completed event before flushing
-        if self._connected:
+        # Send run_completed event before flushing (guard against double send)
+        if self._connected and not self._run_completed:
             self._queue.put({
                 "type": "run_completed",
                 "data": {"exit_code": 0},

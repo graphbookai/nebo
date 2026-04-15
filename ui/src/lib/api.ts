@@ -28,6 +28,7 @@ export interface RunSummary {
   edge_count: number
   log_count: number
   error_count: number
+  run_name: string | null
 }
 
 export interface GraphData {
@@ -48,6 +49,7 @@ export interface GraphData {
   has_pausable: boolean
   paused: boolean
   ui_config?: UiConfig | null
+  run_config?: Record<string, unknown> | null
 }
 
 export interface UiConfig {

@@ -37,7 +37,7 @@ export function RunCard({ run, selected, onClick }: RunCardProps) {
   const [draft, setDraft] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const displayName = customName || scriptName
+  const displayName = customName || run.run_name || scriptName
 
   const startEditing = useCallback(() => {
     setDraft(displayName)

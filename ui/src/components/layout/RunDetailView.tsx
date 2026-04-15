@@ -42,7 +42,7 @@ export function RunDetailView() {
 
   const scriptName = isComparison
     ? `Comparing ${comparisonRunIds.length} runs`
-    : (run.summary.script_path.split('/').pop() ?? run.summary.script_path)
+    : (run.summary.run_name ?? run.summary.script_path.split('/').pop() ?? run.summary.script_path)
 
   return (
     <div className="flex flex-col h-full">

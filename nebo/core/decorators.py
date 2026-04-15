@@ -156,7 +156,7 @@ def _decorate_function(f, depends_on, pausable, group=None, ui_hints=None):
         effective_group = group or _current_group.get()
 
         # Register node on first execution (not at import time)
-        if not registered:
+        if not registered or node_id not in state.nodes:
             state.register_node(
                 node_id=node_id,
                 func_name=f.__name__,

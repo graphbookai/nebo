@@ -43,6 +43,7 @@ ENTRY_TYPES = {
     "run_start": 15,
     "run_completed": 16,
     "pause_state": 17,
+    "run_config": 18,
 }
 
 ENTRY_TYPES_REVERSE = {v: k for k, v in ENTRY_TYPES.items()}

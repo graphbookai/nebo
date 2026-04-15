@@ -98,6 +98,8 @@ class Run:
     stdout_lines: list[str] = field(default_factory=list)
     stderr_lines: list[str] = field(default_factory=list)
     significant_events: list[dict] = field(default_factory=list)
+    run_name: Optional[str] = None
+    run_config: dict = field(default_factory=dict)
 
     def get_graph(self) -> dict:
         """Return the DAG as a serializable dict."""
@@ -122,6 +124,7 @@ class Run:
             "has_pausable": any(n.pausable for n in self.nodes.values()),
             "paused": self.paused,
             "ui_config": self.ui_config,
+            "run_config": self.run_config,
         }
 
     def get_summary(self) -> dict:
@@ -138,6 +141,7 @@ class Run:
             "edge_count": len(self.edges),
             "log_count": len(self.logs),
             "error_count": len(self.errors),
+            "run_name": self.run_name,
         }
 
 
@@ -442,11 +446,22 @@ class DaemonState:
         elif etype == "ui_config":
             run.ui_config = event.get("data", {})
 
+        elif etype == "run_config":
+            run.run_config = event.get("data", {})
+
         elif etype == "run_start":
             data = event.get("data", {})
             script_path = data.get("script_path", "")
             if script_path:
                 run.script_path = script_path
+            # Store run_name if provided
+            run_name = data.get("run_name")
+            if run_name is not None:
+                run.run_name = run_name
+            # Resume support: set status back to running
+            run.status = "running"
+            if self.active_run_id is None:
+                self.active_run_id = run.id
             # Enable storage if SDK requests it and daemon allows it
             store = data.get("store", True)
             if store and not os.environ.get("NEBO_NO_STORE") and not getattr(run, "_file_writer", None):
@@ -474,6 +489,7 @@ class DaemonState:
                 "exit_code": exit_code,
                 "status": run.status,
             })
+            self.finalize_run(run.id)
 
     def mark_run_completed(self, run_id: str, exit_code: int = 0) -> None:
         """Mark a run as completed."""

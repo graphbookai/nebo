@@ -47,7 +47,7 @@ export function ComparisonGroupCard({ group, selected, onClick }: ComparisonGrou
     const custom = runNames.get(rid)
     if (custom) return { name: custom, color: runColors.get(rid) ?? '#60a5fa' }
     const run = runs.get(rid)
-    const scriptName = run?.summary.script_path.split('/').pop() ?? rid
+    const scriptName = run?.summary.run_name || run?.summary.script_path.split('/').pop() || rid
     return { name: scriptName, color: runColors.get(rid) ?? '#60a5fa' }
   })
 

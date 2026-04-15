@@ -262,6 +262,7 @@ function ensureRun(state: NeboStore, runId: string): RunState {
         edge_count: 0,
         log_count: 0,
         error_count: 0,
+        run_name: null,
       },
       graph: null,
       logs: [],
@@ -864,6 +865,7 @@ export const useStore = create<NeboStore>((set, get) => ({
             edge_count: 0,
             log_count: 0,
             error_count: 0,
+            run_name: null,
           },
           graph: null,
           logs: [],
@@ -1096,8 +1098,17 @@ export const useStore = create<NeboStore>((set, get) => ({
 
           case 'run_start': {
             const scriptPath = (data.script_path as string) ?? ''
-            if (scriptPath) {
-              run.summary = { ...run.summary, script_path: scriptPath }
+            const runName = (data.run_name as string) ?? null
+            const patch: Partial<typeof run.summary> = { status: 'running' }
+            if (scriptPath) patch.script_path = scriptPath
+            if (runName !== null) patch.run_name = runName
+            run.summary = { ...run.summary, ...patch }
+            break
+          }
+
+          case 'run_config': {
+            if (run.graph) {
+              run.graph = { ...run.graph, run_config: data as Record<string, unknown> }
             }
             break
           }

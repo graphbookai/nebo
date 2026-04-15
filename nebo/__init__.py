@@ -12,6 +12,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import sys
 import threading
 import time
 import uuid
@@ -324,6 +325,121 @@ def ui(
     })
 
 
+def _resolve_config(config: Any) -> dict:
+    """Convert config to a plain dict, handling OmegaConf DictConfig."""
+    if config is None:
+        return {}
+    try:
+        from omegaconf import DictConfig, OmegaConf
+        if isinstance(config, DictConfig):
+            return OmegaConf.to_container(config, resolve=True)  # type: ignore
+    except ImportError:
+        pass
+    if isinstance(config, dict):
+        return config
+    return dict(config)
+
+
+class _RunContext:
+    """Context manager returned by start_run()."""
+
+    def __init__(self, run_id: str, name: Optional[str], config: Optional[dict]) -> None:
+        self.run_id = run_id
+        self.name = name
+        self.config = config
+
+    def __enter__(self) -> _RunContext:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        state = get_state()
+        client = state._client
+        # Save state snapshot before completing
+        state.save_run_state(self.run_id)
+        if client is not None:
+            exit_code = 1 if exc_type is not None else 0
+            client.send_event({
+                "type": "run_completed",
+                "data": {"exit_code": exit_code},
+            })
+            client.flush()
+            client._run_completed = True
+        state._active_run_id = None
+
+
+def start_run(
+    name: Optional[str] = None,
+    config: Optional[dict] = None,
+    run_id: Optional[str] = None,
+) -> _RunContext:
+    """Start a new run or resume an existing one.
+
+    Can be used as a context manager or plain function call.
+
+    Args:
+        name: Optional display name for the run.
+        config: Optional config dict (or OmegaConf DictConfig).
+        run_id: Optional run_id to resume a previous run.
+
+    Returns:
+        A _RunContext with a .run_id attribute.
+    """
+    _ensure_init()
+    state = get_state()
+    client = state._client
+
+    resolved_config = _resolve_config(config) if config is not None else None
+    resuming = run_id is not None and run_id in state._run_snapshots
+
+    # Save current run's state if there is one active
+    if state._active_run_id is not None:
+        state.save_run_state(state._active_run_id)
+        # Complete the previous run
+        if client is not None:
+            client.send_event({
+                "type": "run_completed",
+                "data": {"exit_code": 0},
+            })
+            client.flush()
+
+    if resuming:
+        # Restore snapshot for resumed run
+        state.restore_run_state(run_id)  # type: ignore[arg-type]
+    else:
+        # New run
+        run_id = run_id or uuid.uuid4().hex[:12]
+        state.clear_run_state()
+
+    # Update client run_id and reset completion guard
+    if client is not None:
+        client._run_id = run_id
+        client._run_completed = False
+    state._active_run_id = run_id
+
+    # Send run_start event
+    script_path = os.path.abspath(sys.argv[0]) if sys.argv else "script"
+    if client is not None:
+        run_start_data: dict[str, Any] = {
+            "script_path": script_path,
+            "store": True,
+        }
+        if name is not None:
+            run_start_data["run_name"] = name
+        client.send_event({
+            "type": "run_start",
+            "data": run_start_data,
+        })
+
+    # Send run_config event if config provided
+    if resolved_config is not None and client is not None:
+        client.send_event({
+            "type": "run_config",
+            "data": resolved_config,
+        })
+
+    return _RunContext(run_id, name, resolved_config)  # type: ignore[arg-type]
+
+
 __all__ = [
     "fn",
     "track",
@@ -337,5 +453,6 @@ __all__ = [
     "md",
     "ask",
     "ui",
+    "start_run",
     "get_state",
 ]
