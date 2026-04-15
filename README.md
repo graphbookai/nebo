@@ -54,7 +54,6 @@ def transform(records: list[dict]) -> list[dict]:
     nb.log_metric("record_count", float(len(out)))
     return out
 
-@nb.fn()
 def run():
     """Main pipeline entry point."""
     records = load_data()
