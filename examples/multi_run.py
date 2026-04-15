@@ -63,7 +63,7 @@ def run_experiment(lr: float, epochs: int):
 
 def main():
     # -------------------------------------------------------------------------
-    # Pattern 1: Sequential runs — hyperparameter sweep
+    # Hyperparameter sweep
     # Each config gets its own run with a descriptive name.
     # -------------------------------------------------------------------------
     configs = [
@@ -84,29 +84,6 @@ def main():
     for cfg, metrics in results:
         print(f"  lr={cfg['lr']}, epochs={cfg['epochs']} => "
               f"MSE={metrics['mse']:.4f}, R2={metrics['r2']:.4f}")
-
-    # -------------------------------------------------------------------------
-    # Pattern 2: Interleaved runs — alternating train/eval
-    # Two persistent runs that accumulate data across iterations.
-    # -------------------------------------------------------------------------
-    train_id = eval_id = None
-
-    for iteration in range(3):
-        with nb.start_run(name="training-monitor", run_id=train_id) as run:
-            train_id = run.run_id
-            nb.log(f"Training iteration {iteration}")
-            nb.log_metric("iteration", float(iteration))
-            nb.log_metric("train_loss", float(np.random.exponential(0.5)))
-
-        with nb.start_run(name="eval-monitor", run_id=eval_id) as run:
-            eval_id = run.run_id
-            nb.log(f"Eval iteration {iteration}")
-            nb.log_metric("iteration", float(iteration))
-            nb.log_metric("eval_acc", float(0.7 + 0.1 * iteration))
-
-    print("\n--- Interleaved Runs ---")
-    print(f"  Training run: {train_id}")
-    print(f"  Eval run:     {eval_id}")
 
 
 if __name__ == "__main__":
