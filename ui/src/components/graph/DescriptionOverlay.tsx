@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import Markdown from 'react-markdown'
+import remarkBreaks from 'remark-breaks'
 import { useStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { FileText, Minimize2 } from 'lucide-react'
@@ -55,13 +56,14 @@ export function DescriptionOverlay({ runId }: DescriptionOverlayProps) {
         <ScrollArea className="flex-1 overflow-auto">
           <div className={cn(
             'px-4 py-3 prose prose-sm dark:prose-invert max-w-none',
-            'prose-headings:mt-3 prose-headings:mb-1.5 prose-headings:text-sm',
+            'prose-headings:mt-3 prose-headings:mb-1.5',
+            '[&_h1]:!text-lg [&_h1]:!font-semibold [&_h2]:!text-base [&_h3]:!text-sm',
             'prose-p:text-xs prose-p:leading-relaxed prose-p:my-1.5',
             'prose-li:text-xs prose-li:my-0.5',
             'prose-code:text-xs prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded',
             'prose-pre:bg-muted prose-pre:text-xs prose-pre:my-2',
           )}>
-            <Markdown>{description}</Markdown>
+            <Markdown remarkPlugins={[remarkBreaks]}>{description}</Markdown>
           </div>
         </ScrollArea>
       </div>

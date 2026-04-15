@@ -68,7 +68,6 @@ def run(path: str = "data.csv") -> dict:
 
 # --- Configure and execute ---
 
-nb.configure({"model": {"path": "data.csv", "limit": 50}})
 nb.md("A minimal ETL pipeline used to demonstrate state inspection.")
 
 

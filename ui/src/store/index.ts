@@ -481,6 +481,10 @@ export const useStore = create<NeboStore>((set, get) => ({
         patch.settings = nextSettings
       }
 
+      if (ui.tracker === 'time' || ui.tracker === 'step') {
+        patch.timeline = { ...state.timeline, mode: ui.tracker }
+      }
+
       if (ui.minimap === true || ui.minimap === false) {
         const base = patch.settings ?? state.settings
         const nextSettings = { ...base, showMinimap: ui.minimap }
@@ -1058,13 +1062,6 @@ export const useStore = create<NeboStore>((set, get) => ({
               level: 'info',
               step: (event.step as number) ?? null,
             })
-            break
-
-          case 'inspection':
-            if (nodeId) {
-              if (!run.inspections[nodeId]) run.inspections[nodeId] = {}
-              run.inspections[nodeId] = { ...run.inspections[nodeId], [(data.name as string) ?? 'unnamed']: data }
-            }
             break
 
           case 'config':

@@ -20,7 +20,7 @@ from typing import Any, Literal, Optional, TypeVar
 
 from nebo.core.decorators import fn
 from nebo.core.tracker import track
-from nebo.core.config import configure, log_cfg
+from nebo.core.config import log_cfg
 from nebo.core.state import _current_node, get_state
 from nebo.logging.logger import (
     log,
@@ -286,6 +286,7 @@ def ui(
     collapsed: Optional[bool] = None,
     minimap: Optional[bool] = None,
     theme: Optional[Literal["dark", "light"]] = None,
+    tracker: Optional[Literal["time", "step"]] = None,
 ) -> None:
     """Set run-level UI defaults.
 
@@ -298,6 +299,7 @@ def ui(
         collapsed: Default node collapse state.
         minimap: Show minimap.
         theme: Color theme ("dark" or "light").
+        tracker: Default timeline scrubber mode ("time" or "step").
     """
     _ensure_init()
     state = get_state()
@@ -312,6 +314,8 @@ def ui(
         config["minimap"] = minimap
     if theme is not None:
         config["theme"] = theme
+    if tracker is not None:
+        config["tracker"] = tracker
 
     state.ui_config = config
     state._send_to_client({
@@ -323,10 +327,9 @@ def ui(
 __all__ = [
     "fn",
     "track",
-    "configure",
-    "log_cfg",
     "init",
     "log",
+    "log_cfg",
     "log_metric",
     "log_image",
     "log_audio",

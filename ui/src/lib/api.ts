@@ -56,6 +56,7 @@ export interface UiConfig {
   collapsed?: boolean
   minimap?: boolean
   theme?: 'dark' | 'light'
+  tracker?: 'time' | 'step'
 }
 
 export interface LogEntry {

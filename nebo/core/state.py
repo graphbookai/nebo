@@ -58,7 +58,6 @@ class SessionState:
         self.nodes: dict[str, NodeInfo] = {}
         self.edges: list[DAGEdge] = []
         self._edge_set: set[tuple[str, str]] = set()
-        self.config: dict[str, Any] = {}
         self.workflow_description: Optional[str] = None
         self.port: int = 2048
         self.server_process: Any = None
@@ -286,7 +285,6 @@ class SessionState:
             self._return_origins.clear()
             self._node_parents.clear()
             self.dag_strategy = "object"
-            self.config.clear()
             self.workflow_description = None
             self._initialized_server = False
             self._client = None
