@@ -58,7 +58,6 @@ def run():
     """Main pipeline entry point."""
     records = load_data()
     result = transform(records)
-    nb.log(f"Pipeline complete: {len(result)} records")
     return result
 
 if __name__ == "__main__":
@@ -82,7 +81,6 @@ def load_data():
 def transform(data):
     return [x * 2 for x in data]
 
-@nb.fn()
 def run():
     records = load_data()        # edge: run -> load_data (no data dependency)
     result = transform(records)  # edge: load_data -> transform (data flows from load_data)
