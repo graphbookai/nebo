@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { useReactFlow } from '@xyflow/react'
 import { useStore } from '@/store'
 import { Button } from '@/components/ui/button'
-import { Maximize, GitFork, ChevronsDownUp, ChevronsUpDown, ArrowDownUp, ArrowLeftRight, LayoutGrid, Pause, Play } from 'lucide-react'
+import { Maximize, GitFork, ChevronsDownUp, ChevronsUpDown, ArrowDownUp, ArrowLeftRight, Pause, Play } from 'lucide-react'
 import { api } from '@/lib/api'
 
 interface GraphToolbarProps {
@@ -17,7 +17,6 @@ export function GraphToolbar({ onResetLayout, runId }: GraphToolbarProps) {
   const expandAll = useStore(s => s.expandAllGraphNodes)
   const dagDirection = useStore(s => s.dagDirection)
   const toggleDagDirection = useStore(s => s.toggleDagDirection)
-  const setDesktopViewMode = useStore(s => s.setDesktopViewMode)
   const runState = useStore(s => s.runs.get(runId))
   const setPaused = useStore(s => s.setPaused)
 
@@ -40,15 +39,6 @@ export function GraphToolbar({ onResetLayout, runId }: GraphToolbarProps) {
   return (
     <div className="absolute top-3 right-3 flex flex-col gap-1 z-10 items-end">
       <div className="flex gap-1">
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 bg-card/80 backdrop-blur-sm"
-          onClick={() => setDesktopViewMode('grid')}
-          title="Switch to grid view"
-        >
-          <LayoutGrid className="h-3.5 w-3.5" />
-        </Button>
         <Button
           variant="outline"
           size="sm"

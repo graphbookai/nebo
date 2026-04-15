@@ -1,9 +1,7 @@
 import { memo, useMemo, useState } from 'react'
 import { useStore } from '@/store'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { Network } from 'lucide-react'
 import { NodeTabContainer } from '@/components/node-tabs/NodeTabContainer'
 import { topologicalSort } from '@/lib/graph'
 
@@ -110,7 +108,6 @@ export function NodeGridView({ runId }: NodeGridViewProps) {
   const graph = useStore(s => s.runs.get(runId)?.graph)
   const collapseByDefault = useStore(s => s.settings.collapseNodesByDefault)
   const hideUncalled = useStore(s => s.settings.hideUncalledFunctions)
-  const setDesktopViewMode = useStore(s => s.setDesktopViewMode)
 
   const allNodeIds = useMemo(() => graph
     ? Object.keys(graph.nodes).filter(id => !hideUncalled || graph.nodes[id].exec_count > 0)
@@ -145,17 +142,6 @@ export function NodeGridView({ runId }: NodeGridViewProps) {
 
   return (
     <ScrollArea className="h-full">
-      <div className="flex items-center gap-2 px-3 pt-2">
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs gap-1.5"
-          onClick={() => setDesktopViewMode('graph')}
-        >
-          <Network className="h-3.5 w-3.5" />
-          Graph View
-        </Button>
-      </div>
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-3">
         {sorted.map(nodeId => (
           <NodeCard

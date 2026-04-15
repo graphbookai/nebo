@@ -9,6 +9,7 @@ import { NodeGridView } from '@/components/graph/NodeGridView'
 import { PinnedPanelStack } from '@/components/layout/PinnedPanelStack'
 import { TimelineScrubber } from '@/components/timeline/TimelineScrubber'
 import { RunStatusBadge } from '@/components/runs/RunStatusBadge'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useState } from 'react'
 import { PanelRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -23,6 +24,7 @@ export function RunDetailView() {
   const isDesktop = useIsDesktop()
   const pinnedPanels = useStore(s => s.pinnedPanels)
   const desktopViewMode = useStore(s => s.desktopViewMode)
+  const setDesktopViewMode = useStore(s => s.setDesktopViewMode)
   const runColors = useStore(s => s.runColors)
   const runNames = useStore(s => s.runNames)
   const runs = useStore(s => s.runs)
@@ -61,10 +63,20 @@ export function RunDetailView() {
                 {run.graph.workflow_description.split('\n')[0].replace(/^#\s*/, '')}
               </span>
             )}
+            <Tabs
+              value={desktopViewMode}
+              onValueChange={(v) => setDesktopViewMode(v as 'graph' | 'grid')}
+              className="ml-auto"
+            >
+              <TabsList className="h-6">
+                <TabsTrigger value="graph" className="text-xs h-5 px-2">DAG</TabsTrigger>
+                <TabsTrigger value="grid" className="text-xs h-5 px-2">Grid</TabsTrigger>
+              </TabsList>
+            </Tabs>
             <Button
               variant="ghost"
               onClick={toggleRightPanel}
-              className="ml-auto px-1.5 py-1 h-auto"
+              className="px-1.5 py-1 h-auto"
               title={rightPanelOpen ? 'Close trace panel' : 'Open trace panel'}
             >
               <PanelRight className="h-4 w-4 text-muted-foreground" />
