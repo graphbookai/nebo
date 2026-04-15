@@ -46,3 +46,4 @@ source = "vcs"
 
 [tool.hatch.build]
 exclude = ["nebo/server/static/.gitkeep"]
+artifacts = ["nebo/.agents/**"]
