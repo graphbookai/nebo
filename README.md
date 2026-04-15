@@ -11,7 +11,7 @@ Function-level logging captures logs specifically at individual functions to mon
 
 ## Features
 
-* Captured log types: text, metrics, images, audio
+* Captured log types: text, metrics, images, audio, progress
 * Automatically infers a DAG from your call graph
 * MCP for AI agent query support
 * Fully self-contained log files

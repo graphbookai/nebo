@@ -509,6 +509,20 @@ function StepTrack({ minStep, maxStep, hasSteps, value, onChange, events }: Step
     return () => window.removeEventListener('keydown', handler)
   }, [range, stepBy])
 
+  // Show a step bubble briefly when the value changes
+  const [showBubble, setShowBubble] = useState(false)
+  const bubbleTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const prevBubbleValue = useRef(value)
+  useEffect(() => {
+    if (prevBubbleValue.current === value) return
+    prevBubbleValue.current = value
+    if (value == null) { setShowBubble(false); return }
+    setShowBubble(true)
+    clearTimeout(bubbleTimer.current)
+    bubbleTimer.current = setTimeout(() => setShowBubble(false), 800)
+    return () => clearTimeout(bubbleTimer.current)
+  }, [value])
+
   // Auto-pan to keep the handle visible when its value changes
   const prevValue = useRef(value)
   useEffect(() => {
@@ -573,7 +587,16 @@ function StepTrack({ minStep, maxStep, hasSteps, value, onChange, events }: Step
           <ChevronLeft size={16} />
         </button>
 
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 relative">
+          {/* Step bubble — rendered above the track, outside overflow-hidden */}
+          {value != null && (
+            <span
+              className={`absolute -translate-x-1/2 text-[10px] font-medium text-primary-foreground bg-primary/80 rounded px-1.5 py-px whitespace-nowrap pointer-events-none z-20 transition-all duration-200 ${showBubble ? 'opacity-100 -top-5' : 'opacity-0 -top-3'}`}
+              style={{ left: `${pad + (currentPct / 100) * ((containerRef.current?.clientWidth ?? 0) - pad * 2) * scale + panX}px` }}
+            >
+              {value}
+            </span>
+          )}
           <div
             ref={containerRef}
             className="relative w-full h-12 bg-muted cursor-grab rounded-lg overflow-hidden active:cursor-grabbing"
