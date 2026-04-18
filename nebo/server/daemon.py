@@ -259,8 +259,11 @@ class DaemonState:
         async with self._lock:
             rid = run_id or self.active_run_id
             if not rid or rid not in self.runs:
-                # Create run if it doesn't exist yet (script_path updated by run_start event)
-                run = self.create_run("direct", run_id=rid)
+                # Create run if it doesn't exist yet (script_path updated by run_start event).
+                # store=True so the run is persisted to NEBO_STORAGE_DIR — matches /run's
+                # default. Set NEBO_NO_STORE=1 to opt out (e.g., for ephemeral test daemons).
+                store = not os.environ.get("NEBO_NO_STORE")
+                run = self.create_run("direct", run_id=rid, store=store)
                 rid = run.id
 
             run = self.runs[rid]
