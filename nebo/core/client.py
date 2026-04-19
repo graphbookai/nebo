@@ -87,11 +87,12 @@ class DaemonClient:
         """
         if not self._api_token:
             return True
-        url = f"{self._base_url}/api/daemon/warmup"
+        url = (
+            f"{self._base_url}/api/daemon/warmup"
+            f"?t={urllib.request.quote(self._api_token)}"
+        )
         req = urllib.request.Request(url, data=b"", method="POST")
         req.add_header("Content-Type", "application/json")
-        for k, v in self._auth_headers().items():
-            req.add_header(k, v)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return resp.status == 200
@@ -192,19 +193,25 @@ class DaemonClient:
         self._buffer.clear()
 
         try:
-            # Cloud mode (api_token set) targets the router's
-            # /api/sdk/ingest alias; Google's GFE WAF blocks
-            # POST /events with long header values. Local daemons
-            # still expose /events directly.
-            ingest_path = "/api/sdk/events" if self._api_token else "/events"
-            url = f"{self._base_url}{ingest_path}"
-            if self._run_id:
-                url += f"?run_id={urllib.request.quote(self._run_id)}"
+            # Cloud mode (api_token set) targets the router's /r/events
+            # path with the token in the URL query (?t=...). Google's
+            # GFE WAF adaptively blocks header-based auth on this
+            # service — URL query param sidesteps it. Local daemons
+            # still use /events with no auth.
+            if self._api_token:
+                url = (
+                    f"{self._base_url}/r/events"
+                    f"?t={urllib.request.quote(self._api_token)}"
+                )
+                if self._run_id:
+                    url += f"&run_id={urllib.request.quote(self._run_id)}"
+            else:
+                url = f"{self._base_url}/events"
+                if self._run_id:
+                    url += f"?run_id={urllib.request.quote(self._run_id)}"
             data = json.dumps(batch).encode("utf-8")
             req = urllib.request.Request(url, data=data, method="POST")
             req.add_header("Content-Type", "application/json")
-            for k, v in self._auth_headers().items():
-                req.add_header(k, v)
             # Cloud-mode requests cross the public internet and may
             # spend a few seconds in TLS+routing tail latency. Local
             # daemons over loopback are fast — 5s is fine there.
