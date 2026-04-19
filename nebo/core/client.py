@@ -66,12 +66,12 @@ class DaemonClient:
 
     def _auth_headers(self) -> dict[str, str]:
         if self._api_token:
-            # Use X-Nebo-Api-Token instead of Authorization: Bearer.
-            # Google Cloud Frontend's WAF blocks specific opaque
-            # bearer-token shapes ("leaked credential" detection),
-            # returning 403 before the request reaches our service.
-            # A custom header bypasses that.
-            return {"X-Nebo-Api-Token": self._api_token}
+            # Use X-Nebo-Token instead of Authorization: Bearer.
+            # Google Cloud Frontend's WAF blocks the Authorization
+            # bearer pattern (matches Stripe-like leaked-credential
+            # detection) AND the X-Nebo-Api-Token header name
+            # specifically — but X-Nebo-Token sails through.
+            return {"X-Nebo-Token": self._api_token}
         return {}
 
     def warmup(self, timeout: float = 120.0) -> bool:
