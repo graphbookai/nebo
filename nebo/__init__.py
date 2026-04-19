@@ -90,15 +90,24 @@ def init(
     dag_strategy: Literal["object", "stack", "both", "none"] = "object",
     flush_interval: float = 0.1,
     store: bool = True,
+    cloud_url: Optional[str] = None,
+    api_token: Optional[str] = None,
     _internal: bool = False,
 ) -> None:
     """Initialize nebo.
 
     Mode detection (when mode='auto'):
     1. Check environment variables (set by 'nebo run')
-    2. Check for daemon at host:port
+    2. Check for daemon at host:port (or cloud_url if set)
     3. If found -> server mode (stream events to daemon)
     4. If not found -> local mode (in-process rich terminal only)
+
+    Cloud mode: pass `cloud_url` (full URL e.g. `https://router.run.app`)
+    and `api_token` (the `nb_live_...` token from the cloud UI). When
+    set, these override `host`+`port` and add an `Authorization: Bearer`
+    header to every request. Defaults read from `NEBO_CLOUD_URL` and
+    `NEBO_API_TOKEN` environment variables — set those to use cloud
+    mode without code changes.
 
     Args:
         port: Daemon server port (default 2048).
@@ -111,6 +120,10 @@ def init(
             is the union of object and stack edges.
         flush_interval: Seconds between event flushes (default 0.1).
         store: Whether to persist events to .nebo files (default True).
+        cloud_url: Full URL of a hosted nebo router. Overrides host+port.
+            Defaults to env var NEBO_CLOUD_URL.
+        api_token: Bearer token for the cloud router. Required with
+            cloud_url. Defaults to env var NEBO_API_TOKEN.
     """
     global _auto_init_done
 
@@ -161,11 +174,30 @@ def init(
         if not run_id:
             run_id = f"{uuid.uuid4().hex[:12]}"
 
+    # Cloud mode: env vars override args; cloud_url/api_token take
+    # precedence over host+port when provided.
+    cloud_url = cloud_url or os.environ.get("NEBO_CLOUD_URL")
+    api_token = api_token or os.environ.get("NEBO_API_TOKEN")
+
+    def _make_client():
+        from nebo.core.client import DaemonClient
+        if cloud_url:
+            return DaemonClient(
+                base_url=cloud_url,
+                api_token=api_token,
+                run_id=run_id,
+                flush_interval=flush_interval,
+            )
+        return DaemonClient(
+            host=host, port=port, run_id=run_id, flush_interval=flush_interval
+        )
+
+    _endpoint_label = cloud_url or f"{host}:{port}"
+
     if resolved_mode == "auto":
         # Try to connect to daemon
         try:
-            from nebo.core.client import DaemonClient
-            client = DaemonClient(host=host, port=port, run_id=run_id, flush_interval=flush_interval)
+            client = _make_client()
             if client.connect():
                 resolved_mode = "server"
                 state._client = client
@@ -174,10 +206,9 @@ def init(
         except Exception:
             resolved_mode = "local"
     elif resolved_mode == "server":
-        from nebo.core.client import DaemonClient
-        client = DaemonClient(host=host, port=port, run_id=run_id, flush_interval=flush_interval)
+        client = _make_client()
         if not client.connect():
-            print(f"Warning: Could not connect to nebo daemon at {host}:{port}. Falling back to local mode.")
+            print(f"Warning: Could not connect to nebo daemon at {_endpoint_label}. Falling back to local mode.")
             resolved_mode = "local"
         else:
             state._client = client

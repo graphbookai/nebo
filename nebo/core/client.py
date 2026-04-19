@@ -33,12 +33,27 @@ class DaemonClient:
         port: int = 2048,
         run_id: Optional[str] = None,
         flush_interval: float = 0.1,
+        base_url: Optional[str] = None,
+        api_token: Optional[str] = None,
     ) -> None:
+        """Connect to a nebo daemon.
+
+        For a local daemon: pass `host` + `port` (defaults work).
+        For a hosted/cloud daemon: pass `base_url` (e.g.
+        `https://nebo-cloud-router-xxx.a.run.app`) and `api_token`.
+        When `base_url` is set it takes precedence over `host`/`port`.
+        When `api_token` is set, an `Authorization: Bearer <token>`
+        header is added to every HTTP request.
+        """
         self._host = host
         self._port = port
         self._run_id = run_id
         self._flush_interval = flush_interval
-        self._base_url = f"http://{host}:{port}"
+        self._api_token = api_token
+        if base_url:
+            self._base_url = base_url.rstrip("/")
+        else:
+            self._base_url = f"http://{host}:{port}"
 
         self._queue: queue.Queue[dict[str, Any]] = queue.Queue()
         self._buffer: list[dict[str, Any]] = []
@@ -49,6 +64,11 @@ class DaemonClient:
         self._lock = threading.Lock()
         self._run_completed: bool = False
 
+    def _auth_headers(self) -> dict[str, str]:
+        if self._api_token:
+            return {"Authorization": f"Bearer {self._api_token}"}
+        return {}
+
     def connect(self) -> bool:
         """Attempt to connect to the daemon server.
 
@@ -57,6 +77,8 @@ class DaemonClient:
         """
         try:
             req = urllib.request.Request(f"{self._base_url}/health", method="GET")
+            for k, v in self._auth_headers().items():
+                req.add_header(k, v)
             with urllib.request.urlopen(req, timeout=2.0) as resp:
                 if resp.status == 200:
                     self._connected = True
@@ -147,6 +169,8 @@ class DaemonClient:
             data = json.dumps(batch).encode("utf-8")
             req = urllib.request.Request(url, data=data, method="POST")
             req.add_header("Content-Type", "application/json")
+            for k, v in self._auth_headers().items():
+                req.add_header(k, v)
             with urllib.request.urlopen(req, timeout=5.0) as resp:
                 return resp.status == 200
         except Exception:
