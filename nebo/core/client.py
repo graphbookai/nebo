@@ -192,7 +192,12 @@ class DaemonClient:
         self._buffer.clear()
 
         try:
-            url = f"{self._base_url}/events"
+            # Cloud mode (api_token set) targets the router's
+            # /api/sdk/ingest alias; Google's GFE WAF blocks
+            # POST /events with long header values. Local daemons
+            # still expose /events directly.
+            ingest_path = "/api/sdk/ingest" if self._api_token else "/events"
+            url = f"{self._base_url}{ingest_path}"
             if self._run_id:
                 url += f"?run_id={urllib.request.quote(self._run_id)}"
             data = json.dumps(batch).encode("utf-8")
