@@ -193,23 +193,25 @@ class DaemonClient:
         self._buffer.clear()
 
         try:
-            # Cloud mode (api_token set) targets the router's /r/events
-            # path with the token in the URL query (?t=...). Google's
-            # GFE WAF adaptively blocks header-based auth on this
-            # service — URL query param sidesteps it. Local daemons
-            # still use /events with no auth.
             if self._api_token:
-                url = (
-                    f"{self._base_url}/r/events"
-                    f"?t={urllib.request.quote(self._api_token)}"
-                )
+                # Cloud mode: send token + events in the body. Google's
+                # GFE WAF blocks every header- and URL-query-based auth
+                # we've tried on event-ingestion endpoints; body-only
+                # auth sidesteps it.
+                url = f"{self._base_url}/r/v1"
+                envelope: dict[str, Any] = {
+                    "t": self._api_token,
+                    "events": batch,
+                }
                 if self._run_id:
-                    url += f"&run_id={urllib.request.quote(self._run_id)}"
+                    envelope["run_id"] = self._run_id
+                data = json.dumps(envelope).encode("utf-8")
             else:
+                # Local mode: talk to the daemon directly at /events.
                 url = f"{self._base_url}/events"
                 if self._run_id:
                     url += f"?run_id={urllib.request.quote(self._run_id)}"
-            data = json.dumps(batch).encode("utf-8")
+                data = json.dumps(batch).encode("utf-8")
             req = urllib.request.Request(url, data=data, method="POST")
             req.add_header("Content-Type", "application/json")
             # Cloud-mode requests cross the public internet and may
