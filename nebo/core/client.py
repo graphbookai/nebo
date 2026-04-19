@@ -69,6 +69,30 @@ class DaemonClient:
             return {"Authorization": f"Bearer {self._api_token}"}
         return {}
 
+    def warmup(self, timeout: float = 120.0) -> bool:
+        """Block until the cloud router has a daemon ready for this user.
+
+        Calls POST /api/daemon/warmup which triggers the router to
+        lazy-create the per-user Cloud Run daemon and waits for it to
+        be Ready (cold start can take 30-60s). Returns True on success,
+        False on timeout or non-200 response.
+
+        No-op (returns True immediately) when no api_token is set —
+        warmup is only meaningful for cloud mode.
+        """
+        if not self._api_token:
+            return True
+        url = f"{self._base_url}/api/daemon/warmup"
+        req = urllib.request.Request(url, data=b"", method="POST")
+        req.add_header("Content-Type", "application/json")
+        for k, v in self._auth_headers().items():
+            req.add_header(k, v)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.status == 200
+        except Exception:
+            return False
+
     def connect(self) -> bool:
         """Attempt to connect to the daemon server.
 
@@ -171,7 +195,11 @@ class DaemonClient:
             req.add_header("Content-Type", "application/json")
             for k, v in self._auth_headers().items():
                 req.add_header(k, v)
-            with urllib.request.urlopen(req, timeout=5.0) as resp:
+            # Cloud-mode requests cross the public internet and may
+            # spend a few seconds in TLS+routing tail latency. Local
+            # daemons over loopback are fast — 5s is fine there.
+            request_timeout = 30.0 if self._api_token else 5.0
+            with urllib.request.urlopen(req, timeout=request_timeout) as resp:
                 return resp.status == 200
         except Exception:
             # Put events back for retry

@@ -194,11 +194,32 @@ def init(
 
     _endpoint_label = cloud_url or f"{host}:{port}"
 
+    def _connect_and_warmup(client: Any) -> bool:
+        """connect() then (if cloud) wait for the router to ready a daemon.
+
+        Returns True if the SDK can start sending events.
+        """
+        if not client.connect():
+            return False
+        if cloud_url and api_token:
+            print(
+                f"nebo: connected to {cloud_url}. "
+                "Waiting for cloud-hosted daemon to be ready (this can take 30-60s on first run)..."
+            )
+            if not client.warmup(timeout=180.0):
+                print(
+                    "nebo: WARNING — daemon warmup did not complete; "
+                    "events may fail until the daemon comes up."
+                )
+                return True  # still proceed — the SDK will retry
+            print("nebo: cloud daemon ready.")
+        return True
+
     if resolved_mode == "auto":
         # Try to connect to daemon
         try:
             client = _make_client()
-            if client.connect():
+            if _connect_and_warmup(client):
                 resolved_mode = "server"
                 state._client = client
             else:
@@ -207,7 +228,7 @@ def init(
             resolved_mode = "local"
     elif resolved_mode == "server":
         client = _make_client()
-        if not client.connect():
+        if not _connect_and_warmup(client):
             print(f"Warning: Could not connect to nebo daemon at {_endpoint_label}. Falling back to local mode.")
             resolved_mode = "local"
         else:
