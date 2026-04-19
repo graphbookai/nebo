@@ -34,10 +34,21 @@ export function RunDetailView() {
 
   const duration = useRunDuration(run?.summary)
 
-  if (!selectedRunId || !run) {
+  if (!selectedRunId) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
         <p className="text-sm">Select a run to view details</p>
+      </div>
+    )
+  }
+  if (!run) {
+    // selectedRunId is set (e.g., from a deep-link `?run=<id>` URL
+    // param) but the run hasn't been streamed into the store yet.
+    // Show a loading state instead of "Select a run", which is
+    // misleading when a run IS selected.
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        <p className="text-sm">Loading run…</p>
       </div>
     )
   }
