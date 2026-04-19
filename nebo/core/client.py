@@ -196,7 +196,7 @@ class DaemonClient:
             # /api/sdk/ingest alias; Google's GFE WAF blocks
             # POST /events with long header values. Local daemons
             # still expose /events directly.
-            ingest_path = "/api/sdk/submit" if self._api_token else "/events"
+            ingest_path = "/api/sdk/events" if self._api_token else "/events"
             url = f"{self._base_url}{ingest_path}"
             if self._run_id:
                 url += f"?run_id={urllib.request.quote(self._run_id)}"
