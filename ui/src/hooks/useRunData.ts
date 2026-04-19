@@ -47,12 +47,22 @@ export function useRunData(runId: string | null): RunState | null {
   const group = isComparison && runId ? comparisonGroups.get(runId) : null
   const run = runId && !isComparison ? runs.get(runId) : undefined
 
-  // Fetch data for a single run
+  // Fetch data for a single run.
+  //
+  // Wait until `run` is in the store before fetching: setRunGraph
+  // mutates the existing run entry (`runs.get(runId)`), so if we fetch
+  // before the WS-driven summaries arrive, the resulting setRunGraph
+  // call is a no-op and we'd never retry (fetchedRef would already
+  // contain the id). Listing `run` itself in the deps re-runs the
+  // effect once it appears.
   useEffect(() => {
-    if (!runId || isComparison || run?.loaded || fetchedRef.current.has(runId)) return
+    if (!runId || isComparison) return
+    if (!run) return
+    if (run.loaded) return
+    if (fetchedRef.current.has(runId)) return
     fetchedRef.current.add(runId)
     fetchSingleRun(runId, useStore.getState())
-  }, [runId, isComparison, run?.loaded])
+  }, [runId, isComparison, run, run?.loaded])
 
   // Fetch data for all runs in a comparison group
   useEffect(() => {
