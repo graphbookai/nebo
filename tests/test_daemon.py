@@ -360,9 +360,9 @@ class TestRunSummary:
 
 
 class TestGetNodeEndpoint:
-    """HTTP-level tests for the GET /nodes/{name} endpoint.
+    """HTTP-level tests for the GET /loggables/{loggable_id} endpoint.
 
-    Regression: the global `/nodes/{name}` endpoint historically omitted
+    Regression: the global loggable endpoint historically omitted
     `metrics` and `progress` from its response, which broke the
     `nebo_get_metrics` MCP tool (it reads from this endpoint and always
     saw an empty metrics dict).
@@ -388,9 +388,9 @@ class TestGetNodeEndpoint:
         return TestClient(app)
 
     def test_get_node_returns_metrics(self) -> None:
-        """GET /nodes/{name} must include the node's metrics dict."""
+        """GET /loggables/{loggable_id} must include the loggable's metrics dict."""
         client = self._client_with_metric()
-        resp = client.get("/nodes/train")
+        resp = client.get("/loggables/train")
         assert resp.status_code == 200
         body = resp.json()
         assert "metrics" in body, f"missing 'metrics' field in response: {body}"
@@ -398,9 +398,9 @@ class TestGetNodeEndpoint:
         assert len(body["metrics"]["loss"]) == 2
 
     def test_get_node_returns_progress(self) -> None:
-        """GET /nodes/{name} must include the node's progress state."""
+        """GET /loggables/{loggable_id} must include the loggable's progress state."""
         client = self._client_with_metric()
-        resp = client.get("/nodes/train")
+        resp = client.get("/loggables/train")
         assert resp.status_code == 200
         body = resp.json()
         assert "progress" in body, f"missing 'progress' field in response: {body}"

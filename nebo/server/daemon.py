@@ -360,7 +360,7 @@ class DaemonState:
             run.significant_events.append({
                 "type": "error",
                 "timestamp": error.timestamp,
-                "node": error.node_name,
+                "loggable_id": error.node_name,
                 "message": error.exception_message,
             })
 
@@ -681,14 +681,14 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         return state.runs[run_id].get_graph()
 
     @app.get("/runs/{run_id}/logs")
-    async def get_run_logs(run_id: str, node: str | None = None, limit: int = 100):
+    async def get_run_logs(run_id: str, loggable_id: str | None = None, limit: int = 100):
         if run_id not in state.runs:
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
         run = state.runs[run_id]
         logs = run.logs
-        if node:
-            logs = [l for l in logs if l.node == node]
-        return {"logs": [{"timestamp": l.timestamp, "node": l.node, "message": l.message, "level": l.level, "step": l.step} for l in logs[-limit:]]}
+        if loggable_id:
+            logs = [l for l in logs if l.node == loggable_id]
+        return {"logs": [{"timestamp": l.timestamp, "loggable_id": l.node, "message": l.message, "level": l.level, "step": l.step} for l in logs[-limit:]]}
 
     @app.get("/runs/{run_id}/errors")
     async def get_run_errors(run_id: str):
@@ -733,7 +733,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
             if l.images:
                 images[lid] = [
                     {
-                        "node": lid,
+                        "loggable_id": lid,
                         "media_id": img.get("media_id", ""),
                         "name": img.get("name", ""),
                         "step": img.get("step"),
@@ -753,7 +753,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
             if l.audio:
                 audio[lid] = [
                     {
-                        "node": lid,
+                        "loggable_id": lid,
                         "media_id": a.get("media_id", ""),
                         "name": a.get("name", ""),
                         "sr": a.get("sr", 16000),
@@ -772,20 +772,20 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
             return JSONResponse(status_code=404, content={"error": f"Media '{media_id}' not found"})
         return {"data": state._media_store[media_id]}
 
-    @app.get("/runs/{run_id}/nodes/{name}")
-    async def get_run_node(run_id: str, name: str):
+    @app.get("/runs/{run_id}/loggables/{loggable_id}")
+    async def get_run_loggable(run_id: str, loggable_id: str):
         if run_id not in state.runs:
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
         run = state.runs[run_id]
-        if name not in run.loggables:
-            return JSONResponse(status_code=404, content={"error": f"Node '{name}' not found"})
-        n = run.loggables[name]
+        if loggable_id not in run.loggables:
+            return JSONResponse(status_code=404, content={"error": f"Loggable '{loggable_id}' not found"})
+        lg = run.loggables[loggable_id]
         return {
-            "name": n.loggable_id, "func_name": n.func_name, "docstring": n.docstring,
-            "exec_count": n.exec_count,
-            "is_source": n.is_source, "params": n.params,
-            "recent_logs": n.logs[-20:], "errors": n.errors,
-            "metrics": n.metrics, "progress": n.progress,
+            "loggable_id": lg.loggable_id, "kind": lg.kind, "func_name": lg.func_name, "docstring": lg.docstring,
+            "exec_count": lg.exec_count,
+            "is_source": lg.is_source, "params": lg.params,
+            "recent_logs": lg.logs[-20:], "errors": lg.errors,
+            "metrics": lg.metrics, "progress": lg.progress,
         }
 
     # --- Ask / respond endpoints ---
@@ -925,14 +925,14 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         return run.get_graph()
 
     @app.get("/logs")
-    async def get_logs(node: str | None = None, limit: int = 100):
+    async def get_logs(loggable_id: str | None = None, limit: int = 100):
         run = state.get_latest_run()
         if not run:
             return {"logs": []}
         logs = run.logs
-        if node:
-            logs = [l for l in logs if l.node == node]
-        return {"logs": [{"timestamp": l.timestamp, "node": l.node, "message": l.message} for l in logs[-limit:]]}
+        if loggable_id:
+            logs = [l for l in logs if l.node == loggable_id]
+        return {"logs": [{"timestamp": l.timestamp, "loggable_id": l.node, "message": l.message} for l in logs[-limit:]]}
 
     @app.get("/errors")
     async def get_errors():
@@ -952,19 +952,19 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
             ]
         }
 
-    @app.get("/nodes/{name}")
-    async def get_node(name: str):
+    @app.get("/loggables/{loggable_id}")
+    async def get_loggable(loggable_id: str):
         run = state.get_latest_run()
         if not run:
             return JSONResponse(status_code=404, content={"error": "No runs"})
-        if name not in run.loggables:
-            return JSONResponse(status_code=404, content={"error": f"Node '{name}' not found"})
-        n = run.loggables[name]
+        if loggable_id not in run.loggables:
+            return JSONResponse(status_code=404, content={"error": f"Loggable '{loggable_id}' not found"})
+        lg = run.loggables[loggable_id]
         return {
-            "name": n.loggable_id, "func_name": n.func_name, "docstring": n.docstring,
-            "exec_count": n.exec_count, "is_source": n.is_source, "params": n.params,
-            "recent_logs": n.logs[-20:], "errors": n.errors,
-            "metrics": n.metrics, "progress": n.progress,
+            "loggable_id": lg.loggable_id, "kind": lg.kind, "func_name": lg.func_name, "docstring": lg.docstring,
+            "exec_count": lg.exec_count, "is_source": lg.is_source, "params": lg.params,
+            "recent_logs": lg.logs[-20:], "errors": lg.errors,
+            "metrics": lg.metrics, "progress": lg.progress,
         }
 
     @app.post("/load")
