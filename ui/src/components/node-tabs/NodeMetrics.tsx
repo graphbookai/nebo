@@ -84,6 +84,8 @@ function SingleRunMetrics({ runId, loggableId }: { runId: string; loggableId: st
   )
 }
 
+const UNTAGGED_KEY = '__untagged__'
+
 function MetricBlock({
   name,
   series,
@@ -93,19 +95,40 @@ function MetricBlock({
   series: LoggableMetricSeries
   color: string
 }) {
-  const [activeTags, setActiveTags] = useState<Set<string>>(new Set())
-
   const allTags = useMemo(() => {
-    const s = new Set<string>()
-    for (const e of series.entries) for (const t of e.tags) s.add(t)
-    return [...s].sort()
+    const tags = new Set<string>()
+    let hasUntagged = false
+    for (const e of series.entries) {
+      if (e.tags.length === 0) hasUntagged = true
+      for (const t of e.tags) tags.add(t)
+    }
+    const out = [...tags].sort()
+    if (hasUntagged) out.unshift(UNTAGGED_KEY)
+    return out
   }, [series.entries])
 
-  // With no tag chip selected, show only untagged data. This keeps a
-  // freshly-opened chart honest about which subset of the series is visible.
+  // All chips start selected so nothing is hidden by default. As new tags
+  // stream in, they join the active set, keeping their entries visible.
+  const [activeTags, setActiveTags] = useState<Set<string>>(() => new Set(allTags))
+  useEffect(() => {
+    setActiveTags(prev => {
+      let changed = false
+      const next = new Set(prev)
+      for (const t of allTags) {
+        if (!next.has(t)) {
+          next.add(t)
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [allTags])
+
   const filtered = useMemo(() => {
-    if (activeTags.size === 0) return series.entries.filter(e => e.tags.length === 0)
-    return series.entries.filter(e => e.tags.some(t => activeTags.has(t)))
+    return series.entries.filter(e => {
+      if (e.tags.length === 0) return activeTags.has(UNTAGGED_KEY)
+      return e.tags.some(t => activeTags.has(t))
+    })
   }, [series.entries, activeTags])
 
   const toggle = (v: string) =>
@@ -125,7 +148,12 @@ function MetricBlock({
       {allTags.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
           {allTags.map(t => (
-            <Chip key={`tag:${t}`} label={t} active={activeTags.has(t)} onClick={() => toggle(t)} />
+            <Chip
+              key={`tag:${t}`}
+              label={t === UNTAGGED_KEY ? '(untagged)' : t}
+              active={activeTags.has(t)}
+              onClick={() => toggle(t)}
+            />
           ))}
         </div>
       )}
@@ -191,7 +219,22 @@ function ComparisonMetrics({
     for (const rid of comparisonRunIds) getOrAssignRunColor(rid)
   }, [comparisonRunIds, getOrAssignRunColor])
 
-  const [activeRuns, setActiveRuns] = useState<Set<string>>(new Set())
+  // All run chips start selected. New runs joining the comparison get
+  // auto-included so nothing is hidden without a user action.
+  const [activeRuns, setActiveRuns] = useState<Set<string>>(() => new Set(comparisonRunIds))
+  useEffect(() => {
+    setActiveRuns(prev => {
+      let changed = false
+      const next = new Set(prev)
+      for (const rid of comparisonRunIds) {
+        if (!next.has(rid)) {
+          next.add(rid)
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [comparisonRunIds])
 
   const runNameFor = (rid: string) =>
     runNames.get(rid) || runs.get(rid)?.summary.script_path.split('/').pop() || rid
@@ -214,8 +257,7 @@ function ComparisonMetrics({
     return <p className="text-xs text-muted-foreground">No metrics for this loggable</p>
   }
 
-  const effectiveRunIds =
-    activeRuns.size === 0 ? comparisonRunIds : comparisonRunIds.filter(rid => activeRuns.has(rid))
+  const effectiveRunIds = comparisonRunIds.filter(rid => activeRuns.has(rid))
 
   return (
     <div className="space-y-4">
@@ -259,17 +301,37 @@ function ComparisonMetricBlock({
   runNameFor: (rid: string) => string
 }) {
   const runs = useStore(s => s.runs)
-  const [activeTags, setActiveTags] = useState<Set<string>>(new Set())
 
   const allTags = useMemo(() => {
-    const s = new Set<string>()
+    const tags = new Set<string>()
+    let hasUntagged = false
     for (const rid of comparisonRunIds) {
       const series = runs.get(rid)?.loggableMetrics[loggableId]?.[name]
       if (!series) continue
-      for (const e of series.entries) for (const t of e.tags) s.add(t)
+      for (const e of series.entries) {
+        if (e.tags.length === 0) hasUntagged = true
+        for (const t of e.tags) tags.add(t)
+      }
     }
-    return [...s].sort()
+    const out = [...tags].sort()
+    if (hasUntagged) out.unshift(UNTAGGED_KEY)
+    return out
   }, [comparisonRunIds, runs, loggableId, name])
+
+  const [activeTags, setActiveTags] = useState<Set<string>>(() => new Set(allTags))
+  useEffect(() => {
+    setActiveTags(prev => {
+      let changed = false
+      const next = new Set(prev)
+      for (const t of allTags) {
+        if (!next.has(t)) {
+          next.add(t)
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [allTags])
 
   const toggleTag = (t: string) =>
     setActiveTags(prev => {
@@ -316,7 +378,12 @@ function ComparisonMetricBlock({
           )
         })}
         {allTags.map(t => (
-          <Chip key={`tag:${t}`} label={t} active={activeTags.has(t)} onClick={() => toggleTag(t)} />
+          <Chip
+            key={`tag:${t}`}
+            label={t === UNTAGGED_KEY ? '(untagged)' : t}
+            active={activeTags.has(t)}
+            onClick={() => toggleTag(t)}
+          />
         ))}
       </div>
       <div className="mt-1">
@@ -356,10 +423,13 @@ function ComparisonChart({
     if (!s) return undefined
     // No tag chips selected → untagged entries only. Otherwise keep entries
     // whose tag set intersects the selected chips.
-    const entries =
-      activeTags.size === 0
-        ? s.entries.filter(e => e.tags.length === 0)
-        : s.entries.filter(e => e.tags.some(t => activeTags.has(t)))
+    // Keep untagged entries if the (untagged) chip is active, tagged entries
+    // if any of their tags are active. All chips default to selected so
+    // nothing is hidden without an explicit deselect.
+    const entries = s.entries.filter(e => {
+      if (e.tags.length === 0) return activeTags.has(UNTAGGED_KEY)
+      return e.tags.some(t => activeTags.has(t))
+    })
     return { ...s, entries }
   }
 
