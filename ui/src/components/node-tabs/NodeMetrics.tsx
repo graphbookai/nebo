@@ -1,6 +1,7 @@
 // Renders a single loggable's tab; works for node- and global-kind loggables.
 import { useMemo } from 'react'
 import { useStore } from '@/store'
+import type { LoggableMetricSeries, MetricEntry } from '@/lib/api'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
 interface NodeMetricsProps {
@@ -11,10 +12,25 @@ interface NodeMetricsProps {
 
 const MAX_DISPLAY_POINTS = 500
 
-function downsample(series: { step: number; value: number }[]): { step: number; value: number }[] {
+type LinePoint = { step: number; value: number }
+
+function toLinePoints(entries: MetricEntry[]): LinePoint[] {
+  const points: LinePoint[] = []
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i]
+    const step = e.step ?? i
+    const value = typeof e.value === 'number' ? e.value : Number(e.value)
+    if (Number.isFinite(value)) {
+      points.push({ step, value })
+    }
+  }
+  return points
+}
+
+function downsample(series: LinePoint[]): LinePoint[] {
   if (series.length <= MAX_DISPLAY_POINTS) return series
   const step = Math.ceil(series.length / MAX_DISPLAY_POINTS)
-  const result: { step: number; value: number }[] = []
+  const result: LinePoint[] = []
   for (let i = 0; i < series.length; i += step) {
     result.push(series[i])
   }
@@ -31,27 +47,28 @@ export function NodeMetrics({ runId, loggableId, comparisonRunIds }: NodeMetrics
   const runNames = useStore(s => s.runNames)
   const metrics = useStore(s => s.runs.get(runId)?.loggableMetrics[loggableId])
 
-  // Single-run mode
+  // Single-run mode: group by metric type. Only 'line' gets a real chart here;
+  // other types render a placeholder until Task 5 adds real dispatchers.
   const singleMetricEntries = useMemo(() => {
     if (comparisonRunIds) return []
     if (!metrics) return []
     return Object.entries(metrics).map(([name, series]) => ({
       name,
-      data: downsample(series),
+      series: series as LoggableMetricSeries,
     }))
   }, [metrics, comparisonRunIds])
 
-  // Comparison mode: merge metrics from all runs
+  // Comparison mode: only supports line metrics for now.
   const comparisonMetricEntries = useMemo(() => {
     if (!comparisonRunIds) return []
 
-    // Collect all metric names across all runs
+    // Collect all metric names across all runs that are line-typed.
     const metricNames = new Set<string>()
     for (const rid of comparisonRunIds) {
       const runMetrics = runs.get(rid)?.loggableMetrics[loggableId]
       if (runMetrics) {
-        for (const name of Object.keys(runMetrics)) {
-          metricNames.add(name)
+        for (const [name, series] of Object.entries(runMetrics)) {
+          if (series.type === 'line') metricNames.add(name)
         }
       }
     }
@@ -62,8 +79,8 @@ export function NodeMetrics({ runId, loggableId, comparisonRunIds }: NodeMetrics
 
       for (const rid of comparisonRunIds) {
         const series = runs.get(rid)?.loggableMetrics[loggableId]?.[metricName]
-        if (!series) continue
-        const downsampled = downsample(series)
+        if (!series || series.type !== 'line') continue
+        const downsampled = downsample(toLinePoints(series.entries))
         for (const point of downsampled) {
           if (!stepMap.has(point.step)) {
             stepMap.set(point.step, { step: point.step })
@@ -159,49 +176,59 @@ export function NodeMetrics({ runId, loggableId, comparisonRunIds }: NodeMetrics
 
   return (
     <div className="space-y-4">
-      {singleMetricEntries.map(({ name, data }) => (
-        <div key={name}>
-          <span className="text-xs font-medium text-foreground">{name}</span>
-          <div className="h-[120px] mt-1">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={data}>
-                <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.3 0 0)" />
-                <XAxis
-                  dataKey="step"
-                  tick={{ fontSize: 10, fill: 'oklch(0.556 0 0)' }}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 10, fill: 'oklch(0.556 0 0)' }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={40}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'oklch(0.205 0 0)',
-                    border: '1px solid oklch(0.3 0 0)',
-                    borderRadius: '6px',
-                    fontSize: '11px',
-                  }}
-                  labelStyle={{ color: 'oklch(0.708 0 0)' }}
-                  formatter={(value) => [(value as number)?.toFixed(4) ?? '', name]}
-                  labelFormatter={(step) => `Step ${step}`}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="value"
-                  stroke="#3b82f6"
-                  strokeWidth={1.5}
-                  dot={false}
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+      {singleMetricEntries.map(({ name, series }) => {
+        if (series.type !== 'line') {
+          return (
+            <div key={name} className="text-xs text-muted-foreground">
+              {name} ({series.type}) — renderer coming in Task 5
+            </div>
+          )
+        }
+        const data = downsample(toLinePoints(series.entries))
+        return (
+          <div key={name}>
+            <span className="text-xs font-medium text-foreground">{name}</span>
+            <div className="h-[120px] mt-1">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={data}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.3 0 0)" />
+                  <XAxis
+                    dataKey="step"
+                    tick={{ fontSize: 10, fill: 'oklch(0.556 0 0)' }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 10, fill: 'oklch(0.556 0 0)' }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={40}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'oklch(0.205 0 0)',
+                      border: '1px solid oklch(0.3 0 0)',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                    }}
+                    labelStyle={{ color: 'oklch(0.708 0 0)' }}
+                    formatter={(value) => [(value as number)?.toFixed(4) ?? '', name]}
+                    labelFormatter={(step) => `Step ${step}`}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="value"
+                    stroke="#3b82f6"
+                    strokeWidth={1.5}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

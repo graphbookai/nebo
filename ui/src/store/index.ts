@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { RunSummary, GraphData, LogEntry, ErrorEntry, LabelsPayload } from '@/lib/api'
+import type { RunSummary, GraphData, LogEntry, ErrorEntry, LabelsPayload, MetricType, MetricEntry, LoggableMetricSeries } from '@/lib/api'
 import type { WsEvent } from '@/lib/ws'
 import { assignColor } from '@/lib/colors'
 
@@ -147,7 +147,7 @@ export interface RunState {
   graph: GraphData | null
   logs: LogEntry[]
   errors: ErrorEntry[]
-  loggableMetrics: Record<string, Record<string, { step: number; value: number }[]>>
+  loggableMetrics: Record<string, Record<string, LoggableMetricSeries>>
   loggableImages: Record<string, ImageEntry[]>
   loggableAudio: Record<string, AudioEntry[]>
   loggableInspections: Record<string, Record<string, unknown>>
@@ -238,10 +238,10 @@ interface NeboStore {
   appendRunLog: (runId: string, log: LogEntry) => void
   setRunErrors: (runId: string, errors: ErrorEntry[]) => void
   appendRunError: (runId: string, error: ErrorEntry) => void
-  setRunMetrics: (runId: string, metrics: Record<string, Record<string, { step: number; value: number }[]>>) => void
+  setRunMetrics: (runId: string, metrics: Record<string, Record<string, LoggableMetricSeries>>) => void
   setRunImages: (runId: string, images: Record<string, ImageEntry[]>) => void
   setRunAudio: (runId: string, audio: Record<string, AudioEntry[]>) => void
-  appendMetric: (runId: string, loggableId: string, name: string, step: number, value: number) => void
+  appendMetric: (runId: string, loggableId: string, name: string, entry: MetricEntry, type: MetricType) => void
   updateNodeProgress: (runId: string, nodeId: string, progress: { current: number; total: number; name?: string } | null) => void
   incrementNodeExecCount: (runId: string, loggableId: string) => void
   addEdge: (runId: string, source: string, target: string) => void
@@ -622,13 +622,17 @@ export const useStore = create<NeboStore>((set, get) => ({
     return { runs }
   }),
 
-  appendMetric: (runId, loggableId, name, step, value) => set(state => {
+  appendMetric: (runId, loggableId, name, entry, type) => set(state => {
     const runs = new Map(state.runs)
     const run = runs.get(runId)
     if (run) {
       if (!run.loggableMetrics[loggableId]) run.loggableMetrics[loggableId] = {}
-      if (!run.loggableMetrics[loggableId][name]) run.loggableMetrics[loggableId][name] = []
-      run.loggableMetrics[loggableId][name] = [...run.loggableMetrics[loggableId][name], { step, value }]
+      const existing = run.loggableMetrics[loggableId][name]
+      if (!existing) {
+        run.loggableMetrics[loggableId][name] = { type, entries: [entry] }
+      } else {
+        existing.entries = [...existing.entries, entry]
+      }
     }
     return { runs }
   }),
@@ -934,16 +938,23 @@ export const useStore = create<NeboStore>((set, get) => ({
             })
             break
 
-          case 'metric':
-            if (loggableId) {
-              const name = (event.name as string) ?? (data.name as string) ?? ''
-              const step = (event.step as number) ?? (data.step as number) ?? 0
-              const value = (event.value as number) ?? (data.value as number) ?? 0
-              if (!run.loggableMetrics[loggableId]) run.loggableMetrics[loggableId] = {}
-              if (!run.loggableMetrics[loggableId][name]) run.loggableMetrics[loggableId][name] = []
-              run.loggableMetrics[loggableId][name] = [...run.loggableMetrics[loggableId][name], { step, value }]
+          case 'metric': {
+            const lid = event.loggable_id as string | undefined
+            if (!lid) break
+            const mname = (event.name as string) ?? (data.name as string) ?? ''
+            const mtype = ((event.metric_type as MetricType) ?? (data.metric_type as MetricType)) ?? 'line'
+            const entry: MetricEntry = {
+              step: (event.step as number | null) ?? (data.step as number | null) ?? null,
+              value: event.value ?? data.value,
+              tags: ((event.tags as string[]) ?? (data.tags as string[]) ?? []),
+              timestamp: (event.timestamp as number) ?? Date.now() / 1000,
             }
+            if (!run.loggableMetrics[lid]) run.loggableMetrics[lid] = {}
+            const existing = run.loggableMetrics[lid][mname]
+            if (!existing) run.loggableMetrics[lid][mname] = { type: mtype, entries: [entry] }
+            else existing.entries.push(entry)
             break
+          }
 
           case 'progress':
             if (loggableId && run.graph?.nodes[loggableId]) {
