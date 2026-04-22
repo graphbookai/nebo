@@ -149,32 +149,48 @@ class TerminalDisplay:
 
         state = get_state()
         nodes = {}
-        for nid, n in state.nodes.items():
-            nodes[nid] = {
-                "name": n.name,
-                "func_name": n.func_name,
-                "docstring": n.docstring,
-                "exec_count": n.exec_count,
-                "is_source": n.is_source,
-                "params": n.params,
-                "progress": n.progress,
+        for lid, l in state.loggables.items():
+            display_name = (
+                getattr(l, "func_name", "") or lid
+                if l.kind == "node"
+                else "Global"
+            )
+            nodes[lid] = {
+                "name": getattr(l, "name", "") or display_name,
+                "func_name": display_name,
+                "docstring": getattr(l, "docstring", None),
+                "exec_count": getattr(l, "exec_count", 0),
+                "is_source": getattr(l, "is_source", False),
+                "params": getattr(l, "params", {}),
+                "progress": l.progress,
+                "kind": l.kind,
             }
 
         logs = []
-        for nid, n in state.nodes.items():
-            for entry in n.logs[-5:]:
+        for lid, l in state.loggables.items():
+            tag = (
+                getattr(l, "func_name", "") or lid
+                if l.kind == "node"
+                else "Global"
+            )
+            for entry in l.logs[-5:]:
                 logs.append({
                     "timestamp": entry.get("timestamp", 0),
-                    "node": n.func_name,
+                    "node": tag,
                     "message": entry.get("message", entry.get("content", "")),
                 })
         logs.sort(key=lambda x: x.get("timestamp", 0))
 
         errors = []
-        for nid, n in state.nodes.items():
-            for err in n.errors:
+        for lid, l in state.loggables.items():
+            tag = (
+                getattr(l, "func_name", "") or lid
+                if l.kind == "node"
+                else "Global"
+            )
+            for err in l.errors:
                 errors.append({
-                    "node_name": n.func_name,
+                    "node_name": tag,
                     "exception_type": err.get("type", ""),
                     "exception_message": err.get("error", ""),
                 })
@@ -232,10 +248,17 @@ class TerminalDisplay:
                 style = {"running": "cyan", "completed": "green", "crashed": "red", "stopped": "dim"}.get(status, "")
                 parts.append(Text(f"    {icon} {r.get('id', '?')}: {status} ({r.get('script_path', '?')})", style=style))
 
+        # Real DAG nodes (excludes the Global loggable row)
+        has_real_nodes = any(n.get("kind", "node") == "node" for n in nodes.values())
+
         # ── DAG topology ──
-        if nodes:
-            # Build topology string
-            source_names = [n.get("func_name", nid) for nid, n in nodes.items() if n.get("is_source")]
+        if has_real_nodes:
+            # Build topology string (exclude Global from sources)
+            source_names = [
+                n.get("func_name", nid)
+                for nid, n in nodes.items()
+                if n.get("is_source") and n.get("kind", "node") == "node"
+            ]
             topo = " → ".join(source_names) if source_names else "..."
             if edges:
                 seen = set()
@@ -256,14 +279,40 @@ class TerminalDisplay:
             parts.append(Text(f"  DAG: {topo}", style="bold cyan"))
 
         # ── Node progress table ──
-        if nodes:
+        # Filter: show Global row only if it has activity or there are real nodes.
+        displayable_nodes = {
+            nid: n
+            for nid, n in nodes.items()
+            if n.get("kind", "node") == "node"
+            or has_real_nodes
+            or n.get("exec_count", 0) > 0
+            or n.get("progress")
+        }
+        # If there are no real nodes and Global has no activity, drop Global too.
+        if not has_real_nodes:
+            displayable_nodes = {
+                nid: n
+                for nid, n in displayable_nodes.items()
+                if n.get("exec_count", 0) > 0 or n.get("progress")
+            }
+            # Also include Global if there are any logs/errors attached to it
+            # (driven by the outer `logs`/`errors` lists when tag == "Global").
+            if any(entry.get("node") == "Global" for entry in logs) or any(
+                e.get("node_name") == "Global" for e in errors
+            ):
+                for nid, n in nodes.items():
+                    if n.get("kind") == "global":
+                        displayable_nodes[nid] = n
+                        break
+
+        if displayable_nodes:
             parts.append(Text(""))
             table = Table(show_header=False, box=None, padding=(0, 1))
             table.add_column("Node", style="bold", width=22)
             table.add_column("Status", width=10)
             table.add_column("Progress", width=30)
 
-            for nid, node in nodes.items():
+            for nid, node in displayable_nodes.items():
                 progress = node.get("progress")
                 if progress and progress.get("total"):
                     current = progress["current"]
