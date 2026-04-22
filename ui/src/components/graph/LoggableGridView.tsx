@@ -7,21 +7,21 @@ import { topologicalSort } from '@/lib/graph'
 
 // Extracted to module level so React preserves instance identity across parent re-renders.
 // This prevents LoggableTabContainer (and its active tab state) from being unmounted/remounted.
-const NodeCard = memo(function NodeCard({
+const NodeCardHeader = memo(function NodeCardHeader({
   runId,
-  nodeId,
+  loggableId,
   isDag,
   isExpanded,
   onToggle,
 }: {
   runId: string
-  nodeId: string
+  loggableId: string
   isDag: boolean
   isExpanded: boolean
   onToggle: () => void
 }) {
-  const node = useStore(s => s.runs.get(runId)?.graph?.nodes[nodeId])
-  const hasErrors = useStore(s => (s.runs.get(runId)?.errors ?? []).some(e => e.node_name === nodeId))
+  const node = useStore(s => s.runs.get(runId)?.graph?.nodes[loggableId])
+  const hasErrors = useStore(s => (s.runs.get(runId)?.errors ?? []).some(e => e.node_name === loggableId))
   const isRunning = useStore(s => s.runs.get(runId)?.summary.status === 'running') && (node?.exec_count ?? 0) > 0
 
   if (!node) return null
@@ -93,19 +93,83 @@ const NodeCard = memo(function NodeCard({
 
       {isExpanded && (
         <div className="border-t border-border" onClick={e => e.stopPropagation()}>
-          <LoggableTabContainer runId={runId} loggableId={nodeId} />
+          <LoggableTabContainer runId={runId} loggableId={loggableId} />
         </div>
       )}
     </div>
   )
 })
 
-interface NodeGridViewProps {
+const GlobalCardHeader = memo(function GlobalCardHeader({
+  runId,
+  isExpanded,
+  onToggle,
+}: {
+  runId: string
+  isExpanded: boolean
+  onToggle: () => void
+}) {
+  const desc = useStore(s => s.runs.get(runId)?.graph?.workflow_description) ?? ''
+  return (
+    <div
+      className="border-2 border-l-4 border-l-blue-500 rounded-lg cursor-pointer transition-all"
+      onClick={onToggle}
+    >
+      <div className="px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium truncate flex-1">Global</span>
+        </div>
+        {desc && (
+          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+            {desc.split('\n')[0].replace(/^#\s*/, '')}
+          </p>
+        )}
+      </div>
+      {isExpanded && (
+        <div className="border-t border-border" onClick={e => e.stopPropagation()}>
+          <LoggableTabContainer runId={runId} loggableId="__global__" />
+        </div>
+      )}
+    </div>
+  )
+})
+
+const LoggableCard = memo(function LoggableCard({
+  runId,
+  loggableId,
+  kind,
+  isDag,
+  isExpanded,
+  onToggle,
+}: {
+  runId: string
+  loggableId: string
+  kind: 'node' | 'global'
+  isDag: boolean
+  isExpanded: boolean
+  onToggle: () => void
+}) {
+  if (kind === 'global') {
+    return <GlobalCardHeader runId={runId} isExpanded={isExpanded} onToggle={onToggle} />
+  }
+  return (
+    <NodeCardHeader
+      runId={runId}
+      loggableId={loggableId}
+      isDag={isDag}
+      isExpanded={isExpanded}
+      onToggle={onToggle}
+    />
+  )
+})
+
+interface LoggableGridViewProps {
   runId: string
 }
 
-export function NodeGridView({ runId }: NodeGridViewProps) {
+export function LoggableGridView({ runId }: LoggableGridViewProps) {
   const graph = useStore(s => s.runs.get(runId)?.graph)
+  const globalLoggable = useStore(s => s.runs.get(runId)?.globalLoggable)
   const collapseByDefault = useStore(s => s.settings.collapseNodesByDefault)
   const hideUncalled = useStore(s => s.settings.hideUncalledFunctions)
 
@@ -113,14 +177,14 @@ export function NodeGridView({ runId }: NodeGridViewProps) {
     ? Object.keys(graph.nodes).filter(id => !hideUncalled || graph.nodes[id].exec_count > 0)
     : [], [graph, hideUncalled])
 
-  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(() => {
+  const [expanded, setExpanded] = useState<Set<string>>(() => {
     return collapseByDefault ? new Set() : new Set(allNodeIds)
   })
 
   if (!graph) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
-        <p className="text-sm">Loading nodes...</p>
+        <p className="text-sm">Loading...</p>
       </div>
     )
   }
@@ -131,30 +195,47 @@ export function NodeGridView({ runId }: NodeGridViewProps) {
   const nonDagNodeIds = allNodeIds.filter(id => !dagNodeIds.includes(id))
   const sorted = topologicalSort(dagNodeIds, graph.edges)
 
-  const toggleExpanded = (nodeId: string) => {
-    setExpandedNodes(prev => {
+  const toggle = (id: string) => {
+    setExpanded(prev => {
       const next = new Set(prev)
-      if (next.has(nodeId)) next.delete(nodeId)
-      else next.add(nodeId)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
   }
 
   return (
     <ScrollArea className="h-full">
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-3">
-        {sorted.map(nodeId => (
-          <NodeCard
-            key={nodeId}
+      {/* Global card first */}
+      {globalLoggable && (
+        <div className="grid grid-cols-1 gap-3 p-3 pb-0">
+          <LoggableCard
             runId={runId}
-            nodeId={nodeId}
-            isDag
-            isExpanded={expandedNodes.has(nodeId)}
-            onToggle={() => toggleExpanded(nodeId)}
+            loggableId="__global__"
+            kind="global"
+            isDag={false}
+            isExpanded={expanded.has("__global__")}
+            onToggle={() => toggle("__global__")}
+          />
+        </div>
+      )}
+
+      {/* DAG nodes */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-3">
+        {sorted.map(id => (
+          <LoggableCard
+            key={id}
+            runId={runId}
+            loggableId={id}
+            kind="node"
+            isDag={true}
+            isExpanded={expanded.has(id)}
+            onToggle={() => toggle(id)}
           />
         ))}
       </div>
 
+      {/* Uncalled */}
       {nonDagNodeIds.length > 0 && (
         <>
           <div className="flex items-center gap-2 px-3 pt-2 pb-1">
@@ -163,14 +244,15 @@ export function NodeGridView({ runId }: NodeGridViewProps) {
             <div className="h-px flex-1 bg-border border-dashed" />
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-3 pt-1">
-            {nonDagNodeIds.map(nodeId => (
-              <NodeCard
-                key={nodeId}
+            {nonDagNodeIds.map(id => (
+              <LoggableCard
+                key={id}
                 runId={runId}
-                nodeId={nodeId}
+                loggableId={id}
+                kind="node"
                 isDag={false}
-                isExpanded={expandedNodes.has(nodeId)}
-                onToggle={() => toggleExpanded(nodeId)}
+                isExpanded={expanded.has(id)}
+                onToggle={() => toggle(id)}
               />
             ))}
           </div>

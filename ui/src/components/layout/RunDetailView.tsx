@@ -4,7 +4,7 @@ import { useRunDuration } from '@/hooks/useRunDuration'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { useComparisonContext } from '@/hooks/useComparisonContext'
 import { DagGraph } from '@/components/graph/DagGraph'
-import { NodeGridView } from '@/components/graph/NodeGridView'
+import { LoggableGridView } from '@/components/graph/LoggableGridView'
 import { PinnedPanelStack } from '@/components/layout/PinnedPanelStack'
 import { TimelineScrubber } from '@/components/timeline/TimelineScrubber'
 import { RunStatusBadge } from '@/components/runs/RunStatusBadge'
@@ -130,7 +130,7 @@ export function RunDetailView() {
       <div className="flex-1 overflow-hidden flex">
         {effectiveViewMode === 'grid' ? (
           <div className="flex-1 overflow-hidden">
-            <NodeGridView runId={effectiveRunId!} />
+            <LoggableGridView runId={effectiveRunId!} />
           </div>
         ) : (
           <div className="flex-1 overflow-hidden">
