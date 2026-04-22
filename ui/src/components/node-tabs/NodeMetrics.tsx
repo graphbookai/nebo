@@ -31,6 +31,7 @@ import {
   Scatter,
   XAxis,
   YAxis,
+  ZAxis,
   Tooltip,
   CartesianGrid,
   ResponsiveContainer,
@@ -93,7 +94,6 @@ function MetricBlock({
   color: string
 }) {
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set())
-  const [activeSteps, setActiveSteps] = useState<Set<string>>(new Set())
 
   const allTags = useMemo(() => {
     const s = new Set<string>()
@@ -101,26 +101,18 @@ function MetricBlock({
     return [...s].sort()
   }, [series.entries])
 
-  const allSteps = useMemo(() => {
-    const s = new Set<string>()
-    for (const e of series.entries) s.add(String(e.step ?? ''))
-    return [...s]
-  }, [series.entries])
-
   const filtered = useMemo(() => {
-    return series.entries.filter(e => {
-      if (activeTags.size > 0 && !e.tags.some(t => activeTags.has(t))) return false
-      if (activeSteps.size > 0 && !activeSteps.has(String(e.step ?? ''))) return false
-      return true
-    })
-  }, [series.entries, activeTags, activeSteps])
+    if (activeTags.size === 0) return series.entries
+    return series.entries.filter(e => e.tags.some(t => activeTags.has(t)))
+  }, [series.entries, activeTags])
 
-  const toggle = (set: Set<string>, setFn: (s: Set<string>) => void, v: string) => {
-    const next = new Set(set)
-    if (next.has(v)) next.delete(v)
-    else next.add(v)
-    setFn(next)
-  }
+  const toggle = (v: string) =>
+    setActiveTags(prev => {
+      const next = new Set(prev)
+      if (next.has(v)) next.delete(v)
+      else next.add(v)
+      return next
+    })
 
   return (
     <div>
@@ -128,20 +120,11 @@ function MetricBlock({
         <span className="text-xs font-medium text-foreground">{name}</span>
         <span className="text-[10px] text-muted-foreground">{series.type}</span>
       </div>
-      {(allTags.length > 0 || allSteps.length > 1) && (
+      {allTags.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
           {allTags.map(t => (
-            <Chip key={`tag:${t}`} label={t} active={activeTags.has(t)} onClick={() => toggle(activeTags, setActiveTags, t)} />
+            <Chip key={`tag:${t}`} label={t} active={activeTags.has(t)} onClick={() => toggle(t)} />
           ))}
-          {allSteps.length > 1 &&
-            allSteps.map(s => (
-              <Chip
-                key={`step:${s}`}
-                label={s === '' ? '(no step)' : `step ${s}`}
-                active={activeSteps.has(s)}
-                onClick={() => toggle(activeSteps, setActiveSteps, s)}
-              />
-            ))}
         </div>
       )}
       <div className="mt-1">
@@ -235,53 +218,114 @@ function ComparisonMetrics({
   return (
     <div className="space-y-4">
       {[...metricNames.entries()].map(([name, type]) => (
-        <div key={name}>
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-foreground">{name}</span>
-            <span className="text-[10px] text-muted-foreground">{type}</span>
-          </div>
-          {/* Run filter chips — toggling limits which runs this chart draws. */}
-          <div className="mt-1 flex flex-wrap gap-1">
-            {comparisonRunIds.map(rid => {
-              const active = activeRuns.has(rid)
-              const color = runColors.get(rid) ?? '#60a5fa'
-              return (
-                <button
-                  key={rid}
-                  onClick={() =>
-                    setActiveRuns(prev => {
-                      const next = new Set(prev)
-                      if (next.has(rid)) next.delete(rid)
-                      else next.add(rid)
-                      return next
-                    })
-                  }
-                  className={
-                    'text-[10px] rounded px-1.5 py-0.5 border flex items-center gap-1 ' +
-                    (active
-                      ? 'bg-accent text-accent-foreground border-accent'
-                      : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted')
-                  }
-                >
-                  <span
-                    className="w-2 h-2 rounded-full shrink-0"
-                    style={{ backgroundColor: color }}
-                  />
-                  {runNameFor(rid)}
-                </button>
-              )
-            })}
-          </div>
-          <div className="mt-1">
-            <ComparisonChart
-              type={type}
-              name={name}
-              loggableId={loggableId}
-              runIds={effectiveRunIds}
-            />
-          </div>
-        </div>
+        <ComparisonMetricBlock
+          key={name}
+          name={name}
+          type={type}
+          loggableId={loggableId}
+          runIds={effectiveRunIds}
+          comparisonRunIds={comparisonRunIds}
+          activeRuns={activeRuns}
+          setActiveRuns={setActiveRuns}
+          runColors={runColors}
+          runNameFor={runNameFor}
+        />
       ))}
+    </div>
+  )
+}
+
+function ComparisonMetricBlock({
+  name,
+  type,
+  loggableId,
+  runIds,
+  comparisonRunIds,
+  activeRuns,
+  setActiveRuns,
+  runColors,
+  runNameFor,
+}: {
+  name: string
+  type: string
+  loggableId: string
+  runIds: string[]
+  comparisonRunIds: string[]
+  activeRuns: Set<string>
+  setActiveRuns: (updater: (prev: Set<string>) => Set<string>) => void
+  runColors: Map<string, string>
+  runNameFor: (rid: string) => string
+}) {
+  const runs = useStore(s => s.runs)
+  const [activeTags, setActiveTags] = useState<Set<string>>(new Set())
+
+  const allTags = useMemo(() => {
+    const s = new Set<string>()
+    for (const rid of comparisonRunIds) {
+      const series = runs.get(rid)?.loggableMetrics[loggableId]?.[name]
+      if (!series) continue
+      for (const e of series.entries) for (const t of e.tags) s.add(t)
+    }
+    return [...s].sort()
+  }, [comparisonRunIds, runs, loggableId, name])
+
+  const toggleTag = (t: string) =>
+    setActiveTags(prev => {
+      const next = new Set(prev)
+      if (next.has(t)) next.delete(t)
+      else next.add(t)
+      return next
+    })
+
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-foreground">{name}</span>
+        <span className="text-[10px] text-muted-foreground">{type}</span>
+      </div>
+      <div className="mt-1 flex flex-wrap gap-1">
+        {comparisonRunIds.map(rid => {
+          const active = activeRuns.has(rid)
+          const color = runColors.get(rid) ?? '#60a5fa'
+          return (
+            <button
+              key={rid}
+              onClick={() =>
+                setActiveRuns(prev => {
+                  const next = new Set(prev)
+                  if (next.has(rid)) next.delete(rid)
+                  else next.add(rid)
+                  return next
+                })
+              }
+              className={
+                'text-[10px] rounded px-1.5 py-0.5 border flex items-center gap-1 ' +
+                (active
+                  ? 'bg-accent text-accent-foreground border-accent'
+                  : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted')
+              }
+            >
+              <span
+                className="w-2 h-2 rounded-full shrink-0"
+                style={{ backgroundColor: color }}
+              />
+              {runNameFor(rid)}
+            </button>
+          )
+        })}
+        {allTags.map(t => (
+          <Chip key={`tag:${t}`} label={t} active={activeTags.has(t)} onClick={() => toggleTag(t)} />
+        ))}
+      </div>
+      <div className="mt-1">
+        <ComparisonChart
+          type={type}
+          name={name}
+          loggableId={loggableId}
+          runIds={runIds}
+          activeTags={activeTags}
+        />
+      </div>
     </div>
   )
 }
@@ -291,11 +335,13 @@ function ComparisonChart({
   name,
   loggableId,
   runIds,
+  activeTags,
 }: {
   type: string
   name: string
   loggableId: string
   runIds: string[]
+  activeTags: Set<string>
 }) {
   const runs = useStore(s => s.runs)
   const runColors = useStore(s => s.runColors)
@@ -303,7 +349,17 @@ function ComparisonChart({
 
   const runNameFor = (rid: string) =>
     runNames.get(rid) || runs.get(rid)?.summary.script_path.split('/').pop() || rid
-  const seriesFor = (rid: string) => runs.get(rid)?.loggableMetrics[loggableId]?.[name]
+  const seriesFor = (rid: string) => {
+    const s = runs.get(rid)?.loggableMetrics[loggableId]?.[name]
+    if (!s) return undefined
+    if (activeTags.size === 0) return s
+    // Pre-filter entries by tag so downstream chart components don't need to
+    // know about tags at all.
+    return {
+      ...s,
+      entries: s.entries.filter(e => e.tags.some(t => activeTags.has(t))),
+    }
+  }
 
   if (type === 'line') return <ComparisonLine runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
   if (type === 'bar') return <ComparisonBar runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
@@ -573,6 +629,7 @@ function ComparisonScatter({ runIds, runColors, runNameFor, seriesFor }: {
         <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
         <XAxis dataKey="x" type="number" tick={chartAxisTick} tickLine={false} axisLine={false} />
         <YAxis dataKey="y" type="number" tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
+        <ZAxis range={[18, 18]} />
         <Tooltip
           cursor={chartScatterCursor}
           wrapperStyle={chartHiddenWrapper}

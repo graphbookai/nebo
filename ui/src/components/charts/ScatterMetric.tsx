@@ -1,4 +1,4 @@
-import { ScatterChart, Scatter, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import type { MetricEntry } from '@/lib/api'
 import {
   chartAxisTick,
@@ -37,6 +37,8 @@ export function ScatterMetric({ entries, color }: { entries: MetricEntry[]; colo
         <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
         <XAxis dataKey="x" type="number" tick={chartAxisTick} tickLine={false} axisLine={false} />
         <YAxis dataKey="y" type="number" tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
+        {/* ZAxis range in px^2; small points keep dense clouds readable. */}
+        <ZAxis range={[18, 18]} />
         <Tooltip cursor={chartScatterCursor} wrapperStyle={chartHiddenWrapper} content={<PortalTooltip />} />
         {valid.map(({ e, idx }, j) => {
           const v = e.value as { x: number[]; y: number[] }
