@@ -1,18 +1,51 @@
-// Renders a single loggable's tab; works for node- and global-kind loggables.
-import { useMemo, useState } from 'react'
+// Renders a single loggable's metrics tab. Works for node- and global-kind
+// loggables, for a single run, and in multi-run comparison.
+//
+// Color conventions:
+//   - In a single-run view, every chart is drawn in the run's color (the same
+//     color the UI uses for the run elsewhere). Shapes/opacity distinguish
+//     within-run step or category variation.
+//   - In comparison, each run's data is drawn in that run's color; lines,
+//     bars, histograms, and scatters stack/overlay across runs.
+//
+// Filter chips above each chart let the user toggle:
+//   - tag chips (the tags the user attached via `tags=`)
+//   - step chips (each emission's step number)
+//   - run chips (only in comparison)
+import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '@/store'
-import type { MetricEntry } from '@/lib/api'
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+import type { MetricEntry, LoggableMetricSeries } from '@/lib/api'
 import { LineMetric } from '@/components/charts/LineMetric'
 import { BarMetric } from '@/components/charts/BarMetric'
 import { PieMetric } from '@/components/charts/PieMetric'
 import { ScatterMetric } from '@/components/charts/ScatterMetric'
 import { HistogramMetric } from '@/components/charts/HistogramMetric'
-import { BarStackedMetric } from '@/components/charts/BarStackedMetric'
-import { HistogramStackedMetric } from '@/components/charts/HistogramStackedMetric'
-import { chartAxisTick, chartGridStroke, chartHiddenWrapper } from '@/components/charts/chartStyles'
+import {
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  AreaChart,
+  Area,
+  ScatterChart,
+  Scatter,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  ResponsiveContainer,
+} from 'recharts'
+import {
+  chartAxisTick,
+  chartBarCursor,
+  chartGridStroke,
+  chartHiddenWrapper,
+  chartScatterCursor,
+} from '@/components/charts/chartStyles'
 import { PortalTooltip } from '@/components/charts/PortalTooltip'
-import { parseMetricType } from '@/components/charts/metricType'
+
+const SCATTER_SHAPES = ['circle', 'cross', 'diamond', 'square', 'star', 'triangle', 'wye'] as const
+type ScatterShape = (typeof SCATTER_SHAPES)[number]
 
 interface NodeMetricsProps {
   runId: string
@@ -20,58 +53,31 @@ interface NodeMetricsProps {
   comparisonRunIds?: string[]
 }
 
-const MAX_DISPLAY_POINTS = 500
-
-type LinePoint = { step: number; value: number }
-
-function toLinePoints(entries: MetricEntry[]): LinePoint[] {
-  const points: LinePoint[] = []
-  for (let i = 0; i < entries.length; i++) {
-    const e = entries[i]
-    const step = e.step ?? i
-    const value = typeof e.value === 'number' ? e.value : Number(e.value)
-    if (Number.isFinite(value)) {
-      points.push({ step, value })
-    }
-  }
-  return points
-}
-
-function downsample(series: LinePoint[]): LinePoint[] {
-  if (series.length <= MAX_DISPLAY_POINTS) return series
-  const step = Math.ceil(series.length / MAX_DISPLAY_POINTS)
-  const result: LinePoint[] = []
-  for (let i = 0; i < series.length; i += step) {
-    result.push(series[i])
-  }
-  // Always include the last point
-  if (result[result.length - 1] !== series[series.length - 1]) {
-    result.push(series[series.length - 1])
-  }
-  return result
-}
-
 export function NodeMetrics({ runId, loggableId, comparisonRunIds }: NodeMetricsProps) {
-  const metrics = useStore(s => s.runs.get(runId)?.loggableMetrics[loggableId]) ?? {}
-
   if (comparisonRunIds) {
-    return (
-      <ComparisonMetrics
-        runId={runId}
-        loggableId={loggableId}
-        comparisonRunIds={comparisonRunIds}
-      />
-    )
+    return <ComparisonMetrics loggableId={loggableId} comparisonRunIds={comparisonRunIds} />
   }
+  return <SingleRunMetrics runId={runId} loggableId={loggableId} />
+}
+
+function SingleRunMetrics({ runId, loggableId }: { runId: string; loggableId: string }) {
+  const metrics = useStore(s => s.runs.get(runId)?.loggableMetrics[loggableId]) ?? {}
+  const runColor = useStore(s => s.runColors.get(runId)) ?? '#60a5fa'
+  const getOrAssignRunColor = useStore(s => s.getOrAssignRunColor)
+
+  // Make sure this run has an assigned color — the store lazily assigns on demand.
+  useEffect(() => {
+    getOrAssignRunColor(runId)
+  }, [runId, getOrAssignRunColor])
 
   if (Object.keys(metrics).length === 0) {
-    return <p className="text-xs text-muted-foreground">No metrics for this node</p>
+    return <p className="text-xs text-muted-foreground">No metrics for this loggable</p>
   }
 
   return (
     <div className="space-y-4">
       {Object.entries(metrics).map(([name, series]) => (
-        <MetricBlock key={name} name={name} series={series} />
+        <MetricBlock key={name} name={name} series={series} color={runColor} />
       ))}
     </div>
   )
@@ -80,11 +86,14 @@ export function NodeMetrics({ runId, loggableId, comparisonRunIds }: NodeMetrics
 function MetricBlock({
   name,
   series,
+  color,
 }: {
   name: string
-  series: { type: string; entries: MetricEntry[] }
+  series: LoggableMetricSeries
+  color: string
 }) {
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set())
+  const [activeSteps, setActiveSteps] = useState<Set<string>>(new Set())
 
   const allTags = useMemo(() => {
     const s = new Set<string>()
@@ -92,18 +101,26 @@ function MetricBlock({
     return [...s].sort()
   }, [series.entries])
 
-  const filtered = useMemo(() => {
-    if (activeTags.size === 0) return series.entries
-    return series.entries.filter(e => e.tags.some(t => activeTags.has(t)))
-  }, [series.entries, activeTags])
+  const allSteps = useMemo(() => {
+    const s = new Set<string>()
+    for (const e of series.entries) s.add(String(e.step ?? ''))
+    return [...s]
+  }, [series.entries])
 
-  const toggleTag = (t: string) =>
-    setActiveTags(prev => {
-      const next = new Set(prev)
-      if (next.has(t)) next.delete(t)
-      else next.add(t)
-      return next
+  const filtered = useMemo(() => {
+    return series.entries.filter(e => {
+      if (activeTags.size > 0 && !e.tags.some(t => activeTags.has(t))) return false
+      if (activeSteps.size > 0 && !activeSteps.has(String(e.step ?? ''))) return false
+      return true
     })
+  }, [series.entries, activeTags, activeSteps])
+
+  const toggle = (set: Set<string>, setFn: (s: Set<string>) => void, v: string) => {
+    const next = new Set(set)
+    if (next.has(v)) next.delete(v)
+    else next.add(v)
+    setFn(next)
+  }
 
   return (
     <div>
@@ -111,45 +128,50 @@ function MetricBlock({
         <span className="text-xs font-medium text-foreground">{name}</span>
         <span className="text-[10px] text-muted-foreground">{series.type}</span>
       </div>
-      {allTags.length > 0 && (
+      {(allTags.length > 0 || allSteps.length > 1) && (
         <div className="mt-1 flex flex-wrap gap-1">
-          {allTags.map(t => {
-            const on = activeTags.has(t)
-            return (
-              <button
-                key={t}
-                onClick={() => toggleTag(t)}
-                className={
-                  'text-[10px] rounded px-1.5 py-0.5 border ' +
-                  (on
-                    ? 'bg-accent text-accent-foreground border-accent'
-                    : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted')
-                }
-              >
-                {t}
-              </button>
-            )
-          })}
+          {allTags.map(t => (
+            <Chip key={`tag:${t}`} label={t} active={activeTags.has(t)} onClick={() => toggle(activeTags, setActiveTags, t)} />
+          ))}
+          {allSteps.length > 1 &&
+            allSteps.map(s => (
+              <Chip
+                key={`step:${s}`}
+                label={s === '' ? '(no step)' : `step ${s}`}
+                active={activeSteps.has(s)}
+                onClick={() => toggle(activeSteps, setActiveSteps, s)}
+              />
+            ))}
         </div>
       )}
       <div className="mt-1">
-        <MetricChart type={series.type} entries={filtered} />
+        <SingleRunChart type={series.type} entries={filtered} color={color} />
       </div>
     </div>
   )
 }
 
-function MetricChart({ type, entries }: { type: string; entries: MetricEntry[] }) {
-  const { base, stacked } = parseMetricType(type)
-  if (base === 'line') {
-    return <LineMetric entries={entries} />
-  }
-  if (base === 'bar' && stacked) {
-    return <BarStackedMetric entries={entries} />
-  }
-  if (base === 'histogram' && stacked) {
-    return <HistogramStackedMetric entries={entries} />
-  }
+function Chip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={
+        'text-[10px] rounded px-1.5 py-0.5 border ' +
+        (active
+          ? 'bg-accent text-accent-foreground border-accent'
+          : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted')
+      }
+    >
+      {label}
+    </button>
+  )
+}
+
+function SingleRunChart({ type, entries, color }: { type: string; entries: MetricEntry[]; color: string }) {
+  if (type === 'line') return <LineMetric entries={entries} color={color} />
+  if (type === 'histogram') return <HistogramMetric entries={entries} color={color} />
+  if (type === 'scatter') return <ScatterMetric entries={entries} color={color} />
+  // bar and pie emit one chart per emission; step label above each.
   return (
     <div className="space-y-3">
       {entries.map((e, i) => {
@@ -157,10 +179,8 @@ function MetricChart({ type, entries }: { type: string; entries: MetricEntry[] }
         return (
           <div key={`${e.timestamp}-${i}`}>
             <div className="text-[10px] text-muted-foreground mb-0.5">{stepLabel}</div>
-            {base === 'bar' && <BarMetric entry={e} />}
-            {base === 'pie' && <PieMetric entry={e} />}
-            {base === 'scatter' && <ScatterMetric entry={e} />}
-            {base === 'histogram' && <HistogramMetric entry={e} />}
+            {type === 'bar' && <BarMetric entry={e} color={color} />}
+            {type === 'pie' && <PieMetric entry={e} />}
           </div>
         )
       })}
@@ -168,118 +188,410 @@ function MetricChart({ type, entries }: { type: string; entries: MetricEntry[] }
   )
 }
 
+// ─── Comparison ────────────────────────────────────────────────────────────
+
 function ComparisonMetrics({
   loggableId,
   comparisonRunIds,
 }: {
-  runId: string
   loggableId: string
   comparisonRunIds: string[]
 }) {
   const runs = useStore(s => s.runs)
   const runColors = useStore(s => s.runColors)
   const runNames = useStore(s => s.runNames)
+  const getOrAssignRunColor = useStore(s => s.getOrAssignRunColor)
 
-  // Collect all metric names across all runs that are line-typed.
-  const comparisonMetricEntries = useMemo(() => {
-    const metricNames = new Set<string>()
+  useEffect(() => {
+    for (const rid of comparisonRunIds) getOrAssignRunColor(rid)
+  }, [comparisonRunIds, getOrAssignRunColor])
+
+  const [activeRuns, setActiveRuns] = useState<Set<string>>(new Set())
+
+  const runNameFor = (rid: string) =>
+    runNames.get(rid) || runs.get(rid)?.summary.script_path.split('/').pop() || rid
+
+  // Collect every metric name across runs, keyed by its type (use the first
+  // type we see — type is locked on the SDK side anyway).
+  const metricNames = useMemo(() => {
+    const byName = new Map<string, string>()
     for (const rid of comparisonRunIds) {
       const runMetrics = runs.get(rid)?.loggableMetrics[loggableId]
-      if (runMetrics) {
-        for (const [name, series] of Object.entries(runMetrics)) {
-          if (series.type === 'line') metricNames.add(name)
-        }
+      if (!runMetrics) continue
+      for (const [name, series] of Object.entries(runMetrics)) {
+        if (!byName.has(name)) byName.set(name, series.type)
       }
     }
-
-    return Array.from(metricNames).map(metricName => {
-      // Merge data: collect all steps, then for each step build a row with per-run values
-      const stepMap = new Map<number, Record<string, number>>()
-
-      for (const rid of comparisonRunIds) {
-        const series = runs.get(rid)?.loggableMetrics[loggableId]?.[metricName]
-        if (!series || series.type !== 'line') continue
-        const downsampled = downsample(toLinePoints(series.entries))
-        for (const point of downsampled) {
-          if (!stepMap.has(point.step)) {
-            stepMap.set(point.step, { step: point.step })
-          }
-          stepMap.get(point.step)![rid] = point.value
-        }
-      }
-
-      const data = Array.from(stepMap.values()).sort((a, b) => a.step - b.step)
-      return { name: metricName, data }
-    })
+    return byName
   }, [comparisonRunIds, runs, loggableId])
 
-  if (comparisonMetricEntries.length === 0) {
-    return <p className="text-xs text-muted-foreground">No metrics for this node</p>
+  if (metricNames.size === 0) {
+    return <p className="text-xs text-muted-foreground">No metrics for this loggable</p>
   }
+
+  const effectiveRunIds =
+    activeRuns.size === 0 ? comparisonRunIds : comparisonRunIds.filter(rid => activeRuns.has(rid))
 
   return (
     <div className="space-y-4">
-      {comparisonMetricEntries.map(({ name, data }) => (
+      {[...metricNames.entries()].map(([name, type]) => (
         <div key={name}>
-          <span className="text-xs font-medium text-foreground">{name}</span>
-          <div className="h-[120px] mt-1">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={data}>
-                <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
-                <XAxis dataKey="step" tick={chartAxisTick} tickLine={false} axisLine={false} />
-                <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
-                <Tooltip
-                  wrapperStyle={chartHiddenWrapper}
-                  content={
-                    <PortalTooltip
-                      labelFormatter={step => `Step ${step}`}
-                      formatter={(value, dataKey) => {
-                        const key = String(dataKey ?? '')
-                        const displayName =
-                          runNames.get(key) ||
-                          runs.get(key)?.summary.script_path.split('/').pop() ||
-                          key
-                        return [value != null ? Number(value).toFixed(4) : '', displayName]
-                      }}
-                    />
-                  }
-                />
-                {comparisonRunIds.map(rid => (
-                  <Line
-                    key={rid}
-                    type="monotone"
-                    dataKey={rid}
-                    stroke={runColors.get(rid) ?? '#60a5fa'}
-                    strokeWidth={1.5}
-                    dot={false}
-                    isAnimationActive={false}
-                    connectNulls
-                  />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-foreground">{name}</span>
+            <span className="text-[10px] text-muted-foreground">{type}</span>
           </div>
-          {/* Legend */}
-          <div className="flex flex-wrap gap-3 mt-1">
+          {/* Run filter chips — toggling limits which runs this chart draws. */}
+          <div className="mt-1 flex flex-wrap gap-1">
             {comparisonRunIds.map(rid => {
+              const active = activeRuns.has(rid)
               const color = runColors.get(rid) ?? '#60a5fa'
-              const displayName =
-                runNames.get(rid) ||
-                runs.get(rid)?.summary.script_path.split('/').pop() ||
-                rid
               return (
-                <div key={rid} className="flex items-center gap-1">
+                <button
+                  key={rid}
+                  onClick={() =>
+                    setActiveRuns(prev => {
+                      const next = new Set(prev)
+                      if (next.has(rid)) next.delete(rid)
+                      else next.add(rid)
+                      return next
+                    })
+                  }
+                  className={
+                    'text-[10px] rounded px-1.5 py-0.5 border flex items-center gap-1 ' +
+                    (active
+                      ? 'bg-accent text-accent-foreground border-accent'
+                      : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted')
+                  }
+                >
                   <span
                     className="w-2 h-2 rounded-full shrink-0"
                     style={{ backgroundColor: color }}
                   />
-                  <span className="text-[10px] text-muted-foreground">{displayName}</span>
-                </div>
+                  {runNameFor(rid)}
+                </button>
               )
             })}
+          </div>
+          <div className="mt-1">
+            <ComparisonChart
+              type={type}
+              name={name}
+              loggableId={loggableId}
+              runIds={effectiveRunIds}
+            />
           </div>
         </div>
       ))}
     </div>
+  )
+}
+
+function ComparisonChart({
+  type,
+  name,
+  loggableId,
+  runIds,
+}: {
+  type: string
+  name: string
+  loggableId: string
+  runIds: string[]
+}) {
+  const runs = useStore(s => s.runs)
+  const runColors = useStore(s => s.runColors)
+  const runNames = useStore(s => s.runNames)
+
+  const runNameFor = (rid: string) =>
+    runNames.get(rid) || runs.get(rid)?.summary.script_path.split('/').pop() || rid
+  const seriesFor = (rid: string) => runs.get(rid)?.loggableMetrics[loggableId]?.[name]
+
+  if (type === 'line') return <ComparisonLine runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
+  if (type === 'bar') return <ComparisonBar runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
+  if (type === 'histogram') return <ComparisonHistogram runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
+  if (type === 'scatter') return <ComparisonScatter runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
+  // pie: one pie per run (stacked)
+  return (
+    <div className="space-y-2">
+      {runIds.map(rid => {
+        const s = seriesFor(rid)
+        if (!s) return null
+        const latest = s.entries[s.entries.length - 1]
+        if (!latest) return null
+        return (
+          <div key={rid}>
+            <div className="text-[10px] text-muted-foreground mb-0.5">{runNameFor(rid)}</div>
+            <PieMetric entry={latest} />
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+type SeriesFor = (rid: string) => LoggableMetricSeries | undefined
+
+function ComparisonLine({ runIds, runColors, runNameFor, seriesFor }: {
+  runIds: string[]
+  runColors: Map<string, string>
+  runNameFor: (rid: string) => string
+  seriesFor: SeriesFor
+}) {
+  const stepMap = new Map<number, Record<string, number>>()
+  for (const rid of runIds) {
+    const s = seriesFor(rid)
+    if (!s || s.type !== 'line') continue
+    for (const e of s.entries) {
+      const step = e.step ?? 0
+      const v = typeof e.value === 'number' ? e.value : Number(e.value)
+      if (!Number.isFinite(v)) continue
+      if (!stepMap.has(step)) stepMap.set(step, { step })
+      stepMap.get(step)![rid] = v
+    }
+  }
+  const data = [...stepMap.values()].sort((a, b) => a.step - b.step)
+  return (
+    <div className="h-[140px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
+          <XAxis dataKey="step" tick={chartAxisTick} tickLine={false} axisLine={false} />
+          <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
+          <Tooltip
+            wrapperStyle={chartHiddenWrapper}
+            content={
+              <PortalTooltip
+                labelFormatter={step => `Step ${step}`}
+                formatter={(value, dataKey) => [
+                  value != null ? Number(value).toFixed(4) : '',
+                  runNameFor(String(dataKey ?? '')),
+                ]}
+              />
+            }
+          />
+          {runIds.map(rid => (
+            <Line
+              key={rid}
+              type="monotone"
+              dataKey={rid}
+              stroke={runColors.get(rid) ?? '#60a5fa'}
+              strokeWidth={1.5}
+              dot={false}
+              isAnimationActive={false}
+              connectNulls
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+function ComparisonBar({ runIds, runColors, runNameFor, seriesFor }: {
+  runIds: string[]
+  runColors: Map<string, string>
+  runNameFor: (rid: string) => string
+  seriesFor: SeriesFor
+}) {
+  // Per-step chart: x = dict keys (categories), each run stacks its values.
+  // Step is taken from the union of all runs' steps.
+  const stepsSet = new Set<number>()
+  for (const rid of runIds) {
+    const s = seriesFor(rid)
+    if (!s) continue
+    for (const e of s.entries) stepsSet.add(e.step ?? 0)
+  }
+  const steps = [...stepsSet].sort((a, b) => a - b)
+  return (
+    <div className="space-y-3">
+      {steps.map(step => {
+        const categories = new Set<string>()
+        const perRun: Record<string, Record<string, number>> = {}
+        for (const rid of runIds) {
+          const s = seriesFor(rid)
+          if (!s) continue
+          const e = s.entries.find(x => (x.step ?? 0) === step)
+          if (!e) continue
+          const v = e.value as Record<string, unknown> | undefined
+          if (!v || typeof v !== 'object') continue
+          perRun[rid] = {}
+          for (const [k, vv] of Object.entries(v)) {
+            categories.add(k)
+            perRun[rid][k] = typeof vv === 'number' ? vv : Number(vv) || 0
+          }
+        }
+        const catList = [...categories]
+        const data = catList.map(cat => {
+          const row: Record<string, number | string> = { category: cat }
+          for (const rid of runIds) row[rid] = perRun[rid]?.[cat] ?? 0
+          return row
+        })
+        return (
+          <div key={step}>
+            <div className="text-[10px] text-muted-foreground mb-0.5">Step {step}</div>
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={data}>
+                <XAxis dataKey="category" tick={chartAxisTick} tickLine={false} axisLine={false} />
+                <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
+                <Tooltip
+                  cursor={chartBarCursor}
+                  wrapperStyle={chartHiddenWrapper}
+                  content={
+                    <PortalTooltip
+                      formatter={(value, dataKey) => [value, runNameFor(String(dataKey ?? ''))]}
+                    />
+                  }
+                />
+                {runIds.map(rid => (
+                  <Bar
+                    key={rid}
+                    dataKey={rid}
+                    stackId="stack"
+                    fill={runColors.get(rid) ?? '#60a5fa'}
+                  />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function ComparisonHistogram({ runIds, runColors, runNameFor, seriesFor }: {
+  runIds: string[]
+  runColors: Map<string, string>
+  runNameFor: (rid: string) => string
+  seriesFor: SeriesFor
+}) {
+  // Bin all samples across every run × every step against a shared range.
+  type Slot = { rid: string; step: number; samples: number[] }
+  const slots: Slot[] = []
+  for (const rid of runIds) {
+    const s = seriesFor(rid)
+    if (!s) continue
+    for (const e of s.entries) {
+      if (Array.isArray(e.value)) {
+        slots.push({ rid, step: e.step ?? 0, samples: e.value as number[] })
+      }
+    }
+  }
+  if (slots.length === 0) {
+    return <p className="text-[10px] text-muted-foreground">No histogram samples to compare</p>
+  }
+  const flat = slots.flatMap(s => s.samples)
+  const min = Math.min(...flat)
+  const max = Math.max(...flat)
+  const NUM = 30
+  const size = (max - min) / NUM || 1
+  const data = Array.from({ length: NUM }, (_, i) => {
+    const row: Record<string, number> = { x: min + (i + 0.5) * size }
+    slots.forEach((slot, j) => {
+      const key = `${slot.rid}__${slot.step}__${j}`
+      let count = 0
+      for (const v of slot.samples) {
+        let idx = Math.floor((v - min) / size)
+        if (idx < 0) idx = 0
+        if (idx > NUM - 1) idx = NUM - 1
+        if (idx === i) count++
+      }
+      row[key] = count
+    })
+    return row
+  })
+  return (
+    <ResponsiveContainer width="100%" height={200}>
+      <AreaChart data={data}>
+        <XAxis
+          dataKey="x"
+          type="number"
+          tick={chartAxisTick}
+          tickLine={false}
+          axisLine={false}
+          tickFormatter={v => Number(v).toFixed(2)}
+        />
+        <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
+        <Tooltip
+          cursor={chartBarCursor}
+          wrapperStyle={chartHiddenWrapper}
+          content={
+            <PortalTooltip
+              labelFormatter={v => `x≈${Number(v).toFixed(2)}`}
+              formatter={(value, dataKey) => {
+                const [rid, step] = String(dataKey ?? '').split('__')
+                return [value, `${runNameFor(rid)} · step ${step}`]
+              }}
+            />
+          }
+        />
+        {slots.map((slot, j) => {
+          const key = `${slot.rid}__${slot.step}__${j}`
+          const color = runColors.get(slot.rid) ?? '#60a5fa'
+          return (
+            <Area
+              key={key}
+              dataKey={key}
+              type="monotone"
+              stroke={color}
+              fill={color}
+              fillOpacity={0.22}
+              isAnimationActive={false}
+            />
+          )
+        })}
+      </AreaChart>
+    </ResponsiveContainer>
+  )
+}
+
+function ComparisonScatter({ runIds, runColors, runNameFor, seriesFor }: {
+  runIds: string[]
+  runColors: Map<string, string>
+  runNameFor: (rid: string) => string
+  seriesFor: SeriesFor
+}) {
+  type Slot = { rid: string; step: number; shapeIdx: number; data: { x: number; y: number }[] }
+  const slots: Slot[] = []
+  let shapeIdx = 0
+  for (const rid of runIds) {
+    const s = seriesFor(rid)
+    if (!s) continue
+    for (const e of s.entries) {
+      const v = e.value as { x?: unknown; y?: unknown } | undefined
+      if (!v || !Array.isArray(v.x) || !Array.isArray(v.y)) continue
+      const data = (v.x as number[]).map((x, i) => ({ x, y: (v.y as number[])[i] }))
+      slots.push({ rid, step: e.step ?? 0, shapeIdx: shapeIdx % SCATTER_SHAPES.length, data })
+      shapeIdx++
+    }
+  }
+  if (slots.length === 0) {
+    return <p className="text-[10px] text-muted-foreground">No scatter data to compare</p>
+  }
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <ScatterChart>
+        <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
+        <XAxis dataKey="x" type="number" tick={chartAxisTick} tickLine={false} axisLine={false} />
+        <YAxis dataKey="y" type="number" tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
+        <Tooltip
+          cursor={chartScatterCursor}
+          wrapperStyle={chartHiddenWrapper}
+          content={<PortalTooltip />}
+        />
+        {slots.map((slot, i) => {
+          const color = runColors.get(slot.rid) ?? '#60a5fa'
+          const shape: ScatterShape = SCATTER_SHAPES[slot.shapeIdx]
+          return (
+            <Scatter
+              key={`${slot.rid}-${slot.step}-${i}`}
+              name={`${runNameFor(slot.rid)} · step ${slot.step}`}
+              data={slot.data}
+              fill={color}
+              shape={shape}
+            />
+          )
+        })}
+      </ScatterChart>
+    </ResponsiveContainer>
   )
 }

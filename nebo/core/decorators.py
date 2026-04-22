@@ -70,6 +70,24 @@ def fn(
             that this node depends on. Creates explicit edges.
         pausable: If True, the function will block before execution when
             the web client sends a pause event. Default is False.
+        ui: Optional per-node display hints surfaced to the web UI as
+            ``ui_hints``. Supported keys:
+
+            - ``collapsed`` (bool): if True, the node's card is collapsed
+              in the grid view on first render.
+            - ``color`` (str): badge / border accent color for the node.
+            - ``default_tab`` (str): which tab opens by default when the
+              card is expanded. One of ``"info"`` (default), ``"logs"``,
+              ``"metrics"``, ``"images"``, ``"audio"``, ``"ask"``. User
+              clicks on a different tab always override this preference.
+
+            Unknown keys are forwarded verbatim for forward-compatibility
+            with future UI features.
+
+            Example::
+
+                @nb.fn(ui={"default_tab": "metrics", "collapsed": False})
+                def train(...): ...
 
     Returns:
         The decorated function or class.

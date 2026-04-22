@@ -1,9 +1,12 @@
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import type { MetricEntry } from '@/lib/api'
-import { chartAxisTick, chartBarCursor, chartHiddenWrapper, METRIC_COLORS } from './chartStyles'
+import { chartAxisTick, chartBarCursor, chartHiddenWrapper } from './chartStyles'
 import { PortalTooltip } from './PortalTooltip'
 
-export function BarMetric({ entry }: { entry: MetricEntry }) {
+// Single-step bar chart. x-axis is the dict's keys (categories); every bar
+// uses the same color (typically the run's color) so a chart from one run
+// reads as one series.
+export function BarMetric({ entry, color }: { entry: MetricEntry; color: string }) {
   const value = entry.value as Record<string, number> | undefined
   if (!value) return null
   const data = Object.entries(value).map(([label, v]) => ({
@@ -16,7 +19,7 @@ export function BarMetric({ entry }: { entry: MetricEntry }) {
         <XAxis dataKey="label" tick={chartAxisTick} tickLine={false} axisLine={false} />
         <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
         <Tooltip cursor={chartBarCursor} wrapperStyle={chartHiddenWrapper} content={<PortalTooltip />} />
-        <Bar dataKey="value" fill={METRIC_COLORS[0]} />
+        <Bar dataKey="value" fill={color} />
       </BarChart>
     </ResponsiveContainer>
   )

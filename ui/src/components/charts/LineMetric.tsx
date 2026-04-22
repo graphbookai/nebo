@@ -33,7 +33,7 @@ function downsample(series: LinePoint[]): LinePoint[] {
   return result
 }
 
-export function LineMetric({ entries }: { entries: MetricEntry[] }) {
+export function LineMetric({ entries, color }: { entries: MetricEntry[]; color: string }) {
   if (entries.length === 0) return null
   const data = downsample(toLinePoints(entries))
   return (
@@ -58,7 +58,7 @@ export function LineMetric({ entries }: { entries: MetricEntry[] }) {
           <Line
             type="monotone"
             dataKey="value"
-            stroke="#3b82f6"
+            stroke={color}
             strokeWidth={1.5}
             dot={false}
             isAnimationActive={false}
