@@ -10,10 +10,6 @@ Demonstrates:
 import time
 import nebo as nb
 
-# Configure UI defaults
-nb.ui(layout="horizontal", theme="dark")
-nb.md("An agent-style pipeline using class decoration for grouped nodes.")
-
 
 @nb.fn()
 def fetch_context(query: str) -> list[str]:
@@ -54,6 +50,12 @@ class Agent:
 
 def main():
     """Run the agent pipeline."""
+
+    # Configure UI defaults
+    nb.ui(layout="horizontal", theme="dark")
+
+    nb.md("An agent-style pipeline using class decoration for grouped nodes.")
+
     query = "What is nebo?"
     context = fetch_context(query)
 

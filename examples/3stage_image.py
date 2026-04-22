@@ -15,9 +15,6 @@ from PIL import Image, ImageEnhance, ImageFilter
 import nebo as nb
 
 
-nb.md("# 3-Stage Image Pipeline\nCreate → Warm Tint → Sharpen (×500 images)")
-
-
 def _make_gradient(index: int, size: int = 128) -> Image.Image:
     """Generate a colorful gradient image that varies by index."""
     arr = np.zeros((size, size, 3), dtype=np.uint8)
@@ -81,6 +78,8 @@ def run_pipeline() -> list[Image.Image]:
 
 
 def main():
+    nb.md("# 3-Stage Image Pipeline\nCreate → Warm Tint → Sharpen (×500 images)")
+
     result = run_pipeline()
     print(f"Processed {len(result)} images through 3 stages")
 

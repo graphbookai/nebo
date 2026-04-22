@@ -15,10 +15,6 @@ import time
 import nebo as nb
 
 
-# Describe the workflow for AI agents
-nb.md("A simple text processing pipeline that loads documents, cleans them, and extracts keywords.")
-
-
 @nb.fn()
 def clean_text(documents: list[dict]) -> list[dict]:
     """Clean and normalize document text by lowering case and stripping whitespace."""
@@ -58,7 +54,9 @@ def extract_keywords(documents: list[dict]) -> list[dict]:
 def summarize(results: list[dict]) -> str:
     """Generate a summary report of keyword extraction results."""
     total_keywords = sum(r["keyword_count"] for r in results)
-    summary = f"Processed {len(results)} documents, found {total_keywords} total keywords."
+    summary = (
+        f"Processed {len(results)} documents, found {total_keywords} total keywords."
+    )
     nb.log(summary)
     return summary
 
@@ -92,6 +90,12 @@ def run_pipeline(file_paths: list[str]) -> str:
 
 def main():
     """Run the text processing pipeline."""
+
+    # Describe the workflow for AI agents
+    nb.md(
+        "A simple text processing pipeline that loads documents, cleans them, and extracts keywords."
+    )
+
     file_paths = [
         "docs/intro.txt",
         "docs/chapter1.txt",
