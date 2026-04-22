@@ -4,7 +4,7 @@ Nebo is a modern logging SDK for multi-modal data. Decorate your functions with 
 
 ## Why Nebo?
 
-Nebo captures logs, metrics, images, audio, and text at the granularity of individual functions, so you can monitor inputs, outputs, and execution flow. This enables observability for applications such as:
+Nebo offers function-level logging capturing metrics, images, audio, and text at the granularity of individual functions, so you can monitor inputs, outputs, and execution flow of your code. Global logs, or logs not bound to a particular function, are also supported. This enables observability for applications such as:
 * Agentic workflows with multimodal data
 * DAG-structured data-processing pipelines
 * ML training + inference
@@ -13,10 +13,10 @@ Nebo captures logs, metrics, images, audio, and text at the granularity of indiv
 
 * Captured log types: text, metrics, images, audio, progress
 * Automatically infers a DAG from your call graph
-* MCP for AI agent query support
-* Fully self-contained log files
+* CLI, MCP and agent skill for AI agent query support
+* Fully self-contained log file per run
 * Rich terminal UI
-* Modern web UI
+* Mobile-first web UI
 
 Nebo is in active development and features will roll out according to its [core principles](https://docs.graphbook.ai).
 
