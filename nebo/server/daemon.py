@@ -327,14 +327,21 @@ class DaemonState:
                 run.loggables[loggable_id].logs.append(event)
 
         elif etype == "metric":
-            name = event.get("name", "")
-            value = event.get("value", 0)
-            step = event.get("step", 0)
-            if loggable_id and loggable_id in run.loggables:
-                node = run.loggables[loggable_id]
-                if name not in node.metrics:
-                    node.metrics[name] = []
-                node.metrics[name].append({"step": step, "value": value})
+            lid = event.get("loggable_id", "")
+            if not lid or lid not in run.loggables:
+                return
+            mname = event.get("name", "")
+            mtype = event.get("metric_type", "line")
+            series = run.loggables[lid].metrics.setdefault(
+                mname, {"type": mtype, "entries": []}
+            )
+            # Server is tolerant of type mismatches: first-writer-wins.
+            series["entries"].append({
+                "step": event.get("step"),
+                "value": event.get("value"),
+                "tags": list(event.get("tags") or []),
+                "timestamp": event.get("timestamp"),
+            })
 
         elif etype == "progress":
             if loggable_id and loggable_id in run.loggables:
@@ -718,7 +725,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         if run_id not in state.runs:
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
         run = state.runs[run_id]
-        metrics: dict[str, dict[str, list]] = {}
+        metrics: dict[str, dict[str, dict]] = {}
         for lid, l in run.loggables.items():
             if l.metrics:
                 metrics[lid] = l.metrics

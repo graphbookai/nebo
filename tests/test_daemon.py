@@ -228,7 +228,30 @@ class TestDaemonEventIngestion:
         ], "r1")
         run = self.state.runs["r1"]
         assert "loss" in run.loggables["train"].metrics
-        assert len(run.loggables["train"].metrics["loss"]) == 2
+        series = run.loggables["train"].metrics["loss"]
+        assert series["type"] == "line"
+        assert len(series["entries"]) == 2
+        assert series["entries"][0]["value"] == 0.5
+        assert series["entries"][1]["value"] == 0.3
+
+    @pytest.mark.asyncio
+    async def test_ingest_metric_with_type_and_tags(self) -> None:
+        """metric events carrying metric_type + tags must land on the new typed series."""
+        run = self.state.create_run("s.py", run_id="r1")
+        await self.state.ingest_events([
+            {"type": "loggable_register", "data": {"loggable_id": "n", "func_name": "n"}},
+            {"type": "metric", "loggable_id": "n", "name": "loss",
+             "metric_type": "line", "value": 0.5, "step": 0, "tags": ["warmup"]},
+            {"type": "metric", "loggable_id": "n", "name": "counts",
+             "metric_type": "bar", "value": {"a": 1, "b": 2}, "step": 0, "tags": []},
+        ], "r1")
+        loss = run.loggables["n"].metrics["loss"]
+        assert loss["type"] == "line"
+        assert loss["entries"][-1]["tags"] == ["warmup"]
+        assert loss["entries"][-1]["value"] == 0.5
+        counts = run.loggables["n"].metrics["counts"]
+        assert counts["type"] == "bar"
+        assert counts["entries"][-1]["value"] == {"a": 1, "b": 2}
 
     @pytest.mark.asyncio
     async def test_ingest_creates_implicit_run(self) -> None:
