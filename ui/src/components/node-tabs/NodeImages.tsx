@@ -54,7 +54,7 @@ function ImageItem({ runId, img, showTimestamp }: { runId: string; img: ImageEnt
 }
 
 function ComparisonImageCell({ runId, nodeId }: { runId: string; nodeId: string }) {
-  const allImages = useStore(s => s.runs.get(runId)?.nodeImages[nodeId]) ?? []
+  const allImages = useStore(s => s.runs.get(runId)?.loggableImages[nodeId]) ?? []
   const timelineFilter = useTimelineFilter()
 
   const images = useMemo(() => {
@@ -76,7 +76,7 @@ function ComparisonImageCell({ runId, nodeId }: { runId: string; nodeId: string 
 }
 
 function SingleRunImages({ runId, nodeId }: { runId: string; nodeId: string }) {
-  const allImages = useStore(s => s.runs.get(runId)?.nodeImages[nodeId]) ?? []
+  const allImages = useStore(s => s.runs.get(runId)?.loggableImages[nodeId]) ?? []
   const timelineFilter = useTimelineFilter()
 
   const images = useMemo(() => {

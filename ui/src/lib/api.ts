@@ -95,6 +95,24 @@ export interface NodeDetail {
   progress: { current: number; total: number; name?: string } | null
 }
 
+// Loggable = node-or-global addressable thing that can receive logs, metrics,
+// images, audio, etc. `graph.nodes` only contains node-kind loggables; the
+// per-run store slices (loggableMetrics, etc.) are keyed by loggableId and may
+// contain either kind.
+export type LoggableState = NodeDetail & {
+  kind: 'node' | 'global'
+  loggable_id: string
+}
+
+export interface LoggableRegistration {
+  loggable_id: string
+  kind: 'node' | 'global'
+  func_name?: string
+  docstring?: string | null
+  group?: string | null
+  ui_hints?: Record<string, unknown> | null
+}
+
 export const api = {
   health: () => get<{ status: string; active_run: string | null; total_runs: number }>('/health'),
 

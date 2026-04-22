@@ -122,7 +122,7 @@ function ComparisonInfoCell({ runId, nodeId, differingParams }: ComparisonInfoCe
 function SingleRunInfo({ runId, nodeId }: { runId: string; nodeId: string }) {
   const run = useStore(s => s.runs.get(runId))
   const nodeInfo = run?.graph?.nodes[nodeId]
-  const inspections = run?.inspections[nodeId]
+  const inspections = run?.loggableInspections[nodeId]
 
   if (!nodeInfo) return <p className="text-xs text-muted-foreground">Node not found</p>
 

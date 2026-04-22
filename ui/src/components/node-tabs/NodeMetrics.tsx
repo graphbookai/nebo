@@ -28,7 +28,7 @@ export function NodeMetrics({ runId, nodeId, comparisonRunIds }: NodeMetricsProp
   const runs = useStore(s => s.runs)
   const runColors = useStore(s => s.runColors)
   const runNames = useStore(s => s.runNames)
-  const metrics = useStore(s => s.runs.get(runId)?.nodeMetrics[nodeId])
+  const metrics = useStore(s => s.runs.get(runId)?.loggableMetrics[nodeId])
 
   // Single-run mode
   const singleMetricEntries = useMemo(() => {
@@ -47,7 +47,7 @@ export function NodeMetrics({ runId, nodeId, comparisonRunIds }: NodeMetricsProp
     // Collect all metric names across all runs
     const metricNames = new Set<string>()
     for (const rid of comparisonRunIds) {
-      const runMetrics = runs.get(rid)?.nodeMetrics[nodeId]
+      const runMetrics = runs.get(rid)?.loggableMetrics[nodeId]
       if (runMetrics) {
         for (const name of Object.keys(runMetrics)) {
           metricNames.add(name)
@@ -60,7 +60,7 @@ export function NodeMetrics({ runId, nodeId, comparisonRunIds }: NodeMetricsProp
       const stepMap = new Map<number, Record<string, number>>()
 
       for (const rid of comparisonRunIds) {
-        const series = runs.get(rid)?.nodeMetrics[nodeId]?.[metricName]
+        const series = runs.get(rid)?.loggableMetrics[nodeId]?.[metricName]
         if (!series) continue
         const downsampled = downsample(series)
         for (const point of downsampled) {

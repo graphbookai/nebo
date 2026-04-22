@@ -53,7 +53,7 @@ function AudioItem({ runId, entry, showTimestamp }: { runId: string; entry: Audi
 }
 
 function ComparisonAudioCell({ runId, nodeId }: { runId: string; nodeId: string }) {
-  const allAudioEntries = useStore(s => s.runs.get(runId)?.nodeAudio[nodeId]) ?? []
+  const allAudioEntries = useStore(s => s.runs.get(runId)?.loggableAudio[nodeId]) ?? []
   const timelineFilter = useTimelineFilter()
 
   const audioEntries = useMemo(() => {
@@ -75,7 +75,7 @@ function ComparisonAudioCell({ runId, nodeId }: { runId: string; nodeId: string 
 }
 
 function SingleRunAudio({ runId, nodeId }: { runId: string; nodeId: string }) {
-  const allAudioEntries = useStore(s => s.runs.get(runId)?.nodeAudio[nodeId]) ?? []
+  const allAudioEntries = useStore(s => s.runs.get(runId)?.loggableAudio[nodeId]) ?? []
   const timelineFilter = useTimelineFilter()
 
   const audioEntries = useMemo(() => {

@@ -15,6 +15,11 @@ export interface NodeState {
   hasPendingAsk: boolean
 }
 
+export interface LoggableState extends NodeState {
+  kind: 'node' | 'global'
+  loggableId: string
+}
+
 export interface AskPrompt {
   askId: string
   nodeName: string
@@ -120,10 +125,10 @@ export interface RunState {
   graph: GraphData | null
   logs: LogEntry[]
   errors: ErrorEntry[]
-  nodeMetrics: Record<string, Record<string, { step: number; value: number }[]>>
-  nodeImages: Record<string, ImageEntry[]>
-  nodeAudio: Record<string, AudioEntry[]>
-  inspections: Record<string, Record<string, unknown>>
+  loggableMetrics: Record<string, Record<string, { step: number; value: number }[]>>
+  loggableImages: Record<string, ImageEntry[]>
+  loggableAudio: Record<string, AudioEntry[]>
+  loggableInspections: Record<string, Record<string, unknown>>
   pendingAsks: Map<string, AskPrompt>
   chatMessages: ChatMessage[]
   paused: boolean
@@ -207,10 +212,10 @@ interface NeboStore {
   setRunMetrics: (runId: string, metrics: Record<string, Record<string, { step: number; value: number }[]>>) => void
   setRunImages: (runId: string, images: Record<string, ImageEntry[]>) => void
   setRunAudio: (runId: string, audio: Record<string, AudioEntry[]>) => void
-  appendMetric: (runId: string, nodeId: string, name: string, step: number, value: number) => void
+  appendMetric: (runId: string, loggableId: string, name: string, step: number, value: number) => void
   updateNodeProgress: (runId: string, nodeId: string, progress: { current: number; total: number; name?: string } | null) => void
-  updateNodeRegistration: (runId: string, data: Record<string, unknown>) => void
-  incrementNodeExecution: (runId: string, nodeId: string) => void
+  updateLoggableRegistration: (runId: string, data: Record<string, unknown>) => void
+  incrementNodeExecCount: (runId: string, loggableId: string) => void
   addEdge: (runId: string, source: string, target: string) => void
   updateInspection: (runId: string, nodeId: string, name: string, data: unknown) => void
   setWorkflowDescription: (runId: string, description: string) => void
@@ -263,10 +268,10 @@ function ensureRun(state: NeboStore, runId: string): RunState {
       graph: null,
       logs: [],
       errors: [],
-      nodeMetrics: {},
-      nodeImages: {},
-      nodeAudio: {},
-      inspections: {},
+      loggableMetrics: {},
+      loggableImages: {},
+      loggableAudio: {},
+      loggableInspections: {},
       pendingAsks: new Map(),
       chatMessages: [],
       paused: false,
@@ -402,10 +407,10 @@ export const useStore = create<NeboStore>((set, get) => ({
           graph: null,
           logs: [],
           errors: [],
-          nodeMetrics: {},
-          nodeImages: {},
-          nodeAudio: {},
-          inspections: {},
+          loggableMetrics: {},
+          loggableImages: {},
+          loggableAudio: {},
+          loggableInspections: {},
           pendingAsks: new Map(),
           chatMessages: [],
           paused: false,
@@ -524,7 +529,7 @@ export const useStore = create<NeboStore>((set, get) => ({
   setRunMetrics: (runId, metrics) => set(state => {
     const runs = new Map(state.runs)
     const run = runs.get(runId)
-    if (run) run.nodeMetrics = metrics
+    if (run) run.loggableMetrics = metrics
     return { runs }
   }),
 
@@ -532,14 +537,14 @@ export const useStore = create<NeboStore>((set, get) => ({
     const runs = new Map(state.runs)
     const run = runs.get(runId)
     if (run) {
-      const merged: Record<string, ImageEntry[]> = { ...run.nodeImages }
-      for (const [nodeId, entries] of Object.entries(images)) {
-        const existing = merged[nodeId] ?? []
+      const merged: Record<string, ImageEntry[]> = { ...run.loggableImages }
+      for (const [loggableId, entries] of Object.entries(images)) {
+        const existing = merged[loggableId] ?? []
         const existingIds = new Set(existing.map(e => e.mediaId))
         const newEntries = entries.filter(e => !existingIds.has(e.mediaId))
-        merged[nodeId] = [...existing, ...newEntries]
+        merged[loggableId] = [...existing, ...newEntries]
       }
-      run.nodeImages = merged
+      run.loggableImages = merged
     }
     return { runs }
   }),
@@ -548,25 +553,25 @@ export const useStore = create<NeboStore>((set, get) => ({
     const runs = new Map(state.runs)
     const run = runs.get(runId)
     if (run) {
-      const merged: Record<string, AudioEntry[]> = { ...run.nodeAudio }
-      for (const [nodeId, entries] of Object.entries(audio)) {
-        const existing = merged[nodeId] ?? []
+      const merged: Record<string, AudioEntry[]> = { ...run.loggableAudio }
+      for (const [loggableId, entries] of Object.entries(audio)) {
+        const existing = merged[loggableId] ?? []
         const existingIds = new Set(existing.map(e => e.mediaId))
         const newEntries = entries.filter(e => !existingIds.has(e.mediaId))
-        merged[nodeId] = [...existing, ...newEntries]
+        merged[loggableId] = [...existing, ...newEntries]
       }
-      run.nodeAudio = merged
+      run.loggableAudio = merged
     }
     return { runs }
   }),
 
-  appendMetric: (runId, nodeId, name, step, value) => set(state => {
+  appendMetric: (runId, loggableId, name, step, value) => set(state => {
     const runs = new Map(state.runs)
     const run = runs.get(runId)
     if (run) {
-      if (!run.nodeMetrics[nodeId]) run.nodeMetrics[nodeId] = {}
-      if (!run.nodeMetrics[nodeId][name]) run.nodeMetrics[nodeId][name] = []
-      run.nodeMetrics[nodeId][name] = [...run.nodeMetrics[nodeId][name], { step, value }]
+      if (!run.loggableMetrics[loggableId]) run.loggableMetrics[loggableId] = {}
+      if (!run.loggableMetrics[loggableId][name]) run.loggableMetrics[loggableId][name] = []
+      run.loggableMetrics[loggableId][name] = [...run.loggableMetrics[loggableId][name], { step, value }]
     }
     return { runs }
   }),
@@ -586,7 +591,7 @@ export const useStore = create<NeboStore>((set, get) => ({
     return { runs }
   }),
 
-  updateNodeRegistration: (runId, data) => set(state => {
+  updateLoggableRegistration: (runId, data) => set(state => {
     const runs = new Map(state.runs)
     const run = runs.get(runId)
     if (run) {
@@ -613,17 +618,17 @@ export const useStore = create<NeboStore>((set, get) => ({
     return { runs }
   }),
 
-  incrementNodeExecution: (runId, nodeId) => set(state => {
+  incrementNodeExecCount: (runId, loggableId) => set(state => {
     const runs = new Map(state.runs)
     const run = runs.get(runId)
-    if (run?.graph?.nodes[nodeId]) {
+    if (run?.graph?.nodes[loggableId]) {
       run.graph = {
         ...run.graph,
         nodes: {
           ...run.graph.nodes,
-          [nodeId]: {
-            ...run.graph.nodes[nodeId],
-            exec_count: run.graph.nodes[nodeId].exec_count + 1,
+          [loggableId]: {
+            ...run.graph.nodes[loggableId],
+            exec_count: run.graph.nodes[loggableId].exec_count + 1,
           },
         },
       }
@@ -657,8 +662,8 @@ export const useStore = create<NeboStore>((set, get) => ({
     const runs = new Map(state.runs)
     const run = runs.get(runId)
     if (run) {
-      if (!run.inspections[nodeId]) run.inspections[nodeId] = {}
-      run.inspections[nodeId] = { ...run.inspections[nodeId], [name]: data }
+      if (!run.loggableInspections[nodeId]) run.loggableInspections[nodeId] = {}
+      run.loggableInspections[nodeId] = { ...run.loggableInspections[nodeId], [name]: data }
     }
     return { runs }
   }),
@@ -863,10 +868,10 @@ export const useStore = create<NeboStore>((set, get) => ({
           graph: null,
           logs: [],
           errors: [],
-          nodeMetrics: {},
-          nodeImages: {},
-          nodeAudio: {},
-          inspections: {},
+          loggableMetrics: {},
+          loggableImages: {},
+          loggableAudio: {},
+          loggableInspections: {},
           pendingAsks: new Map(),
           chatMessages: [],
           paused: false,
@@ -903,9 +908,9 @@ export const useStore = create<NeboStore>((set, get) => ({
               const name = (event.name as string) ?? (data.name as string) ?? ''
               const step = (event.step as number) ?? (data.step as number) ?? 0
               const value = (event.value as number) ?? (data.value as number) ?? 0
-              if (!run.nodeMetrics[nodeId]) run.nodeMetrics[nodeId] = {}
-              if (!run.nodeMetrics[nodeId][name]) run.nodeMetrics[nodeId][name] = []
-              run.nodeMetrics[nodeId][name] = [...run.nodeMetrics[nodeId][name], { step, value }]
+              if (!run.loggableMetrics[nodeId]) run.loggableMetrics[nodeId] = {}
+              if (!run.loggableMetrics[nodeId][name]) run.loggableMetrics[nodeId][name] = []
+              run.loggableMetrics[nodeId][name] = [...run.loggableMetrics[nodeId][name], { step, value }]
             }
             break
 
@@ -1023,8 +1028,8 @@ export const useStore = create<NeboStore>((set, get) => ({
           case 'image':
             if (nodeId) {
               const ev = event as Record<string, unknown>
-              const prev = run.nodeImages[nodeId] ?? []
-              run.nodeImages = { ...run.nodeImages, [nodeId]: [...prev, {
+              const prev = run.loggableImages[nodeId] ?? []
+              run.loggableImages = { ...run.loggableImages, [nodeId]: [...prev, {
                 node: nodeId,
                 mediaId: (ev.media_id as string) ?? '',
                 name: (ev.name as string) ?? '',
@@ -1037,8 +1042,8 @@ export const useStore = create<NeboStore>((set, get) => ({
           case 'audio':
             if (nodeId) {
               const ev = event as Record<string, unknown>
-              const prev = run.nodeAudio[nodeId] ?? []
-              run.nodeAudio = { ...run.nodeAudio, [nodeId]: [...prev, {
+              const prev = run.loggableAudio[nodeId] ?? []
+              run.loggableAudio = { ...run.loggableAudio, [nodeId]: [...prev, {
                 node: nodeId,
                 mediaId: (ev.media_id as string) ?? '',
                 name: (ev.name as string) ?? '',

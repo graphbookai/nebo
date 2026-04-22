@@ -39,24 +39,24 @@ export function NodeTabContainer({ runId, nodeId }: NodeTabContainerProps) {
     if (isComparison) {
       return comparisonRunIds.some(rid => {
         const r = runs.get(rid)
-        return !!r?.nodeMetrics?.[nodeId] && Object.keys(r.nodeMetrics[nodeId]).length > 0
+        return !!r?.loggableMetrics?.[nodeId] && Object.keys(r.loggableMetrics[nodeId]).length > 0
       })
     }
-    return !!run?.nodeMetrics?.[nodeId] && Object.keys(run.nodeMetrics[nodeId]).length > 0
+    return !!run?.loggableMetrics?.[nodeId] && Object.keys(run.loggableMetrics[nodeId]).length > 0
   }, [isComparison, comparisonRunIds, runs, run, nodeId])
 
   const hasImages = useMemo(() => {
     if (isComparison) {
-      return comparisonRunIds.some(rid => (runs.get(rid)?.nodeImages?.[nodeId]?.length ?? 0) > 0)
+      return comparisonRunIds.some(rid => (runs.get(rid)?.loggableImages?.[nodeId]?.length ?? 0) > 0)
     }
-    return (run?.nodeImages?.[nodeId]?.length ?? 0) > 0
+    return (run?.loggableImages?.[nodeId]?.length ?? 0) > 0
   }, [isComparison, comparisonRunIds, runs, run, nodeId])
 
   const hasAudio = useMemo(() => {
     if (isComparison) {
-      return comparisonRunIds.some(rid => (runs.get(rid)?.nodeAudio?.[nodeId]?.length ?? 0) > 0)
+      return comparisonRunIds.some(rid => (runs.get(rid)?.loggableAudio?.[nodeId]?.length ?? 0) > 0)
     }
-    return (run?.nodeAudio?.[nodeId]?.length ?? 0) > 0
+    return (run?.loggableAudio?.[nodeId]?.length ?? 0) > 0
   }, [isComparison, comparisonRunIds, runs, run, nodeId])
 
   const visibleTabs = useMemo(() => {

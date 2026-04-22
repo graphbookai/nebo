@@ -30,8 +30,8 @@ function formatLabel(type: string, offset: number, step: number | null, extra?: 
 export function useTimelineBounds(runId: string | null): TimelineBounds {
   const run = useStore(s => (runId ? s.runs.get(runId) : undefined))
   const logs = run?.logs
-  const nodeImages = run?.nodeImages
-  const nodeAudio = run?.nodeAudio
+  const loggableImages = run?.loggableImages
+  const loggableAudio = run?.loggableAudio
 
   return useMemo(() => {
     let minTime = Infinity
@@ -69,8 +69,8 @@ export function useTimelineBounds(runId: string | null): TimelineBounds {
       }
     }
 
-    if (nodeImages) {
-      for (const [nodeName, imgs] of Object.entries(nodeImages)) {
+    if (loggableImages) {
+      for (const [nodeName, imgs] of Object.entries(loggableImages)) {
         for (const img of imgs) {
           trackTime(img.timestamp)
           trackStep(img.step)
@@ -85,8 +85,8 @@ export function useTimelineBounds(runId: string | null): TimelineBounds {
       }
     }
 
-    if (nodeAudio) {
-      for (const [nodeName, entries] of Object.entries(nodeAudio)) {
+    if (loggableAudio) {
+      for (const [nodeName, entries] of Object.entries(loggableAudio)) {
         for (const a of entries) {
           trackTime(a.timestamp)
           trackStep(a.step)
@@ -112,5 +112,5 @@ export function useTimelineBounds(runId: string | null): TimelineBounds {
     }
 
     return { minTime, maxTime, minStep, maxStep, hasSteps, events: rawEvents }
-  }, [logs, nodeImages, nodeAudio])
+  }, [logs, loggableImages, loggableAudio])
 }
