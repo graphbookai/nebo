@@ -31,3 +31,17 @@ export const chartTooltipWrapper: React.CSSProperties = {
 }
 
 export const chartTooltipAllowEscape = { x: true, y: true }
+
+// Cursor shown under the pointer. For bar/histogram-style charts the cursor
+// is a filled rectangle behind the hovered datum — use a subtle muted fill so
+// it reads on both light and dark themes.
+export const chartBarCursor = { fill: 'var(--color-muted-foreground)', fillOpacity: 0.12 }
+export const chartScatterCursor = {
+  strokeDasharray: '3 3',
+  stroke: 'var(--color-muted-foreground)',
+  strokeOpacity: 0.4,
+}
+
+// Hidden recharts wrapper — we render via portal, so the in-place wrapper
+// must not contribute to the ancestor's scroll bounds.
+export const chartHiddenWrapper = { display: 'none' as const }

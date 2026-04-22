@@ -1,12 +1,7 @@
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import type { MetricEntry } from '@/lib/api'
-import {
-  chartAxisTick,
-  chartTooltipContent,
-  chartTooltipLabel,
-  chartTooltipWrapper,
-  chartTooltipAllowEscape,
-} from './chartStyles'
+import { chartAxisTick, chartBarCursor, chartHiddenWrapper } from './chartStyles'
+import { PortalTooltip } from './PortalTooltip'
 
 export function BarMetric({ entries }: { entries: MetricEntry[] }) {
   if (entries.length === 0) return null
@@ -20,12 +15,7 @@ export function BarMetric({ entries }: { entries: MetricEntry[] }) {
       <BarChart data={data}>
         <XAxis dataKey="label" tick={chartAxisTick} tickLine={false} axisLine={false} />
         <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
-        <Tooltip
-          contentStyle={chartTooltipContent}
-          labelStyle={chartTooltipLabel}
-          wrapperStyle={chartTooltipWrapper}
-          allowEscapeViewBox={chartTooltipAllowEscape}
-        />
+        <Tooltip cursor={chartBarCursor} wrapperStyle={chartHiddenWrapper} content={<PortalTooltip />} />
         <Bar dataKey="value" fill="#22d3ee" />
       </BarChart>
     </ResponsiveContainer>

@@ -3,11 +3,10 @@ import type { MetricEntry } from '@/lib/api'
 import {
   chartAxisTick,
   chartGridStroke,
-  chartTooltipContent,
-  chartTooltipLabel,
-  chartTooltipWrapper,
-  chartTooltipAllowEscape,
+  chartHiddenWrapper,
+  chartScatterCursor,
 } from './chartStyles'
+import { PortalTooltip } from './PortalTooltip'
 
 export function ScatterMetric({ entries }: { entries: MetricEntry[] }) {
   if (entries.length === 0) return null
@@ -20,13 +19,7 @@ export function ScatterMetric({ entries }: { entries: MetricEntry[] }) {
         <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
         <XAxis dataKey="x" type="number" tick={chartAxisTick} tickLine={false} axisLine={false} />
         <YAxis dataKey="y" type="number" tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
-        <Tooltip
-          cursor={{ strokeDasharray: '3 3' }}
-          contentStyle={chartTooltipContent}
-          labelStyle={chartTooltipLabel}
-          wrapperStyle={chartTooltipWrapper}
-          allowEscapeViewBox={chartTooltipAllowEscape}
-        />
+        <Tooltip cursor={chartScatterCursor} wrapperStyle={chartHiddenWrapper} content={<PortalTooltip />} />
         <Scatter data={data} fill="#f472b6" />
       </ScatterChart>
     </ResponsiveContainer>

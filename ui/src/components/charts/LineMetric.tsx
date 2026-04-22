@@ -1,13 +1,7 @@
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import type { MetricEntry } from '@/lib/api'
-import {
-  chartAxisTick,
-  chartGridStroke,
-  chartTooltipContent,
-  chartTooltipLabel,
-  chartTooltipWrapper,
-  chartTooltipAllowEscape,
-} from './chartStyles'
+import { chartAxisTick, chartGridStroke, chartHiddenWrapper } from './chartStyles'
+import { PortalTooltip } from './PortalTooltip'
 
 const MAX_DISPLAY_POINTS = 500
 
@@ -50,12 +44,16 @@ export function LineMetric({ entries }: { entries: MetricEntry[] }) {
           <XAxis dataKey="step" tick={chartAxisTick} tickLine={false} axisLine={false} />
           <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
           <Tooltip
-            contentStyle={chartTooltipContent}
-            labelStyle={chartTooltipLabel}
-            wrapperStyle={chartTooltipWrapper}
-            allowEscapeViewBox={chartTooltipAllowEscape}
-            formatter={(value) => [(value as number)?.toFixed(4) ?? '', 'value']}
-            labelFormatter={(step) => `Step ${step}`}
+            wrapperStyle={chartHiddenWrapper}
+            content={
+              <PortalTooltip
+                labelFormatter={(step) => `Step ${step}`}
+                formatter={(value) => [
+                  typeof value === 'number' ? value.toFixed(4) : String(value ?? ''),
+                  'value',
+                ]}
+              />
+            }
           />
           <Line
             type="monotone"

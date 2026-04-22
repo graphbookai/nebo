@@ -1,12 +1,7 @@
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import type { MetricEntry } from '@/lib/api'
-import {
-  chartAxisTick,
-  chartTooltipContent,
-  chartTooltipLabel,
-  chartTooltipWrapper,
-  chartTooltipAllowEscape,
-} from './chartStyles'
+import { chartAxisTick, chartBarCursor, chartHiddenWrapper } from './chartStyles'
+import { PortalTooltip } from './PortalTooltip'
 
 function fdBins(samples: number[]): { x: number; count: number }[] {
   if (samples.length < 2) return samples.map(s => ({ x: s, count: 1 }))
@@ -58,11 +53,9 @@ export function HistogramMetric({ entries }: { entries: MetricEntry[] }) {
         />
         <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
         <Tooltip
-          contentStyle={chartTooltipContent}
-          labelStyle={chartTooltipLabel}
-          wrapperStyle={chartTooltipWrapper}
-          allowEscapeViewBox={chartTooltipAllowEscape}
-          labelFormatter={(v) => `x≈${Number(v).toFixed(2)}`}
+          cursor={chartBarCursor}
+          wrapperStyle={chartHiddenWrapper}
+          content={<PortalTooltip labelFormatter={(v) => `x≈${Number(v).toFixed(2)}`} />}
         />
         <Area type="monotone" dataKey="count" stroke="#60a5fa" fill="#60a5fa" fillOpacity={0.3} isAnimationActive={false} />
       </AreaChart>

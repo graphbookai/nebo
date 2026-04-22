@@ -8,14 +8,8 @@ import { BarMetric } from '@/components/charts/BarMetric'
 import { PieMetric } from '@/components/charts/PieMetric'
 import { ScatterMetric } from '@/components/charts/ScatterMetric'
 import { HistogramMetric } from '@/components/charts/HistogramMetric'
-import {
-  chartAxisTick,
-  chartGridStroke,
-  chartTooltipContent,
-  chartTooltipLabel,
-  chartTooltipWrapper,
-  chartTooltipAllowEscape,
-} from '@/components/charts/chartStyles'
+import { chartAxisTick, chartGridStroke, chartHiddenWrapper } from '@/components/charts/chartStyles'
+import { PortalTooltip } from '@/components/charts/PortalTooltip'
 
 interface NodeMetricsProps {
   runId: string
@@ -207,19 +201,20 @@ function ComparisonMetrics({
                 <XAxis dataKey="step" tick={chartAxisTick} tickLine={false} axisLine={false} />
                 <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
                 <Tooltip
-                  contentStyle={chartTooltipContent}
-                  labelStyle={chartTooltipLabel}
-                  wrapperStyle={chartTooltipWrapper}
-                  allowEscapeViewBox={chartTooltipAllowEscape}
-                  formatter={(value, dataKey) => {
-                    const key = String(dataKey ?? '')
-                    const displayName =
-                      runNames.get(key) ||
-                      runs.get(key)?.summary.script_path.split('/').pop() ||
-                      key
-                    return [value != null ? Number(value).toFixed(4) : '', displayName]
-                  }}
-                  labelFormatter={step => `Step ${step}`}
+                  wrapperStyle={chartHiddenWrapper}
+                  content={
+                    <PortalTooltip
+                      labelFormatter={step => `Step ${step}`}
+                      formatter={(value, dataKey) => {
+                        const key = String(dataKey ?? '')
+                        const displayName =
+                          runNames.get(key) ||
+                          runs.get(key)?.summary.script_path.split('/').pop() ||
+                          key
+                        return [value != null ? Number(value).toFixed(4) : '', displayName]
+                      }}
+                    />
+                  }
                 />
                 {comparisonRunIds.map(rid => (
                   <Line
