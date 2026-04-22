@@ -269,3 +269,65 @@ def test_log_inside_fn_still_routes_to_node():
         if getattr(lg, "func_name", None) == "inner"
     )
     assert len(inner_loggable.logs) == 1
+
+
+def test_log_image_accepts_labels_and_emits_them():
+    import numpy as np
+    from PIL import Image
+    import nebo as nb
+
+    nb.get_state().reset()
+    captured: list[dict] = []
+
+    class FakeClient:
+        def send_event(self, event): captured.append(event)
+
+    nb.get_state()._client = FakeClient()
+
+    img = Image.fromarray(np.zeros((8, 8, 3), dtype=np.uint8))
+    nb.log_image(
+        img,
+        name="edges",
+        points=[[45, 80]],
+        boxes=[[10, 10, 50, 50], [60, 60, 70, 70]],
+        circles=[30, 30, 5],
+        polygons=[[[0, 0], [1, 0], [1, 1]]],
+    )
+
+    image_events = [e for e in captured if e["type"] == "image"]
+    assert len(image_events) == 1
+    labels = image_events[0]["labels"]
+    assert labels["points"] == [[45, 80]]
+    assert labels["boxes"] == [[10, 10, 50, 50], [60, 60, 70, 70]]
+    assert labels["circles"] == [[30, 30, 5]]
+    assert labels["polygons"] == [[[0, 0], [1, 0], [1, 1]]]
+    assert "bitmask" not in labels
+
+
+def test_log_image_bitmask_stored_as_media_reference():
+    import numpy as np
+    from PIL import Image
+    import nebo as nb
+
+    nb.get_state().reset()
+    captured: list[dict] = []
+
+    class FakeClient:
+        def send_event(self, event): captured.append(event)
+
+    nb.get_state()._client = FakeClient()
+
+    img = Image.fromarray(np.zeros((8, 8, 3), dtype=np.uint8))
+    mask = np.zeros((8, 8), dtype=np.uint8)
+    mask[2:5, 2:5] = 1
+    nb.log_image(img, name="seg", bitmask=mask)
+
+    image_events = [e for e in captured if e["type"] == "image"]
+    assert len(image_events) == 1
+    labels = image_events[0]["labels"]
+    assert "bitmask" in labels
+    assert len(labels["bitmask"]) == 1
+    entry = labels["bitmask"][0]
+    assert entry["width"] == 8
+    assert entry["height"] == 8
+    assert "data" in entry  # inline base64

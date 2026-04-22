@@ -156,16 +156,26 @@ def log_metric(name: str, value: float, step: Optional[int] = None) -> None:
     state._send_to_client(entry)
 
 
-def log_image(image: Any, *, name: Optional[str] = None, step: Optional[int] = None) -> None:
-    """Log an image (PIL, numpy array, or torch tensor).
+def log_image(
+    image: Any,
+    *,
+    name: Optional[str] = None,
+    step: Optional[int] = None,
+    points: Any = None,
+    boxes: Any = None,
+    circles: Any = None,
+    polygons: Any = None,
+    bitmask: Any = None,
+) -> None:
+    """Log an image, optionally with geometric labels overlaid.
 
-    Args:
-        name: The image name/label.
-        image: The image data.
-        step: Optional step counter.
+    Labels accept either a single geometry or a list of geometries.
+    See docs/reference.rst for each label's schema. Tensors / ndarrays
+    are converted to plain Python lists. Bitmasks are PNG-encoded and
+    travel inline as base64.
     """
     _ensure_initialized()
-    from nebo.logging.serializers import serialize_image
+    from nebo.logging.serializers import serialize_image, _serialize_labels
 
     import base64
 
@@ -176,8 +186,12 @@ def log_image(image: Any, *, name: Optional[str] = None, step: Optional[int] = N
     state.ensure_loggable(node_id)
 
     image_bytes = serialize_image(image)
+    labels = _serialize_labels(
+        points=points, boxes=boxes, circles=circles,
+        polygons=polygons, bitmask=bitmask,
+    )
 
-    entry = {
+    entry: dict = {
         "type": "image",
         "loggable_id": node_id,
         "name": name,
@@ -185,9 +199,13 @@ def log_image(image: Any, *, name: Optional[str] = None, step: Optional[int] = N
         "step": step,
         "timestamp": timestamp,
     }
+    if labels:
+        entry["labels"] = labels
 
-    state.loggables[node_id].images.append({"name": name, "step": step, "timestamp": timestamp})
-
+    state.loggables[node_id].images.append(
+        {"name": name, "step": step, "timestamp": timestamp,
+         "labels": labels or None}
+    )
     state._send_to_client(entry)
 
 

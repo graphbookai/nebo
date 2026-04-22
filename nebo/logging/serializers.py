@@ -168,3 +168,42 @@ def _normalize_bitmask(value: Any) -> list:
         if len(value.shape) == 3:
             return [value[i] for i in range(value.shape[0])]
     return [value]
+
+
+def _serialize_labels(
+    *, points=None, boxes=None, circles=None, polygons=None, bitmask=None,
+) -> dict:
+    """Build the wire-event `labels` dict from the five label kwargs.
+
+    Geometric coords are normalized to plain nested lists. Bitmasks are
+    binarized (any nonzero → 255), PNG-encoded, and base64'd. Missing
+    (None) kwargs are omitted from the returned dict entirely.
+    """
+    import base64
+
+    out: dict = {}
+    if points is not None:
+        out["points"] = _normalize_points(points)
+    if boxes is not None:
+        out["boxes"] = _normalize_boxes(boxes)
+    if circles is not None:
+        out["circles"] = _normalize_circles(circles)
+    if polygons is not None:
+        out["polygons"] = _normalize_polygons(polygons)
+    if bitmask is not None:
+        import numpy as np
+        from PIL import Image as _PIL
+        out["bitmask"] = []
+        for m in _normalize_bitmask(bitmask):
+            arr = np.asarray(m)
+            # Binarize: any nonzero → 255. Works for bool, uint8, float, etc.
+            binary = (arr > 0).astype(np.uint8) * 255
+            img = _PIL.fromarray(binary, mode="L")
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            out["bitmask"].append({
+                "width": int(binary.shape[1]),
+                "height": int(binary.shape[0]),
+                "data": base64.b64encode(buf.getvalue()).decode("ascii"),
+            })
+    return out
