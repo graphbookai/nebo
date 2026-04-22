@@ -134,12 +134,9 @@ async def get_metrics(
     metrics = loggable.metrics
     if name:
         if name in metrics:
-            return {"loggable_id": loggable_id, "metrics": {name: [{"step": s, "value": v} for s, v in metrics[name]]}}
+            return {"loggable_id": loggable_id, "metrics": {name: metrics[name]}}
         return {"error": f"Metric '{name}' not found for loggable '{loggable_id}'"}
-    return {
-        "loggable_id": loggable_id,
-        "metrics": {k: [{"step": s, "value": v} for s, v in entries] for k, entries in metrics.items()},
-    }
+    return {"loggable_id": loggable_id, "metrics": metrics}
 
 
 async def get_errors(run_id: Optional[str] = None, server_url: str = _DEFAULT_URL) -> dict[str, Any]:

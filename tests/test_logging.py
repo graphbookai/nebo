@@ -40,9 +40,13 @@ class TestLogging:
         state = get_state()
         node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "train")
         assert "loss" in node.metrics
-        assert len(node.metrics["loss"]) == 3
-        assert node.metrics["loss"][0] == (0, 0.5)
-        assert node.metrics["loss"][2] == (2, 0.1)
+        series = node.metrics["loss"]
+        assert series["type"] == "line"
+        assert len(series["entries"]) == 3
+        assert series["entries"][0]["step"] == 0
+        assert series["entries"][0]["value"] == 0.5
+        assert series["entries"][2]["step"] == 2
+        assert series["entries"][2]["value"] == 0.1
 
     def test_log_text(self) -> None:
         """log_text() should store text entries."""
@@ -244,8 +248,7 @@ def test_log_metric_outside_fn_routes_to_global():
     nb.log_metric("top_lvl_metric", 3.14)
     g = nb.get_state().loggables["__global__"]
     assert "top_lvl_metric" in g.metrics
-    # metrics format still the list-of-tuples at this stage (schema change lands in sub-project 3)
-    assert g.metrics["top_lvl_metric"][-1][1] == 3.14
+    assert g.metrics["top_lvl_metric"]["entries"][-1]["value"] == 3.14
 
 
 def test_log_inside_fn_still_routes_to_node():
@@ -331,3 +334,63 @@ def test_log_image_bitmask_stored_as_media_reference():
     assert entry["width"] == 8
     assert entry["height"] == 8
     assert "data" in entry  # inline base64
+
+
+def test_log_metric_default_type_is_line():
+    import nebo as nb
+    nb.get_state().reset()
+    nb.log_metric("loss", 0.5)
+    series = nb.get_state().loggables["__global__"].metrics["loss"]
+    assert series["type"] == "line"
+    assert series["entries"][-1]["value"] == 0.5
+
+
+def test_log_metric_bar_type_accepts_dict_value():
+    import nebo as nb
+    nb.get_state().reset()
+    nb.log_metric("class_counts", {"cat": 3, "dog": 5, "bird": 2}, type="bar")
+    series = nb.get_state().loggables["__global__"].metrics["class_counts"]
+    assert series["type"] == "bar"
+    assert series["entries"][-1]["value"] == {"cat": 3, "dog": 5, "bird": 2}
+
+
+def test_log_metric_tags_attached_to_emission():
+    import nebo as nb
+    nb.get_state().reset()
+    nb.log_metric("loss", 0.1, tags=["schedule:warmup"])
+    nb.log_metric("loss", 0.05, tags=["schedule:main"])
+    series = nb.get_state().loggables["__global__"].metrics["loss"]
+    assert series["entries"][0]["tags"] == ["schedule:warmup"]
+    assert series["entries"][1]["tags"] == ["schedule:main"]
+
+
+def test_log_metric_type_locks_after_first_emission():
+    import nebo as nb
+    import pytest
+    nb.get_state().reset()
+    nb.log_metric("m", 1.0)  # default type=line
+    with pytest.raises(ValueError, match="type"):
+        nb.log_metric("m", {"a": 1}, type="bar")
+
+
+def test_log_metric_histogram_accepts_raw_samples():
+    import nebo as nb
+    import numpy as np
+    nb.get_state().reset()
+    samples = np.random.default_rng(0).normal(size=100).tolist()
+    nb.log_metric("latencies", samples, type="histogram")
+    series = nb.get_state().loggables["__global__"].metrics["latencies"]
+    assert series["type"] == "histogram"
+    assert isinstance(series["entries"][-1]["value"], list)
+    assert len(series["entries"][-1]["value"]) == 100
+
+
+def test_log_metric_scatter_accepts_list_of_pairs():
+    import nebo as nb
+    nb.get_state().reset()
+    points = [(1, 2), (3, 4), (5, 6)]
+    nb.log_metric("embed", points, type="scatter")
+    series = nb.get_state().loggables["__global__"].metrics["embed"]
+    assert series["type"] == "scatter"
+    entry_value = series["entries"][-1]["value"]
+    assert entry_value == {"x": [1, 3, 5], "y": [2, 4, 6]}

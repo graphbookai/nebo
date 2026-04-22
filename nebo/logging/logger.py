@@ -117,43 +117,111 @@ def log(message: Union[str, Any], *, step: Optional[int] = None) -> None:
     state._send_to_client(entry)
 
 
-def log_metric(name: str, value: float, step: Optional[int] = None) -> None:
-    """Log a scalar metric value.
+def _scalar(v: Any) -> Any:
+    if hasattr(v, "item"):
+        return v.item()
+    return v
 
-    Args:
-        name: The metric name.
-        value: The scalar value.
-        step: Optional step counter.
+
+def _normalize_metric_value(value: Any, mtype: str) -> Any:
+    """Per-type normalization; tensors/ndarrays -> plain Python."""
+    if hasattr(value, "tolist"):
+        value = value.tolist()
+    if mtype == "line":
+        if isinstance(value, (int, float)):
+            return float(value)
+        raise TypeError(
+            f"line metric requires scalar value, got {type(value).__name__}"
+        )
+    if mtype == "bar" or mtype == "pie":
+        if isinstance(value, dict):
+            return {str(k): _scalar(v) for k, v in value.items()}
+        raise TypeError(
+            f"{mtype} metric requires dict[str, number], got {type(value).__name__}"
+        )
+    if mtype == "scatter":
+        if isinstance(value, dict) and "x" in value and "y" in value:
+            return {"x": list(value["x"]), "y": list(value["y"])}
+        if isinstance(value, list):
+            xs: list = []
+            ys: list = []
+            for pair in value:
+                x, y = pair
+                xs.append(_scalar(x))
+                ys.append(_scalar(y))
+            return {"x": xs, "y": ys}
+        raise TypeError("scatter metric requires dict{x,y} or list[(x,y)]")
+    if mtype == "histogram":
+        if isinstance(value, dict) and "bins" in value and "counts" in value:
+            return {"bins": list(value["bins"]), "counts": list(value["counts"])}
+        if isinstance(value, list):
+            return [_scalar(v) for v in value]
+        raise TypeError("histogram metric requires list[number] or {bins, counts}")
+    raise ValueError(f"unknown metric type: {mtype!r}")
+
+
+def log_metric(
+    name: str,
+    value: Any,
+    *,
+    type: str = "line",
+    step: Optional[int] = None,
+    tags: Optional[list[str]] = None,
+) -> None:
+    """Log a metric emission.
+
+    The `type` kwarg selects the chart renderer and locks after first
+    emission for `name` on a given loggable. `tags` attach to the
+    emission and can be used to filter the series in the UI.
+
+    Supported types:
+      - "line"      : value is a scalar (int | float)
+      - "bar"       : value is a dict {label: number}
+      - "pie"       : value is a dict {label: number}
+      - "scatter"   : value is either {"x": [...], "y": [...]} or list[(x, y)]
+      - "histogram" : value is either list[number] (raw samples) or
+                       {"bins": [...], "counts": [...]} (pre-binned)
     """
     _ensure_initialized()
     state = get_state()
     node_id = _current_node.get() or GLOBAL_LOGGABLE_ID
     timestamp = time.time()
-
     state.ensure_loggable(node_id)
 
-    if step is None:
-        # Auto-increment step
-        loggable = state.loggables[node_id]
-        if name not in loggable.metrics:
-            loggable.metrics[name] = []
-        step = len(loggable.metrics[name])
+    normalized = _normalize_metric_value(value, type)
 
+    loggable = state.loggables[node_id]
+    existing = loggable.metrics.get(name)
+    if existing is not None and existing.get("type") != type:
+        raise ValueError(
+            f"metric {name!r} was emitted with type={existing['type']!r} "
+            f"first; cannot change to type={type!r}"
+        )
+
+    if step is None and type == "line":
+        step = len(existing["entries"]) if existing else 0
+
+    if existing is None:
+        loggable.metrics[name] = {"type": type, "entries": []}
+    series = loggable.metrics[name]
     entry = {
+        "step": step,
+        "value": normalized,
+        "tags": list(tags) if tags else [],
+        "timestamp": timestamp,
+    }
+    series["entries"].append(entry)
+
+    state._send_to_client({
         "type": "metric",
         "loggable_id": node_id,
         "name": name,
-        "value": value,
+        "metric_type": type,
+        "value": normalized,
         "step": step,
+        "tags": entry["tags"],
         "timestamp": timestamp,
-    }
-
-    loggable = state.loggables[node_id]
-    if name not in loggable.metrics:
-        loggable.metrics[name] = []
-    loggable.metrics[name].append((step, value))
-
-    state._send_to_client(entry)
+    })
 
 
 def log_image(
