@@ -93,9 +93,19 @@ def detect_edges(images: list[Image.Image]) -> list[Image.Image]:
     result = []
     for i, img in enumerate(images):
         edges = img.filter(ImageFilter.FIND_EDGES)
-        nb.log_image(edges, name="edges", step=i)
 
         arr = np.array(edges)
+        h = arr.shape[0]
+        w = arr.shape[1]
+        cx, cy = w // 2, h // 2
+        nb.log_image(
+            edges,
+            name="edges",
+            step=i,
+            boxes=[[cx - w // 4, cy - h // 4, cx + w // 4, cy + h // 4]],
+            points=[[cx, cy]],
+        )
+
         mean_intensity = float(arr.mean())
         nb.log_metric("edge_intensity", mean_intensity, step=i)
         result.append(edges)
