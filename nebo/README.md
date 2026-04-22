@@ -272,9 +272,9 @@ Nebo exposes 15 MCP tools for querying and controlling pipelines from an AI agen
 | Tool | Description |
 |------|-------------|
 | `nebo_get_graph` | Full DAG structure: nodes, edges, execution counts |
-| `nebo_get_node_status` | Detailed status for one node: logs, metrics, errors, params |
-| `nebo_get_logs` | Recent log entries, filterable by node and run |
-| `nebo_get_metrics` | Metric time series for a node |
+| `nebo_get_loggable_status` | Detailed status for one loggable (node or global): logs, metrics, errors, params |
+| `nebo_get_logs` | Recent log entries, filterable by loggable_id and run |
+| `nebo_get_metrics` | Metric time series for a loggable |
 | `nebo_get_errors` | All errors with full tracebacks and node context |
 | `nebo_get_description` | Workflow description and all node docstrings |
 

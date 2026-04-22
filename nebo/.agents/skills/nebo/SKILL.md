@@ -315,9 +315,9 @@ When the nebo daemon is running (`nebo serve`), 15 MCP tools are available for q
 | Tool | Parameters | Returns |
 |------|------------|---------|
 | `nebo_get_graph` | `run_id?` | Full DAG: nodes (name, docstring, exec_count, progress, group, ui_hints), edges, workflow description |
-| `nebo_get_node_status` | `name`, `run_id?` | Single node detail: logs (last 20), metrics, errors, params, progress |
-| `nebo_get_logs` | `node?`, `run_id?`, `limit?` (default 100) | Recent log entries filtered by node |
-| `nebo_get_metrics` | `node`, `name?` | Metric time series: `{metric_name: [(step, value), ...]}` |
+| `nebo_get_loggable_status` | `loggable_id`, `run_id?` | Single loggable detail (node or global): logs (last 20), metrics, errors, params, progress |
+| `nebo_get_logs` | `loggable_id?`, `run_id?`, `limit?` (default 100) | Recent log entries filtered by loggable_id |
+| `nebo_get_metrics` | `loggable_id`, `name?` | Metric time series: `{metric_name: [(step, value), ...]}` |
 | `nebo_get_errors` | `run_id?` | All errors with full tracebacks, node context, params |
 | `nebo_get_description` | — | Workflow description + all node docstrings |
 | `nebo_get_run_status` | `run_id` | Run status: running/completed/crashed/stopped, exit code, duration |
