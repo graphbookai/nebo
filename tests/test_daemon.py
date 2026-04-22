@@ -302,6 +302,62 @@ class TestRunSummary:
         assert graph["nodes"]["a"]["docstring"] == "Step A"
         assert len(graph["edges"]) == 1
 
+    def test_get_graph_excludes_global_loggable(self) -> None:
+        """Global-kind loggables must not appear under the graph's nodes key."""
+        run = Run(id="r1", script_path="s.py")
+        run.loggables["__global__"] = LoggableState(
+            loggable_id="__global__", kind="global"
+        )
+        run.loggables["a"] = LoggableState(loggable_id="a", func_name="a")
+        graph = run.get_graph()
+        assert "__global__" not in graph["nodes"]
+        assert "a" in graph["nodes"]
+
+    def test_get_graph_filters_edges_touching_global(self) -> None:
+        """An edge whose endpoint is a known global loggable is dropped."""
+        run = Run(id="r1", script_path="s.py")
+        run.loggables["__global__"] = LoggableState(
+            loggable_id="__global__", kind="global"
+        )
+        run.loggables["a"] = LoggableState(loggable_id="a", func_name="a")
+        run.loggables["b"] = LoggableState(loggable_id="b", func_name="b")
+        run.edges.append({"source": "a", "target": "b"})
+        run.edges.append({"source": "__global__", "target": "a"})
+        run.edges.append({"source": "a", "target": "__global__"})
+        graph = run.get_graph()
+        assert graph["edges"] == [{"source": "a", "target": "b"}]
+
+    @pytest.mark.asyncio
+    async def test_run_start_seeds_global_loggable(self) -> None:
+        """A run_start event must seed the __global__ loggable with kind=global."""
+        state = DaemonState()
+        run = state.create_run("s.py", run_id="r1")
+        await state.ingest_events(
+            [{"type": "run_start", "data": {"script_path": "s.py"}}],
+            run_id="r1",
+        )
+        assert "__global__" in run.loggables
+        assert run.loggables["__global__"].kind == "global"
+
+    @pytest.mark.asyncio
+    async def test_run_start_global_seed_is_idempotent(self) -> None:
+        """Re-firing run_start must not overwrite an already-seeded global."""
+        state = DaemonState()
+        run = state.create_run("s.py", run_id="r1")
+        await state.ingest_events(
+            [{"type": "run_start", "data": {"script_path": "s.py"}}],
+            run_id="r1",
+        )
+        run.loggables["__global__"].logs.append({"message": "marker"})
+        await state.ingest_events(
+            [{"type": "run_start", "data": {"script_path": "s.py"}}],
+            run_id="r1",
+        )
+        assert any(
+            entry.get("message") == "marker"
+            for entry in run.loggables["__global__"].logs
+        )
+
 
 class TestGetNodeEndpoint:
     """HTTP-level tests for the GET /nodes/{name} endpoint.

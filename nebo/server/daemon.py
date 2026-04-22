@@ -107,28 +107,38 @@ class Run:
 
         Only node-kind loggables appear under the "nodes" key; the implicit
         global loggable (kind="global") is excluded from the DAG view.
+        Edges are filtered to those whose endpoints are both node-kind, so
+        the graph is self-consistent even if a stray edge referenced the
+        global.
         """
+        non_node_ids = {
+            lid for lid, lg in self.loggables.items() if lg.kind != "node"
+        }
         return {
             "nodes": {
                 lid: {
-                    "name": l.loggable_id,
-                    "func_name": l.func_name,
-                    "docstring": l.docstring,
-                    "exec_count": l.exec_count,
-                    "is_source": l.is_source,
-                    "pausable": l.pausable,
-                    "params": l.params,
-                    "progress": l.progress,
-                    "group": l.group,
-                    "ui_hints": l.ui_hints,
+                    "name": lg.loggable_id,
+                    "func_name": lg.func_name,
+                    "docstring": lg.docstring,
+                    "exec_count": lg.exec_count,
+                    "is_source": lg.is_source,
+                    "pausable": lg.pausable,
+                    "params": lg.params,
+                    "progress": lg.progress,
+                    "group": lg.group,
+                    "ui_hints": lg.ui_hints,
                 }
-                for lid, l in self.loggables.items()
-                if l.kind == "node"
+                for lid, lg in self.loggables.items()
+                if lg.kind == "node"
             },
-            "edges": self.edges,
+            "edges": [
+                e for e in self.edges
+                if e.get("source") not in non_node_ids
+                and e.get("target") not in non_node_ids
+            ],
             "workflow_description": self.workflow_description,
             "has_pausable": any(
-                l.pausable for l in self.loggables.values() if l.kind == "node"
+                lg.pausable for lg in self.loggables.values() if lg.kind == "node"
             ),
             "paused": self.paused,
             "ui_config": self.ui_config,
