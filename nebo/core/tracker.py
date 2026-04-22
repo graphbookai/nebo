@@ -75,7 +75,7 @@ class TrackedIterable(Iterator[T]):
             # bars in server mode.
             state._send_to_client({
                 "type": "progress",
-                "node": self._node_id,
+                "loggable_id": self._node_id,
                 "data": node.progress,
             })
 

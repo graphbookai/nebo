@@ -878,5 +878,5 @@ class TestErrorForwarding:
         data = error_events[0]["data"]
         assert data["type"] == "ValueError"
         assert data["error"] == "bang"
-        assert "boom" in data["node"]
+        assert "boom" in data["loggable_id"]
         assert "traceback" in data and "ValueError" in data["traceback"]

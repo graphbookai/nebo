@@ -242,7 +242,7 @@ def _decorate_function(f, depends_on, pausable, group=None, ui_hints=None):
             # Capture exception with context
             node_info = state.nodes.get(node_id)
             error_info = {
-                "node": node_id,
+                "loggable_id": node_id,
                 "docstring": node_info.docstring if node_info else None,
                 "exec_count": node_info.exec_count if node_info else 0,
                 "params": node_info.params if node_info else {},
@@ -258,7 +258,7 @@ def _decorate_function(f, depends_on, pausable, group=None, ui_hints=None):
             # MCP tools see the failure. Local-only mode drops the event.
             state._send_to_client({
                 "type": "error",
-                "node": node_id,
+                "loggable_id": node_id,
                 "data": error_info,
             })
 

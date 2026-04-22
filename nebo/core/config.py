@@ -42,6 +42,6 @@ def log_cfg(cfg: dict[str, Any]) -> None:
 
     state._send_to_client({
         "type": "config",
-        "node": node_id,
+        "loggable_id": node_id,
         "data": filtered,
     })

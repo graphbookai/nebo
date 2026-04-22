@@ -234,6 +234,17 @@ def init(
         else:
             state._client = client
 
+    # Seed the "__global__" loggable on the daemon side so logs emitted
+    # outside any @fn context have a home in the run's loggables dict.
+    # The daemon (Task 5) will also seed it on run_start; emitting here
+    # covers the one-time per-client-connection case before a run starts.
+    if state._client is not None:
+        state._send_to_client({
+            "type": "loggable_register",
+            "loggable_id": "__global__",
+            "data": {"loggable_id": "__global__", "kind": "global"},
+        })
+
     # Send run_start event so the daemon knows the script name
     if state._client is not None and script_name:
         state._send_to_client({
@@ -292,7 +303,7 @@ def ask(
         client.send_event({
             "type": "ask_prompt",
             "ask_id": ask_id,
-            "node": node_name,
+            "loggable_id": node_name,
             "node_name": node_name,
             "question": question,
             "options": options,

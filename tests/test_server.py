@@ -13,12 +13,12 @@ class TestProtocol:
 
     def test_message_to_json(self) -> None:
         """Message should serialize to JSON."""
-        msg = Message(type=MessageType.LOG, data={"message": "hello"}, node="my_node")
+        msg = Message(type=MessageType.LOG, data={"message": "hello"}, loggable_id="my_node")
         raw = msg.to_json()
         parsed = json.loads(raw)
         assert parsed["type"] == "log"
         assert parsed["data"]["message"] == "hello"
-        assert parsed["node"] == "my_node"
+        assert parsed["loggable_id"] == "my_node"
 
     def test_message_from_json(self) -> None:
         """Message should deserialize from JSON."""
@@ -26,12 +26,12 @@ class TestProtocol:
             "type": "metric",
             "data": {"name": "loss", "value": 0.5},
             "timestamp": 1234567890.0,
-            "node": "train",
+            "loggable_id": "train",
         })
         msg = Message.from_json(raw)
         assert msg.type == MessageType.METRIC
         assert msg.data["value"] == 0.5
-        assert msg.node == "train"
+        assert msg.loggable_id == "train"
 
     def test_encode_decode_batch(self) -> None:
         """Batch encoding/decoding should round-trip."""

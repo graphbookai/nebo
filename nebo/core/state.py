@@ -140,7 +140,7 @@ class SessionState:
         group: Optional[str] = None,
         ui_hints: Optional[dict] = None,
     ) -> NodeInfo:
-        """Register a new node locally but do NOT send node_register event.
+        """Register a new node locally but do NOT send loggable_register event.
 
         The node stays unmaterialized until ensure_loggable() is called
         (triggered by the first log/metric/image/audio/text call).
@@ -174,19 +174,18 @@ class SessionState:
         already-materialized node (idempotent).
 
         For global-kind loggables this is a no-op — the global loggable
-        is seeded at state init and has no materialize event. The emitted
-        ``type`` stays ``node_register`` for now; the wire-protocol rename
-        lands in a later task.
+        is seeded at state init and has no materialize event.
         """
         node = self.loggables.get(loggable_id)
         if node is None or not isinstance(node, NodeInfo) or node.materialized:
             return
         node.materialized = True
         self._send_to_client({
-            "type": "node_register",
-            "node": loggable_id,
+            "type": "loggable_register",
+            "loggable_id": loggable_id,
             "data": {
-                "node_id": loggable_id,
+                "loggable_id": loggable_id,
+                "kind": node.kind,
                 "func_name": node.func_name,
                 "docstring": node.docstring,
                 "pausable": node.pausable,
@@ -298,8 +297,8 @@ class SessionState:
                 node.exec_count += 1
         self._send_to_client({
             "type": "node_executed",
-            "node": node_id,
-            "data": {"node_id": node_id},
+            "loggable_id": node_id,
+            "data": {"loggable_id": node_id},
         })
 
     def get_sources(self) -> list[str]:

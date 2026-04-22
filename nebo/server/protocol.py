@@ -18,7 +18,7 @@ class MessageType(str, Enum):
     TEXT = "text"
     PROGRESS = "progress"
     ERROR = "error"
-    NODE_REGISTER = "node_register"
+    LOGGABLE_REGISTER = "loggable_register"
     EDGE = "edge"
     ASK = "ask_prompt"
     ASK_RESPONSE = "ask_response"
@@ -35,14 +35,14 @@ class Message:
     type: MessageType
     data: dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
-    node: Optional[str] = None
+    loggable_id: Optional[str] = None
 
     def to_json(self) -> str:
         d = {
             "type": self.type.value if isinstance(self.type, MessageType) else self.type,
             "data": self.data,
             "timestamp": self.timestamp,
-            "node": self.node,
+            "loggable_id": self.loggable_id,
         }
         return json.dumps(d, default=str)
 
@@ -53,7 +53,7 @@ class Message:
             type=MessageType(d["type"]) if d.get("type") in MessageType._value2member_map_ else d.get("type", "log"),
             data=d.get("data", {}),
             timestamp=d.get("timestamp", time.time()),
-            node=d.get("node"),
+            loggable_id=d.get("loggable_id"),
         )
 
 
