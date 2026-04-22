@@ -381,7 +381,11 @@ export const useStore = create<NeboStore>((set, get) => ({
     return { nodeSizes: outer }
   }),
 
-  viewMode: 'graph' as const,
+  // Default mobile to grid (rendered as "List") since DAG panning is awkward
+  // on small screens; desktop defaults to DAG.
+  viewMode: (typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
+    ? 'grid'
+    : 'graph') as 'graph' | 'grid',
   setViewMode: (mode) => set({ viewMode: mode }),
 
   rightPanelTab: 'trace' as const,

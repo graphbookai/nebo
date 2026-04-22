@@ -3,6 +3,7 @@ import { useRunDuration } from '@/hooks/useRunDuration'
 import { SettingsPanel } from './SettingsPanel'
 import { ArrowLeft, Wifi, WifiOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { RunStatusBadge } from '@/components/runs/RunStatusBadge'
 
 export function MobileNav() {
@@ -10,6 +11,8 @@ export function MobileNav() {
   const runs = useStore(s => s.runs)
   const selectRun = useStore(s => s.selectRun)
   const connected = useStore(s => s.connected)
+  const viewMode = useStore(s => s.viewMode)
+  const setViewMode = useStore(s => s.setViewMode)
 
   const run = selectedRunId ? runs.get(selectedRunId) : null
   const duration = useRunDuration(run?.summary)
@@ -29,6 +32,15 @@ export function MobileNav() {
           </div>
           <span className="text-xs text-muted-foreground">{duration}</span>
         </div>
+        <Tabs
+          value={viewMode}
+          onValueChange={(v) => setViewMode(v as 'graph' | 'grid')}
+        >
+          <TabsList className="h-6">
+            <TabsTrigger value="graph" className="text-xs h-5 px-2">DAG</TabsTrigger>
+            <TabsTrigger value="grid" className="text-xs h-5 px-2">List</TabsTrigger>
+          </TabsList>
+        </Tabs>
         <div className="flex items-center gap-1">
           {connected ? (
             <Wifi className="h-4 w-4 text-green-500" />

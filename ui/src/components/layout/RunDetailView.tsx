@@ -23,9 +23,7 @@ export function RunDetailView() {
   const pinnedPanels = useStore(s => s.pinnedPanels)
   const viewMode = useStore(s => s.viewMode)
   const setViewMode = useStore(s => s.setViewMode)
-  // On mobile, default to the grid view; preserve the user's stored preference
-  // for desktop so resizing back to desktop restores their choice.
-  const effectiveViewMode = isDesktop ? viewMode : 'grid'
+  const effectiveViewMode = viewMode
   const runColors = useStore(s => s.runColors)
   const runNames = useStore(s => s.runNames)
   const runs = useStore(s => s.runs)
