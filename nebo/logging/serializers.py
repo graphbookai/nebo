@@ -107,3 +107,64 @@ def serialize_audio(audio: Any, sr: int = 16000) -> bytes:
         wf.writeframes(audio.tobytes())
 
     return buf.getvalue()
+
+
+def _to_list(value: Any) -> Any:
+    """Convert tensor/ndarray to nested Python lists; pass lists through."""
+    if hasattr(value, "tolist"):
+        return value.tolist()
+    return value
+
+
+def _normalize_points(value: Any) -> list[list[float]]:
+    v = _to_list(value)
+    if not isinstance(v, list) or len(v) == 0:
+        return []
+    if not isinstance(v[0], (list, tuple)):
+        return [list(v)]
+    return [list(p) for p in v]
+
+
+def _normalize_boxes(value: Any) -> list[list[float]]:
+    v = _to_list(value)
+    if not isinstance(v, list) or len(v) == 0:
+        return []
+    if not isinstance(v[0], (list, tuple)):
+        return [list(v)]
+    return [list(b) for b in v]
+
+
+def _normalize_circles(value: Any) -> list[list[float]]:
+    v = _to_list(value)
+    if not isinstance(v, list) or len(v) == 0:
+        return []
+    if not isinstance(v[0], (list, tuple)):
+        return [list(v)]
+    return [list(c) for c in v]
+
+
+def _normalize_polygons(value: Any) -> list[list[list[float]]]:
+    v = _to_list(value)
+    if not isinstance(v, list) or len(v) == 0:
+        return []
+    first = v[0]
+    if (
+        isinstance(first, (list, tuple))
+        and len(first) > 0
+        and not isinstance(first[0], (list, tuple))
+    ):
+        # Single polygon (outer is a flat list of points).
+        return [[list(p) for p in v]]
+    return [[list(p) for p in poly] for poly in v]
+
+
+def _normalize_bitmask(value: Any) -> list:
+    """Return a list of 2D mask objects (original dtype preserved)."""
+    if isinstance(value, list):
+        return list(value)
+    if hasattr(value, "shape"):
+        if len(value.shape) == 2:
+            return [value]
+        if len(value.shape) == 3:
+            return [value[i] for i in range(value.shape[0])]
+    return [value]
