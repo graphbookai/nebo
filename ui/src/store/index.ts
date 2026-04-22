@@ -177,9 +177,9 @@ interface NeboStore {
   toggleNodeResize: (nodeId: string) => void
   updateNodeSize: (runId: string, nodeId: string, size: { width: number; height: number }) => void
 
-  // Desktop view mode
-  desktopViewMode: 'graph' | 'grid'
-  setDesktopViewMode: (mode: 'graph' | 'grid') => void
+  // View mode (desktop preference; mobile defaults to 'grid' at render time)
+  viewMode: 'graph' | 'grid'
+  setViewMode: (mode: 'graph' | 'grid') => void
 
   // Right panel (trace + chat)
   rightPanelTab: 'trace' | 'chat'
@@ -375,8 +375,8 @@ export const useStore = create<NeboStore>((set, get) => ({
     return { nodeSizes: outer }
   }),
 
-  desktopViewMode: 'graph' as const,
-  setDesktopViewMode: (mode) => set({ desktopViewMode: mode }),
+  viewMode: 'graph' as const,
+  setViewMode: (mode) => set({ viewMode: mode }),
 
   rightPanelTab: 'trace' as const,
   rightPanelOpen: false,
@@ -457,9 +457,9 @@ export const useStore = create<NeboStore>((set, get) => ({
       }
 
       if (ui.view === 'dag') {
-        patch.desktopViewMode = 'graph'
+        patch.viewMode = 'graph'
       } else if (ui.view === 'grid') {
-        patch.desktopViewMode = 'grid'
+        patch.viewMode = 'grid'
       }
 
       if (ui.collapsed === true) {

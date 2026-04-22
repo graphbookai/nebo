@@ -21,8 +21,11 @@ export function RunDetailView() {
   const run = useRunData(effectiveRunId)
   const isDesktop = useIsDesktop()
   const pinnedPanels = useStore(s => s.pinnedPanels)
-  const desktopViewMode = useStore(s => s.desktopViewMode)
-  const setDesktopViewMode = useStore(s => s.setDesktopViewMode)
+  const viewMode = useStore(s => s.viewMode)
+  const setViewMode = useStore(s => s.setViewMode)
+  // On mobile, default to the grid view; preserve the user's stored preference
+  // for desktop so resizing back to desktop restores their choice.
+  const effectiveViewMode = isDesktop ? viewMode : 'grid'
   const runColors = useStore(s => s.runColors)
   const runNames = useStore(s => s.runNames)
   const runs = useStore(s => s.runs)
@@ -72,13 +75,16 @@ export function RunDetailView() {
               </span>
             )}
             <Tabs
-              value={desktopViewMode}
-              onValueChange={(v) => setDesktopViewMode(v as 'graph' | 'grid')}
+              value={viewMode}
+              onValueChange={(v) => setViewMode(v as 'graph' | 'grid')}
               className="ml-auto"
             >
               <TabsList className="h-6">
                 <TabsTrigger value="graph" className="text-xs h-5 px-2">DAG</TabsTrigger>
-                <TabsTrigger value="grid" className="text-xs h-5 px-2">Grid</TabsTrigger>
+                <TabsTrigger value="grid" className="text-xs h-5 px-2">
+                  <span className="md:hidden">List</span>
+                  <span className="hidden md:inline">Grid</span>
+                </TabsTrigger>
               </TabsList>
             </Tabs>
             <Button
@@ -122,7 +128,7 @@ export function RunDetailView() {
 
       {/* Main content */}
       <div className="flex-1 overflow-hidden flex">
-        {desktopViewMode === 'grid' ? (
+        {effectiveViewMode === 'grid' ? (
           <div className="flex-1 overflow-hidden">
             <NodeGridView runId={effectiveRunId!} />
           </div>
