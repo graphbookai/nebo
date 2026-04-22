@@ -133,6 +133,7 @@ export interface RunState {
   chatMessages: ChatMessage[]
   paused: boolean
   loaded: boolean
+  globalLoggable?: { loggableId: string; kind: 'global' }
 }
 
 interface NeboStore {
@@ -276,6 +277,7 @@ function ensureRun(state: NeboStore, runId: string): RunState {
       chatMessages: [],
       paused: false,
       loaded: false,
+      globalLoggable: undefined,
     }
     state.runs.set(runId, run)
   }
@@ -415,6 +417,7 @@ export const useStore = create<NeboStore>((set, get) => ({
           chatMessages: [],
           paused: false,
           loaded: false,
+          globalLoggable: undefined,
         })
       }
     }
@@ -876,6 +879,7 @@ export const useStore = create<NeboStore>((set, get) => ({
           chatMessages: [],
           paused: false,
           loaded: false,
+          globalLoggable: undefined,
         }
       }
       // Clone run so selectors see a new reference
@@ -889,14 +893,14 @@ export const useStore = create<NeboStore>((set, get) => ({
 
       for (const event of events) {
         const etype = event.type
-        const nodeId = event.node as string | undefined
+        const loggableId = event.loggable_id as string | undefined
         const data = (event.data ?? event) as Record<string, unknown>
 
         switch (etype) {
           case 'log':
             newLogs.push({
               timestamp: (event.timestamp as number) ?? Date.now() / 1000,
-              node: nodeId ?? null,
+              node: loggableId ?? null,
               message: (event.message as string) ?? (data.message as string) ?? '',
               level: (event.level as string) ?? 'info',
               step: (event.step as number) ?? null,
@@ -904,21 +908,21 @@ export const useStore = create<NeboStore>((set, get) => ({
             break
 
           case 'metric':
-            if (nodeId) {
+            if (loggableId) {
               const name = (event.name as string) ?? (data.name as string) ?? ''
               const step = (event.step as number) ?? (data.step as number) ?? 0
               const value = (event.value as number) ?? (data.value as number) ?? 0
-              if (!run.loggableMetrics[nodeId]) run.loggableMetrics[nodeId] = {}
-              if (!run.loggableMetrics[nodeId][name]) run.loggableMetrics[nodeId][name] = []
-              run.loggableMetrics[nodeId][name] = [...run.loggableMetrics[nodeId][name], { step, value }]
+              if (!run.loggableMetrics[loggableId]) run.loggableMetrics[loggableId] = {}
+              if (!run.loggableMetrics[loggableId][name]) run.loggableMetrics[loggableId][name] = []
+              run.loggableMetrics[loggableId][name] = [...run.loggableMetrics[loggableId][name], { step, value }]
             }
             break
 
           case 'progress':
-            if (nodeId && run.graph?.nodes[nodeId]) {
+            if (loggableId && run.graph?.nodes[loggableId]) {
               // New node object so primitive selectors detect the change; graph ref stays stable
-              run.graph.nodes[nodeId] = {
-                ...run.graph.nodes[nodeId],
+              run.graph.nodes[loggableId] = {
+                ...run.graph.nodes[loggableId],
                 progress: data as { current: number; total: number; name?: string },
               }
             }
@@ -927,7 +931,7 @@ export const useStore = create<NeboStore>((set, get) => ({
           case 'error':
             newErrors.push({
               timestamp: (data.timestamp as number) ?? Date.now() / 1000,
-              node_name: (data.node as string) ?? nodeId ?? '',
+              node_name: (data.loggable_id as string) ?? loggableId ?? '',
               node_docstring: (data.docstring as string) ?? null,
               exception_type: (data.type as string) ?? '',
               exception_message: (data.error as string) ?? '',
@@ -938,43 +942,51 @@ export const useStore = create<NeboStore>((set, get) => ({
             })
             break
 
-          case 'node_register': {
-            const nid = (data.node_id as string) || ''
-            if (!run.graph) {
-              run.graph = { nodes: {}, edges: [], workflow_description: null, has_pausable: false, paused: false }
-            }
-            const isPausable = !!(data.pausable as boolean)
-            if (!run.graph.nodes[nid]) {
-              // Structural change — new graph object
-              run.graph = {
-                ...run.graph,
-                has_pausable: run.graph.has_pausable || isPausable,
-                nodes: {
-                  ...run.graph.nodes,
-                  [nid]: {
-                    name: nid,
-                    func_name: (data.func_name as string) || '',
-                    docstring: (data.docstring as string) || null,
-                    exec_count: 0,
-                    is_source: true,
-                    pausable: isPausable,
-                    params: {},
-                    progress: null,
-                    group: (data.group as string) || null,
-                    ui_hints: (data.ui_hints as Record<string, unknown>) || null,
-                  },
-                },
+          case 'loggable_register': {
+            const lid = (data.loggable_id as string) || ''
+            const kind = (data.kind as 'node' | 'global') ?? 'node'
+            if (kind === 'global') {
+              // Globals are not DAG nodes — track separately, do not insert into graph.nodes
+              if (!run.globalLoggable) {
+                run.globalLoggable = { loggableId: lid, kind: 'global' }
               }
-              run.summary.node_count = Object.keys(run.graph.nodes).length
-              if (state.settings.collapseNodesByDefault) {
-                newCollapsedIds.push(nid)
+            } else {
+              if (!run.graph) {
+                run.graph = { nodes: {}, edges: [], workflow_description: null, has_pausable: false, paused: false }
+              }
+              const isPausable = !!(data.pausable as boolean)
+              if (!run.graph.nodes[lid]) {
+                // Structural change — new graph object
+                run.graph = {
+                  ...run.graph,
+                  has_pausable: run.graph.has_pausable || isPausable,
+                  nodes: {
+                    ...run.graph.nodes,
+                    [lid]: {
+                      name: lid,
+                      func_name: (data.func_name as string) || '',
+                      docstring: (data.docstring as string) || null,
+                      exec_count: 0,
+                      is_source: true,
+                      pausable: isPausable,
+                      params: {},
+                      progress: null,
+                      group: (data.group as string) || null,
+                      ui_hints: (data.ui_hints as Record<string, unknown>) || null,
+                    },
+                  },
+                }
+                run.summary.node_count = Object.keys(run.graph.nodes).length
+                if (state.settings.collapseNodesByDefault) {
+                  newCollapsedIds.push(lid)
+                }
               }
             }
             break
           }
 
           case 'node_executed': {
-            const nid = (data.node_id as string) ?? nodeId ?? ''
+            const nid = (data.loggable_id as string) ?? loggableId ?? ''
             if (nid && run.graph?.nodes[nid]) {
               // New node object for selector detection; graph ref stays stable
               run.graph.nodes[nid] = {
@@ -1026,11 +1038,11 @@ export const useStore = create<NeboStore>((set, get) => ({
           }
 
           case 'image':
-            if (nodeId) {
+            if (loggableId) {
               const ev = event as Record<string, unknown>
-              const prev = run.loggableImages[nodeId] ?? []
-              run.loggableImages = { ...run.loggableImages, [nodeId]: [...prev, {
-                node: nodeId,
+              const prev = run.loggableImages[loggableId] ?? []
+              run.loggableImages = { ...run.loggableImages, [loggableId]: [...prev, {
+                node: loggableId,
                 mediaId: (ev.media_id as string) ?? '',
                 name: (ev.name as string) ?? '',
                 step: (ev.step as number) ?? null,
@@ -1040,11 +1052,11 @@ export const useStore = create<NeboStore>((set, get) => ({
             break
 
           case 'audio':
-            if (nodeId) {
+            if (loggableId) {
               const ev = event as Record<string, unknown>
-              const prev = run.loggableAudio[nodeId] ?? []
-              run.loggableAudio = { ...run.loggableAudio, [nodeId]: [...prev, {
-                node: nodeId,
+              const prev = run.loggableAudio[loggableId] ?? []
+              run.loggableAudio = { ...run.loggableAudio, [loggableId]: [...prev, {
+                node: loggableId,
                 mediaId: (ev.media_id as string) ?? '',
                 name: (ev.name as string) ?? '',
                 sr: (ev.sr as number) ?? 16000,
@@ -1057,7 +1069,7 @@ export const useStore = create<NeboStore>((set, get) => ({
           case 'text':
             newLogs.push({
               timestamp: (event.timestamp as number) ?? Date.now() / 1000,
-              node: nodeId ?? null,
+              node: loggableId ?? null,
               message: `[${(data.name as string) ?? ''}] ${(data.content as string) ?? (event.content as unknown as string) ?? ''}`,
               level: 'info',
               step: (event.step as number) ?? null,
@@ -1065,10 +1077,10 @@ export const useStore = create<NeboStore>((set, get) => ({
             break
 
           case 'config':
-            if (nodeId && run.graph?.nodes[nodeId]) {
-              run.graph.nodes[nodeId] = {
-                ...run.graph.nodes[nodeId],
-                params: { ...run.graph.nodes[nodeId].params, ...(data as Record<string, unknown>) },
+            if (loggableId && run.graph?.nodes[loggableId]) {
+              run.graph.nodes[loggableId] = {
+                ...run.graph.nodes[loggableId],
+                params: { ...run.graph.nodes[loggableId].params, ...(data as Record<string, unknown>) },
               }
             }
             break
@@ -1084,7 +1096,7 @@ export const useStore = create<NeboStore>((set, get) => ({
             const askId = (data.ask_id as string) ?? `ask_${Date.now()}`
             asks.set(askId, {
               askId,
-              nodeName: (data.node_name as string) ?? nodeId ?? '',
+              nodeName: (data.node_name as string) ?? loggableId ?? '',
               question: (data.question as string) ?? '',
               options: (data.options as string[]) ?? null,
               timeoutSeconds: (data.timeout_seconds as number) ?? null,
