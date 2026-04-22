@@ -14,7 +14,7 @@ class LoggableInfo:
     loggable_id: str = ""
     kind: Literal["node", "global"] = "node"
     logs: list = field(default_factory=list)
-    metrics: dict = field(default_factory=lambda: {})  # name -> {type, entries}
+    metrics: dict = field(default_factory=lambda: {})
     errors: list = field(default_factory=list)
     images: list = field(default_factory=list)
     audio: list = field(default_factory=list)
