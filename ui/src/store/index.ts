@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { RunSummary, GraphData, LogEntry, ErrorEntry } from '@/lib/api'
+import type { RunSummary, GraphData, LogEntry, ErrorEntry, LabelsPayload } from '@/lib/api'
 import type { WsEvent } from '@/lib/ws'
 import { assignColor } from '@/lib/colors'
 
@@ -87,6 +87,7 @@ export interface ImageEntry {
   name: string
   step: number | null
   timestamp: number
+  labels?: LabelsPayload | null
 }
 
 export interface AudioEntry {
@@ -1023,6 +1024,7 @@ export const useStore = create<NeboStore>((set, get) => ({
                 name: (ev.name as string) ?? '',
                 step: (ev.step as number) ?? null,
                 timestamp: (ev.timestamp as number) ?? Date.now() / 1000,
+                labels: (ev.labels as LabelsPayload | null | undefined) ?? null,
               }] }
             }
             break

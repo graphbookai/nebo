@@ -81,6 +81,20 @@ export interface ErrorEntry {
   last_logs: string[]
 }
 
+export interface BitmaskEntry {
+  width: number
+  height: number
+  data: string  // base64 PNG, grayscale; nonzero pixels are mask-on
+}
+
+export interface LabelsPayload {
+  points?: number[][]       // each: [x, y]
+  boxes?: number[][]        // each: [x1, y1, x2, y2]
+  circles?: number[][]      // each: [x, y, r]
+  polygons?: number[][][]   // each: list of [x, y]
+  bitmask?: BitmaskEntry[]
+}
+
 export interface NodeDetail {
   name: string
   func_name: string
@@ -128,7 +142,7 @@ export const api = {
   },
   getRunErrors: (id: string) => get<{ errors: ErrorEntry[] }>(`/runs/${id}/errors`),
   getRunMetrics: (id: string) => get<{ metrics: Record<string, Record<string, { step: number; value: number }[]>> }>(`/runs/${id}/metrics`),
-  getRunImages: (id: string) => get<{ images: Record<string, Array<{ node: string; media_id: string; name: string; step: number | null; timestamp: number }>> }>(`/runs/${id}/images`),
+  getRunImages: (id: string) => get<{ images: Record<string, Array<{ node: string; media_id: string; name: string; step: number | null; timestamp: number; labels?: LabelsPayload | null }>> }>(`/runs/${id}/images`),
   getRunAudio: (id: string) => get<{ audio: Record<string, Array<{ node: string; media_id: string; name: string; sr: number; step: number | null; timestamp: number }>> }>(`/runs/${id}/audio`),
   getMedia: (runId: string, mediaId: string) => get<{ data: string }>(`/runs/${runId}/media/${mediaId}`),
 
