@@ -3,7 +3,7 @@
 File structure:
     [Header]
       magic: b"nebo" (4 bytes)
-      version: u16 big-endian (currently 1)
+      version: u16 big-endian (currently 2)
       metadata_size: u32 big-endian
       metadata: msgpack map {run_id, script_path, started_at, nebo_version, args}
 
@@ -11,6 +11,17 @@ File structure:
       type_byte: u8 (entry type index)
       size: u32 big-endian (payload size in bytes)
       payload: msgpack map (entry-specific data)
+
+Format versions:
+    v1: top-level / entry-type names used the legacy ``node`` /
+        ``node_register`` / ``data.node_id`` spelling. In-memory events have
+        since been renamed to ``loggable_id`` / ``loggable_register`` /
+        ``data.loggable_id``, so the reader translates v1 files on the way
+        out for backwards compatibility.
+    v2: writes ``loggable_id`` / ``loggable_register`` / ``data.loggable_id``
+        natively. Adds a new entry-type code ``loggable_register`` = 16.
+        The legacy ``node_register`` code (4) stays in the table so v1 files
+        decode. Labels on image events pass through unchanged.
 """
 
 from __future__ import annotations
@@ -21,15 +32,23 @@ from typing import Any, BinaryIO, Iterator, Optional
 
 import msgpack
 
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 MAGIC = b"nebo"
 
+# Entry-type string -> on-disk integer code.
+#
+# Codes are part of the on-disk format and must never be reassigned (doing so
+# would break backwards compatibility with existing .nebo files). New entry
+# types get the next free integer.
+#
+# ``node_register`` (code 4) is retained purely for reading v1 files; v2
+# writers emit ``loggable_register`` (code 16) instead.
 ENTRY_TYPES = {
     "log": 0,
     "metric": 1,
     "image": 2,
     "audio": 3,
-    "node_register": 4,
+    "node_register": 4,  # v1-only; kept for backward read compat
     "edge": 5,
     "error": 6,
     "ask": 7,
@@ -44,60 +63,32 @@ ENTRY_TYPES = {
     "run_completed": 16,
     "pause_state": 17,
     "run_config": 18,
+    "loggable_register": 19,  # v2: replaces node_register
 }
 
 ENTRY_TYPES_REVERSE = {v: k for k, v in ENTRY_TYPES.items()}
 
 
-# --- Translation between in-memory and on-disk shapes -----------------------
+# --- v1 -> in-memory translation --------------------------------------------
 #
-# The on-disk .nebo format retains legacy field names for backwards
-# compatibility:
+# v1 .nebo files stored the legacy field names:
 #   * top-level field   : ``node``              (in-memory: ``loggable_id``)
 #   * entry / type name : ``node_register``     (in-memory: ``loggable_register``)
 #   * nested in ``data``: ``node_id``           (in-memory: ``loggable_id``)
 #
-# The integer entry-type code table (``ENTRY_TYPES``) is part of the on-disk
-# format and therefore keeps the legacy ``"node_register"`` spelling. These
-# helpers translate the event dict (and the entry-type string) at the
-# write/read boundary so callers always see the in-memory shape.
+# v2 writes the in-memory shape directly, so these translators are only
+# invoked when the reader detects a v1 file header.
 
 
-def _to_disk_entry_type(entry_type: str) -> str:
-    """In-memory entry type -> on-disk entry type."""
-    if entry_type == "loggable_register":
-        return "node_register"
-    return entry_type
-
-
-def _from_disk_entry_type(entry_type: str) -> str:
-    """On-disk entry type -> in-memory entry type."""
+def _v1_entry_type_to_in_memory(entry_type: str) -> str:
+    """v1 on-disk entry type -> in-memory entry type."""
     if entry_type == "node_register":
         return "loggable_register"
     return entry_type
 
 
-def _to_disk_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """In-memory payload -> on-disk payload (loggable_id -> node)."""
-    if not isinstance(payload, dict):
-        return payload
-    out = dict(payload)
-    if "loggable_id" in out:
-        out["node"] = out.pop("loggable_id")
-    # Translate the redundant ``type`` field that callers include in the payload.
-    if out.get("type") == "loggable_register":
-        out["type"] = "node_register"
-    # Translate nested data.loggable_id -> data.node_id.
-    data = out.get("data")
-    if isinstance(data, dict) and "loggable_id" in data:
-        new_data = dict(data)
-        new_data["node_id"] = new_data.pop("loggable_id")
-        out["data"] = new_data
-    return out
-
-
-def _from_disk_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """On-disk payload -> in-memory payload (node -> loggable_id)."""
+def _v1_payload_to_in_memory(payload: dict[str, Any]) -> dict[str, Any]:
+    """v1 on-disk payload -> in-memory payload (node -> loggable_id)."""
     if not isinstance(payload, dict):
         return payload
     out = dict(payload)
@@ -114,7 +105,7 @@ def _from_disk_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 class NeboFileWriter:
-    """Append-only writer for .nebo files."""
+    """Append-only writer for .nebo files (emits format v2)."""
 
     def __init__(
         self,
@@ -149,11 +140,10 @@ class NeboFileWriter:
     def write_entry(self, entry_type: str, payload: dict[str, Any]) -> None:
         """Write a single log entry.
 
-        Translates the in-memory ``loggable_id`` / ``loggable_register`` naming
-        to the on-disk ``node`` / ``node_register`` naming before writing.
+        v2 is passthrough: the in-memory event dict is serialized as-is, so
+        ``loggable_id`` / ``loggable_register`` / ``data.loggable_id`` land on
+        disk verbatim. Labels (e.g. on image events) pass through unchanged.
         """
-        entry_type = _to_disk_entry_type(entry_type)
-        payload = _to_disk_payload(payload)
         type_byte = ENTRY_TYPES.get(entry_type, 255)
         payload_bytes = msgpack.packb(payload, use_bin_type=True)
 
@@ -168,10 +158,14 @@ class NeboFileWriter:
 
 
 class NeboFileReader:
-    """Reader for .nebo files."""
+    """Reader for .nebo files (supports formats v1 and v2)."""
 
     def __init__(self, stream: BinaryIO) -> None:
         self._stream = stream
+        # Populated by read_header(); None until the header has been parsed.
+        # Raw-read paths that skip read_header() default to treating data as v2
+        # (passthrough), which matches all freshly-written files.
+        self._version: Optional[int] = None
 
     def read_header(self) -> dict[str, Any]:
         """Read and validate the file header. Returns metadata dict."""
@@ -182,6 +176,7 @@ class NeboFileReader:
         version = struct.unpack(">H", self._stream.read(2))[0]
         if version > FORMAT_VERSION:
             raise ValueError(f"Unsupported .nebo format version {version}")
+        self._version = version
 
         meta_size = struct.unpack(">I", self._stream.read(4))[0]
         meta_bytes = self._stream.read(meta_size)
@@ -190,10 +185,9 @@ class NeboFileReader:
     def read_next_entry_raw(self) -> Optional[dict[str, Any]]:
         """Read the next entry in its raw on-disk shape (no translation).
 
-        The returned dict carries the legacy field names (``node``,
-        ``node_register``, ``data.node_id``). Used by tests that verify the
-        on-disk format and by any consumer that needs the unmodified payload.
-        Returns None at EOF.
+        For v2 files this is the same as :meth:`read_next_entry`. For v1 files
+        the returned dict carries the legacy field names (``node``,
+        ``node_register``, ``data.node_id``). Returns None at EOF.
         """
         type_data = self._stream.read(1)
         if not type_data:
@@ -210,17 +204,22 @@ class NeboFileReader:
     def read_next_entry(self) -> Optional[dict[str, Any]]:
         """Read the next entry and translate it to the in-memory shape.
 
-        On-disk ``node`` / ``node_register`` / ``data.node_id`` are rewritten
-        to ``loggable_id`` / ``loggable_register`` / ``data.loggable_id``.
+        For v2 files the entry passes through unchanged. For v1 files the
+        legacy on-disk spellings (``node`` / ``node_register`` /
+        ``data.node_id``) are rewritten to their in-memory equivalents
+        (``loggable_id`` / ``loggable_register`` / ``data.loggable_id``).
         Returns None at EOF.
         """
         entry = self.read_next_entry_raw()
         if entry is None:
             return None
-        return {
-            "type": _from_disk_entry_type(entry["type"]),
-            "payload": _from_disk_payload(entry["payload"]),
-        }
+        if self._version == 1:
+            return {
+                "type": _v1_entry_type_to_in_memory(entry["type"]),
+                "payload": _v1_payload_to_in_memory(entry["payload"]),
+            }
+        # v2 (or raw-read with no header parsed yet): passthrough.
+        return entry
 
     def skip_next_entry(self) -> bool:
         """Skip the next entry without parsing payload. Returns False at EOF."""
