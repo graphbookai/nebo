@@ -177,10 +177,6 @@ interface NeboStore {
   toggleNodeResize: (nodeId: string) => void
   updateNodeSize: (runId: string, nodeId: string, size: { width: number; height: number }) => void
 
-  // Node list panel (desktop)
-  nodeListCollapsed: boolean
-  toggleNodeList: () => void
-
   // Desktop view mode
   desktopViewMode: 'graph' | 'grid'
   setDesktopViewMode: (mode: 'graph' | 'grid') => void
@@ -378,9 +374,6 @@ export const useStore = create<NeboStore>((set, get) => ({
     outer.set(runId, inner)
     return { nodeSizes: outer }
   }),
-
-  nodeListCollapsed: false,
-  toggleNodeList: () => set(state => ({ nodeListCollapsed: !state.nodeListCollapsed })),
 
   desktopViewMode: 'graph' as const,
   setDesktopViewMode: (mode) => set({ desktopViewMode: mode }),

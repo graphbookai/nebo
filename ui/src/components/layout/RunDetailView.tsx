@@ -4,13 +4,11 @@ import { useRunDuration } from '@/hooks/useRunDuration'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { useComparisonContext } from '@/hooks/useComparisonContext'
 import { DagGraph } from '@/components/graph/DagGraph'
-import { NodeList } from '@/components/graph/NodeList'
 import { NodeGridView } from '@/components/graph/NodeGridView'
 import { PinnedPanelStack } from '@/components/layout/PinnedPanelStack'
 import { TimelineScrubber } from '@/components/timeline/TimelineScrubber'
 import { RunStatusBadge } from '@/components/runs/RunStatusBadge'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useState } from 'react'
 import { PanelRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -30,7 +28,6 @@ export function RunDetailView() {
   const runs = useStore(s => s.runs)
   const rightPanelOpen = useStore(s => s.rightPanelOpen)
   const toggleRightPanel = useStore(s => s.toggleRightPanel)
-  const [mobileTab, setMobileTab] = useState<'nodes' | 'graph'>('nodes')
 
   const duration = useRunDuration(run?.summary)
 
@@ -123,40 +120,16 @@ export function RunDetailView() {
         </div>
       )}
 
-      {/* Mobile tab bar */}
-      {!isDesktop && (
-        <div className="flex border-b border-border shrink-0">
-          <button
-            className={`flex-1 py-2 text-sm font-medium text-center transition-colors ${mobileTab === 'nodes' ? 'border-b-2 border-primary text-foreground' : 'text-muted-foreground'}`}
-            onClick={() => setMobileTab('nodes')}
-          >
-            Nodes
-          </button>
-          <button
-            className={`flex-1 py-2 text-sm font-medium text-center transition-colors ${mobileTab === 'graph' ? 'border-b-2 border-primary text-foreground' : 'text-muted-foreground'}`}
-            onClick={() => setMobileTab('graph')}
-          >
-            Graph
-          </button>
-        </div>
-      )}
-
       {/* Main content */}
       <div className="flex-1 overflow-hidden flex">
-        {isDesktop ? (
-          desktopViewMode === 'grid' ? (
-            <div className="flex-1 overflow-hidden">
-              <NodeGridView runId={effectiveRunId!} />
-            </div>
-          ) : (
-            <div className="flex-1 overflow-hidden">
-              <DagGraph runId={effectiveRunId!} />
-            </div>
-          )
-        ) : mobileTab === 'graph' ? (
-          <DagGraph runId={effectiveRunId!} />
+        {desktopViewMode === 'grid' ? (
+          <div className="flex-1 overflow-hidden">
+            <NodeGridView runId={effectiveRunId!} />
+          </div>
         ) : (
-          <NodeList runId={effectiveRunId!} />
+          <div className="flex-1 overflow-hidden">
+            <DagGraph runId={effectiveRunId!} />
+          </div>
         )}
       </div>
 
