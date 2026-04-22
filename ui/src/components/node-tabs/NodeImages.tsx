@@ -5,6 +5,7 @@ import { useTimelineFilter } from '@/hooks/useTimelineFilter'
 import { useMedia } from '@/hooks/useMedia'
 import { formatTimestamp } from '@/lib/utils'
 import { ComparisonGrid } from '@/components/shared/ComparisonGrid'
+import { ImageWithLabels } from '@/components/shared/ImageWithLabels'
 
 interface NodeImagesProps {
   runId: string
@@ -24,7 +25,7 @@ export function NodeImages({ runId, loggableId, comparisonRunIds }: NodeImagesPr
   return <SingleRunImages runId={runId} loggableId={loggableId} />
 }
 
-function ImageItem({ runId, img, showTimestamp }: { runId: string; img: ImageEntry; showTimestamp?: boolean }) {
+function ImageItem({ runId, loggableId, img, showTimestamp }: { runId: string; loggableId: string; img: ImageEntry; showTimestamp?: boolean }) {
   const { data, loading } = useMedia(runId, img.mediaId)
 
   return (
@@ -40,10 +41,12 @@ function ImageItem({ runId, img, showTimestamp }: { runId: string; img: ImageEnt
       {loading ? (
         <div className="rounded border border-border bg-muted/50 animate-pulse h-32 w-full" />
       ) : data ? (
-        <img
+        <ImageWithLabels
           src={`data:image/png;base64,${data}`}
+          labels={img.labels}
+          loggableName={loggableId}
+          imageName={img.name ?? ''}
           alt={img.name}
-          className="rounded border border-border max-w-full"
         />
       ) : (
         <div className="rounded border border-border bg-muted/30 h-32 w-full flex items-center justify-center">
@@ -70,7 +73,7 @@ function ComparisonImageCell({ runId, loggableId }: { runId: string; loggableId:
   return (
     <div className="space-y-2 p-1">
       {images.map((img) => (
-        <ImageItem key={img.mediaId} runId={runId} img={img} />
+        <ImageItem key={img.mediaId} runId={runId} loggableId={loggableId} img={img} />
       ))}
     </div>
   )
@@ -92,7 +95,7 @@ function SingleRunImages({ runId, loggableId }: { runId: string; loggableId: str
   return (
     <div className="space-y-3">
       {images.map((img) => (
-        <ImageItem key={img.mediaId} runId={runId} img={img} showTimestamp />
+        <ImageItem key={img.mediaId} runId={runId} loggableId={loggableId} img={img} showTimestamp />
       ))}
     </div>
   )

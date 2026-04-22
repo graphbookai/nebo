@@ -90,6 +90,27 @@ export interface ImageEntry {
   labels?: LabelsPayload | null
 }
 
+export interface LabelKeySetting {
+  visible: boolean
+  opacity: number  // 0-100
+}
+
+const LABEL_SETTINGS_KEY = 'nebo_label_settings'
+
+function loadLabelSettings(): Record<string, LabelKeySetting> {
+  try {
+    const raw = localStorage.getItem(LABEL_SETTINGS_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch { /* ignore */ }
+  return {}
+}
+
+function saveLabelSettings(s: Record<string, LabelKeySetting>) {
+  try {
+    localStorage.setItem(LABEL_SETTINGS_KEY, JSON.stringify(s))
+  } catch { /* ignore */ }
+}
+
 export interface AudioEntry {
   node: string
   mediaId: string
@@ -202,6 +223,12 @@ interface NeboStore {
 
   // Settings
   settings: Settings
+
+  // Label-key visibility + opacity, keyed by `${loggableName}|${imageName}|${key}`.
+  labelKeySettings: Record<string, LabelKeySetting>
+  registerLabelKey: (loggable: string, image: string, key: string) => void
+  setLabelKeyVisible: (loggable: string, image: string, key: string, visible: boolean) => void
+  setLabelKeyOpacity: (loggable: string, image: string, key: string, opacity: number) => void
 
   // Actions
   setRuns: (summaries: RunSummary[], activeRunId: string | null) => void
@@ -400,6 +427,29 @@ export const useStore = create<NeboStore>((set, get) => ({
   setTimelineStep: (step) => set(state => ({ timeline: { ...state.timeline, step } })),
 
   settings: initialSettings,
+
+  labelKeySettings: loadLabelSettings(),
+  registerLabelKey: (loggable, image, key) => set(state => {
+    const k = `${loggable}|${image}|${key}`
+    if (k in state.labelKeySettings) return state
+    const next = { ...state.labelKeySettings, [k]: { visible: true, opacity: 70 } }
+    saveLabelSettings(next)
+    return { labelKeySettings: next }
+  }),
+  setLabelKeyVisible: (loggable, image, key, visible) => set(state => {
+    const k = `${loggable}|${image}|${key}`
+    const prev = state.labelKeySettings[k] ?? { visible: true, opacity: 70 }
+    const next = { ...state.labelKeySettings, [k]: { ...prev, visible } }
+    saveLabelSettings(next)
+    return { labelKeySettings: next }
+  }),
+  setLabelKeyOpacity: (loggable, image, key, opacity) => set(state => {
+    const k = `${loggable}|${image}|${key}`
+    const prev = state.labelKeySettings[k] ?? { visible: true, opacity: 70 }
+    const next = { ...state.labelKeySettings, [k]: { ...prev, opacity } }
+    saveLabelSettings(next)
+    return { labelKeySettings: next }
+  }),
 
   setRuns: (summaries, activeRunId) => set(state => {
     const runs = new Map(state.runs)

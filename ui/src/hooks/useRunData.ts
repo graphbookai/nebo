@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { useStore, type RunState } from '@/store'
+import { useStore, type RunState, type ImageEntry } from '@/store'
 import { api } from '@/lib/api'
 
 function fetchSingleRun(runId: string, store: ReturnType<typeof useStore.getState>) {
@@ -10,9 +10,16 @@ function fetchSingleRun(runId: string, store: ReturnType<typeof useStore.getStat
     api.getRunErrors(runId).then(d => setRunErrors(runId, d.errors)),
     api.getRunMetrics(runId).then(d => setRunMetrics(runId, d.metrics)),
     api.getRunImages(runId).then(d => {
-      const mapped: Record<string, Array<{ node: string; mediaId: string; name: string; step: number | null; timestamp: number }>> = {}
+      const mapped: Record<string, ImageEntry[]> = {}
       for (const [nodeId, entries] of Object.entries(d.images)) {
-        mapped[nodeId] = entries.map(e => ({ node: e.node, mediaId: e.media_id, name: e.name, step: e.step, timestamp: e.timestamp }))
+        mapped[nodeId] = entries.map(e => ({
+          node: e.node,
+          mediaId: e.media_id,
+          name: e.name,
+          step: e.step,
+          timestamp: e.timestamp,
+          labels: e.labels ?? null,
+        }))
       }
       setRunImages(runId, mapped)
     }),
