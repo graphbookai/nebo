@@ -123,3 +123,59 @@ def test_file_on_disk():
 
     import os
     os.unlink(path)
+
+
+def test_fileformat_writes_node_field_translates_loggable_id():
+    """Writer translates in-memory loggable_id -> on-disk node; reader reverses it.
+
+    The on-disk .nebo format keeps the legacy field name `node` (and
+    `node_register` entry type). In-memory events use `loggable_id` and
+    `loggable_register`. Translation happens at the write/read boundary.
+    """
+    from nebo.core.fileformat import NeboFileWriter, NeboFileReader
+
+    buf = io.BytesIO()
+    writer = NeboFileWriter(buf, run_id="translate-test", script_path="t.py")
+    writer.write_header()
+    writer.write_entry(
+        "log",
+        {"type": "log", "loggable_id": "x", "message": "hi", "timestamp": 1.0},
+    )
+    writer.write_entry(
+        "loggable_register",
+        {
+            "type": "loggable_register",
+            "loggable_id": "x",
+            "data": {"loggable_id": "x", "kind": "fn", "func_name": "x"},
+        },
+    )
+    writer.close()
+
+    # Raw read should carry "node"/"node_register", not "loggable_id"/"loggable_register".
+    buf.seek(0)
+    raw_reader = NeboFileReader(buf)
+    raw_reader.read_header()
+    raw_entries = list(raw_reader.read_entries_raw())
+    assert raw_entries[0]["type"] == "log"
+    assert raw_entries[0]["payload"].get("node") == "x"
+    assert "loggable_id" not in raw_entries[0]["payload"]
+    assert raw_entries[1]["type"] == "node_register"
+    assert raw_entries[1]["payload"].get("node") == "x"
+    assert raw_entries[1]["payload"]["type"] == "node_register"
+    assert raw_entries[1]["payload"]["data"].get("node_id") == "x"
+    assert "loggable_id" not in raw_entries[1]["payload"]["data"]
+
+    # High-level read should translate back to loggable_id / loggable_register.
+    buf.seek(0)
+    reader = NeboFileReader(buf)
+    reader.read_header()
+    entries = list(reader.read_entries())
+    assert entries[0]["type"] == "log"
+    assert entries[0]["payload"]["loggable_id"] == "x"
+    assert "node" not in entries[0]["payload"]
+    assert entries[1]["type"] == "loggable_register"
+    assert entries[1]["payload"]["loggable_id"] == "x"
+    assert entries[1]["payload"]["type"] == "loggable_register"
+    assert entries[1]["payload"]["data"]["loggable_id"] == "x"
+    assert "node_id" not in entries[1]["payload"]["data"]
+    assert "node" not in entries[1]["payload"]
