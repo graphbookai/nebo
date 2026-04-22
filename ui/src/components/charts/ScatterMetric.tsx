@@ -51,6 +51,9 @@ export function ScatterMetric({ entries, color }: { entries: MetricEntry[]; colo
               name={`step ${step}`}
               data={data}
               fill={color}
+              stroke="var(--color-popover-foreground)"
+              strokeWidth={0.5}
+              strokeOpacity={0.5}
               shape={shape}
             />
           )

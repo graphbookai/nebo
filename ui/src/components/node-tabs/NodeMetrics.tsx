@@ -101,8 +101,10 @@ function MetricBlock({
     return [...s].sort()
   }, [series.entries])
 
+  // With no tag chip selected, show only untagged data. This keeps a
+  // freshly-opened chart honest about which subset of the series is visible.
   const filtered = useMemo(() => {
-    if (activeTags.size === 0) return series.entries
+    if (activeTags.size === 0) return series.entries.filter(e => e.tags.length === 0)
     return series.entries.filter(e => e.tags.some(t => activeTags.has(t)))
   }, [series.entries, activeTags])
 
@@ -352,13 +354,13 @@ function ComparisonChart({
   const seriesFor = (rid: string) => {
     const s = runs.get(rid)?.loggableMetrics[loggableId]?.[name]
     if (!s) return undefined
-    if (activeTags.size === 0) return s
-    // Pre-filter entries by tag so downstream chart components don't need to
-    // know about tags at all.
-    return {
-      ...s,
-      entries: s.entries.filter(e => e.tags.some(t => activeTags.has(t))),
-    }
+    // No tag chips selected → untagged entries only. Otherwise keep entries
+    // whose tag set intersects the selected chips.
+    const entries =
+      activeTags.size === 0
+        ? s.entries.filter(e => e.tags.length === 0)
+        : s.entries.filter(e => e.tags.some(t => activeTags.has(t)))
+    return { ...s, entries }
   }
 
   if (type === 'line') return <ComparisonLine runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
@@ -644,6 +646,9 @@ function ComparisonScatter({ runIds, runColors, runNameFor, seriesFor }: {
               name={`${runNameFor(slot.rid)} · step ${slot.step}`}
               data={slot.data}
               fill={color}
+              stroke="var(--color-popover-foreground)"
+              strokeWidth={0.5}
+              strokeOpacity={0.5}
               shape={shape}
             />
           )
