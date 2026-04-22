@@ -279,31 +279,20 @@ class TerminalDisplay:
             parts.append(Text(f"  DAG: {topo}", style="bold cyan"))
 
         # ── Node progress table ──
-        # Filter: show Global row only if it has activity or there are real nodes.
+        # Global is shown iff it has activity: progress, logs, or errors.
+        # All node-kind loggables are always shown.
+        global_has_activity = any(
+            entry.get("node") == "Global" for entry in logs
+        ) or any(
+            e.get("node_name") == "Global" for e in errors
+        )
         displayable_nodes = {
             nid: n
             for nid, n in nodes.items()
             if n.get("kind", "node") == "node"
-            or has_real_nodes
-            or n.get("exec_count", 0) > 0
             or n.get("progress")
+            or global_has_activity
         }
-        # If there are no real nodes and Global has no activity, drop Global too.
-        if not has_real_nodes:
-            displayable_nodes = {
-                nid: n
-                for nid, n in displayable_nodes.items()
-                if n.get("exec_count", 0) > 0 or n.get("progress")
-            }
-            # Also include Global if there are any logs/errors attached to it
-            # (driven by the outer `logs`/`errors` lists when tag == "Global").
-            if any(entry.get("node") == "Global" for entry in logs) or any(
-                e.get("node_name") == "Global" for e in errors
-            ):
-                for nid, n in nodes.items():
-                    if n.get("kind") == "global":
-                        displayable_nodes[nid] = n
-                        break
 
         if displayable_nodes:
             parts.append(Text(""))

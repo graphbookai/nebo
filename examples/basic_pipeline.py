@@ -14,10 +14,6 @@ Source nodes are those with in-degree 0 (nothing calls them).
 import time
 import nebo as nb
 
-# Emitted outside any @nb.fn() — lands on the Global loggable and
-# appears inline with node rows in the terminal display.
-nb.log("basic_pipeline module loaded")
-
 
 @nb.fn()
 def clean_text(documents: list[dict]) -> list[dict]:
@@ -94,6 +90,10 @@ def run_pipeline(file_paths: list[str]) -> str:
 
 def main():
     """Run the text processing pipeline."""
+
+    # Emitted outside any @nb.fn() — lands on the Global loggable and
+    # appears inline with node rows in the terminal display.
+    nb.log("pipeline starting")
 
     # Describe the workflow for AI agents
     nb.md(
