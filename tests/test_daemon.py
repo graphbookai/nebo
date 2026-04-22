@@ -280,6 +280,25 @@ class TestDaemonEventIngestion:
         graph = run.get_graph()
         assert graph["ui_config"] is None
 
+    @pytest.mark.asyncio
+    async def test_ingest_image_with_labels_preserves_labels(self) -> None:
+        """Image events carrying labels must land on LoggableState.images entries."""
+        run = self.state.create_run("s.py", run_id="r1")
+        await self.state.ingest_events([
+            {"type": "loggable_register", "data": {"loggable_id": "seg", "func_name": "seg"}},
+            {
+                "type": "image",
+                "loggable_id": "seg",
+                "name": "pred",
+                "data": "AA==",
+                "step": 0,
+                "labels": {"boxes": [[1, 2, 3, 4]], "points": [[5, 6]]},
+            },
+        ], "r1")
+        images = run.loggables["seg"].images
+        assert len(images) == 1
+        assert images[0]["labels"] == {"boxes": [[1, 2, 3, 4]], "points": [[5, 6]]}
+
 
 class TestRunSummary:
     """Tests for Run serialization methods."""

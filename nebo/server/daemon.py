@@ -414,6 +414,7 @@ class DaemonState:
                     "name": event.get("name", ""),
                     "step": event.get("step"),
                     "timestamp": event.get("timestamp", time.time()),
+                    "labels": event.get("labels"),
                 })
 
         elif etype == "audio":
@@ -738,6 +739,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
                         "name": img.get("name", ""),
                         "step": img.get("step"),
                         "timestamp": img.get("timestamp", 0),
+                        "labels": img.get("labels"),
                     }
                     for img in l.images
                 ]
