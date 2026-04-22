@@ -39,7 +39,7 @@ def line_demo() -> None:
         )
 
 
-@nb.fn()
+@nb.fn(ui={"default_tab": "metrics"})
 def bar_demo() -> None:
     """Bar: one chart per step. Tag each step with an A/B split label."""
     rng = np.random.default_rng(10)
@@ -60,7 +60,7 @@ def bar_demo() -> None:
         )
 
 
-@nb.fn()
+@nb.fn(ui={"default_tab": "metrics"})
 def pie_demo() -> None:
     """Pie: one chart per step. Tag with the run phase."""
     schedules = [
@@ -79,7 +79,7 @@ def pie_demo() -> None:
         )
 
 
-@nb.fn()
+@nb.fn(ui={"default_tab": "metrics"})
 def scatter_demo() -> None:
     """Scatter: one chart per step. Tag with the model version."""
     rng = np.random.default_rng(0)
@@ -97,7 +97,7 @@ def scatter_demo() -> None:
         )
 
 
-@nb.fn()
+@nb.fn(ui={"default_tab": "metrics"})
 def histogram_demo() -> None:
     """Histogram: one chart per step. Tag every other step as outlier-suspect."""
     rng = np.random.default_rng(1)
