@@ -342,3 +342,6 @@ Two execution modes:
 | `ask` | `ask(question, options=None, timeout=None)` | Human-in-the-loop prompt |
 | `get_state` | `get_state() -> SessionState` | Access the global state singleton |
 
+## Recent changes
+
+- Global loggable catches `nb.log*` calls outside `@nb.fn()`; node_id is now loggable_id on the wire.
