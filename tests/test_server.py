@@ -63,14 +63,14 @@ class TestDaemonIngest:
         state = DaemonState()
         state.create_run("test.py", run_id="r1")
         await state.ingest_events([{
-            "type": "node_register",
-            "data": {"node_id": "my_node", "func_name": "my_func"},
+            "type": "loggable_register",
+            "data": {"loggable_id": "my_node", "func_name": "my_func"},
         }], "r1")
-        assert "my_node" in state.runs["r1"].nodes
+        assert "my_node" in state.runs["r1"].loggables
 
         await state.ingest_events([{
             "type": "log",
-            "node": "my_node",
+            "loggable_id": "my_node",
             "message": "test log",
         }], "r1")
         assert len(state.runs["r1"].logs) == 1
@@ -83,15 +83,15 @@ class TestDaemonIngest:
         state = DaemonState()
         state.create_run("test.py", run_id="r1")
         await state.ingest_events([
-            {"type": "node_register", "data": {"node_id": "a", "func_name": "a"}},
-            {"type": "node_register", "data": {"node_id": "b", "func_name": "b"}},
+            {"type": "loggable_register", "data": {"loggable_id": "a", "func_name": "a"}},
+            {"type": "loggable_register", "data": {"loggable_id": "b", "func_name": "b"}},
         ], "r1")
         await state.ingest_events([{
             "type": "edge",
             "data": {"source": "a", "target": "b"},
         }], "r1")
         assert len(state.runs["r1"].edges) == 1
-        assert state.runs["r1"].nodes["b"].is_source is False
+        assert state.runs["r1"].loggables["b"].is_source is False
 
     @pytest.mark.asyncio
     async def test_ingest_error(self) -> None:
@@ -101,14 +101,14 @@ class TestDaemonIngest:
         state = DaemonState()
         state.create_run("test.py", run_id="r1")
         await state.ingest_events([
-            {"type": "node_register", "data": {"node_id": "err_node", "func_name": "err"}},
+            {"type": "loggable_register", "data": {"loggable_id": "err_node", "func_name": "err"}},
         ], "r1")
         await state.ingest_events([{
             "type": "error",
-            "node": "err_node",
+            "loggable_id": "err_node",
             "data": {"error": "something went wrong", "type": "RuntimeError"},
         }], "r1")
-        assert len(state.runs["r1"].nodes["err_node"].errors) == 1
+        assert len(state.runs["r1"].loggables["err_node"].errors) == 1
 
 
 class TestStaticAssets:

@@ -52,10 +52,11 @@ class ErrorEntry:
 
 
 @dataclass
-class NodeState:
-    """State for a single DAG node within a run."""
-    name: str
-    func_name: str
+class LoggableState:
+    """State for a single loggable (DAG node or the implicit global loggable) within a run."""
+    loggable_id: str
+    kind: str = "node"
+    func_name: str = ""
     docstring: Optional[str] = None
     exec_count: int = 0
     is_source: bool = True
@@ -82,7 +83,7 @@ class Run:
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
     exit_code: Optional[int] = None
-    nodes: dict[str, NodeState] = field(default_factory=dict)
+    loggables: dict[str, "LoggableState"] = field(default_factory=dict)
     edges: list[dict[str, str]] = field(default_factory=list)
     _edge_set: set[tuple[str, str]] = field(default_factory=set, repr=False)
     logs: list[LogEntry] = field(default_factory=list)
@@ -102,26 +103,33 @@ class Run:
     run_config: dict = field(default_factory=dict)
 
     def get_graph(self) -> dict:
-        """Return the DAG as a serializable dict."""
+        """Return the DAG as a serializable dict.
+
+        Only node-kind loggables appear under the "nodes" key; the implicit
+        global loggable (kind="global") is excluded from the DAG view.
+        """
         return {
             "nodes": {
-                nid: {
-                    "name": n.name,
-                    "func_name": n.func_name,
-                    "docstring": n.docstring,
-                    "exec_count": n.exec_count,
-                    "is_source": n.is_source,
-                    "pausable": n.pausable,
-                    "params": n.params,
-                    "progress": n.progress,
-                    "group": n.group,
-                    "ui_hints": n.ui_hints,
+                lid: {
+                    "name": l.loggable_id,
+                    "func_name": l.func_name,
+                    "docstring": l.docstring,
+                    "exec_count": l.exec_count,
+                    "is_source": l.is_source,
+                    "pausable": l.pausable,
+                    "params": l.params,
+                    "progress": l.progress,
+                    "group": l.group,
+                    "ui_hints": l.ui_hints,
                 }
-                for nid, n in self.nodes.items()
+                for lid, l in self.loggables.items()
+                if l.kind == "node"
             },
             "edges": self.edges,
             "workflow_description": self.workflow_description,
-            "has_pausable": any(n.pausable for n in self.nodes.values()),
+            "has_pausable": any(
+                l.pausable for l in self.loggables.values() if l.kind == "node"
+            ),
             "paused": self.paused,
             "ui_config": self.ui_config,
             "run_config": self.run_config,
@@ -137,7 +145,7 @@ class Run:
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "ended_at": self.ended_at.isoformat() if self.ended_at else None,
             "exit_code": self.exit_code,
-            "node_count": len(self.nodes),
+            "node_count": sum(1 for l in self.loggables.values() if l.kind == "node"),
             "edge_count": len(self.edges),
             "log_count": len(self.logs),
             "error_count": len(self.errors),
@@ -294,40 +302,40 @@ class DaemonState:
             writer.write_entry(entry_type, dict(event))
 
         etype = event.get("type", "")
-        node_id = event.get("node")
+        loggable_id = event.get("loggable_id")
 
         if etype == "log":
             entry = LogEntry(
                 timestamp=event.get("timestamp", time.time()),
-                node=node_id,
+                node=loggable_id,
                 message=event.get("message", ""),
                 level=event.get("level", "info"),
                 step=event.get("step"),
             )
             run.logs.append(entry)
-            if node_id and node_id in run.nodes:
-                run.nodes[node_id].logs.append(event)
+            if loggable_id and loggable_id in run.loggables:
+                run.loggables[loggable_id].logs.append(event)
 
         elif etype == "metric":
             name = event.get("name", "")
             value = event.get("value", 0)
             step = event.get("step", 0)
-            if node_id and node_id in run.nodes:
-                node = run.nodes[node_id]
+            if loggable_id and loggable_id in run.loggables:
+                node = run.loggables[loggable_id]
                 if name not in node.metrics:
                     node.metrics[name] = []
                 node.metrics[name].append({"step": step, "value": value})
 
         elif etype == "progress":
-            if node_id and node_id in run.nodes:
-                run.nodes[node_id].progress = event.get("data", {})
+            if loggable_id and loggable_id in run.loggables:
+                run.loggables[loggable_id].progress = event.get("data", {})
 
         elif etype == "error":
             data = event.get("data", event)
-            node = run.nodes.get(node_id or data.get("node", ""))
+            node = run.loggables.get(loggable_id or data.get("loggable_id", ""))
             error = ErrorEntry(
                 timestamp=data.get("timestamp", time.time()),
-                node_name=data.get("node", node_id or ""),
+                node_name=data.get("loggable_id", loggable_id or ""),
                 node_docstring=node.docstring if node else data.get("docstring"),
                 exception_type=data.get("type", ""),
                 exception_message=data.get("error", ""),
@@ -346,13 +354,15 @@ class DaemonState:
                 "message": error.exception_message,
             })
 
-        elif etype == "node_register":
+        elif etype == "loggable_register":
             data = event.get("data", {})
-            nid = data.get("node_id", node_id or "")
-            if nid and nid not in run.nodes:
-                run.nodes[nid] = NodeState(
-                    name=nid,
-                    func_name=data.get("func_name", ""),
+            lid = data.get("loggable_id", loggable_id or "")
+            kind = data.get("kind", "node")
+            if lid and lid not in run.loggables:
+                run.loggables[lid] = LoggableState(
+                    loggable_id=lid,
+                    kind=kind,
+                    func_name=data.get("func_name") or "",
                     docstring=data.get("docstring"),
                     pausable=data.get("pausable", False),
                     group=data.get("group"),
@@ -361,17 +371,17 @@ class DaemonState:
 
         elif etype == "node_executed":
             data = event.get("data", {})
-            nid = data.get("node_id", node_id or "")
+            lid = data.get("loggable_id", loggable_id or "")
             caller = data.get("caller")
-            if nid and nid in run.nodes:
-                run.nodes[nid].exec_count += 1
-            if caller and nid:
-                key = (caller, nid)
+            if lid and lid in run.loggables:
+                run.loggables[lid].exec_count += 1
+            if caller and lid:
+                key = (caller, lid)
                 if key not in run._edge_set:
                     run._edge_set.add(key)
-                    run.edges.append({"source": caller, "target": nid})
-                    if nid in run.nodes:
-                        run.nodes[nid].is_source = False
+                    run.edges.append({"source": caller, "target": lid})
+                    if lid in run.loggables:
+                        run.loggables[lid].is_source = False
 
         elif etype == "edge":
             data = event.get("data", {})
@@ -381,15 +391,15 @@ class DaemonState:
             if key not in run._edge_set:
                 run._edge_set.add(key)
                 run.edges.append({"source": src, "target": tgt})
-                if tgt in run.nodes:
-                    run.nodes[tgt].is_source = False
+                if tgt in run.loggables:
+                    run.loggables[tgt].is_source = False
 
         elif etype == "image":
-            if node_id and node_id in run.nodes:
+            if loggable_id and loggable_id in run.loggables:
                 media_id = uuid.uuid4().hex[:16]
                 self._media_store[media_id] = event.pop("data", "")
                 event["media_id"] = media_id
-                run.nodes[node_id].images.append({
+                run.loggables[loggable_id].images.append({
                     "media_id": media_id,
                     "name": event.get("name", ""),
                     "step": event.get("step"),
@@ -397,11 +407,11 @@ class DaemonState:
                 })
 
         elif etype == "audio":
-            if node_id and node_id in run.nodes:
+            if loggable_id and loggable_id in run.loggables:
                 media_id = uuid.uuid4().hex[:16]
                 self._media_store[media_id] = event.pop("data", "")
                 event["media_id"] = media_id
-                run.nodes[node_id].audio.append({
+                run.loggables[loggable_id].audio.append({
                     "media_id": media_id,
                     "name": event.get("name", ""),
                     "sr": event.get("sr", 16000),
@@ -413,14 +423,14 @@ class DaemonState:
             # Store as a log entry (same as log_text() does locally)
             entry = LogEntry(
                 timestamp=event.get("timestamp", time.time()),
-                node=node_id,
+                node=loggable_id,
                 message=f"[{event.get('name', '')}] {event.get('content', '')}",
                 level="info",
                 type="text",
             )
             run.logs.append(entry)
-            if node_id and node_id in run.nodes:
-                run.nodes[node_id].logs.append(event)
+            if loggable_id and loggable_id in run.loggables:
+                run.loggables[loggable_id].logs.append(event)
 
         elif etype == "ask_prompt":
             ask_id = event.get("ask_id") or event.get("data", {}).get("ask_id", "")
@@ -443,8 +453,8 @@ class DaemonState:
         elif etype == "config":
             cfg = event.get("data", {})
             run.config = cfg
-            if node_id and node_id in run.nodes:
-                run.nodes[node_id].params.update(cfg)
+            if loggable_id and loggable_id in run.loggables:
+                run.loggables[loggable_id].params.update(cfg)
 
         elif etype == "ui_config":
             run.ui_config = event.get("data", {})
@@ -465,6 +475,12 @@ class DaemonState:
             run.status = "running"
             if self.active_run_id is None:
                 self.active_run_id = run.id
+            # Seed the implicit __global__ loggable so logs that arrive without
+            # a node context (e.g. nb.log() outside an @nb.fn) have a home.
+            run.loggables.setdefault(
+                "__global__",
+                LoggableState(loggable_id="__global__", kind="global"),
+            )
             # Enable storage if SDK requests it and daemon allows it
             store = data.get("store", True)
             if store and not os.environ.get("NEBO_NO_STORE") and not getattr(run, "_file_writer", None):
@@ -692,9 +708,9 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
         run = state.runs[run_id]
         metrics: dict[str, dict[str, list]] = {}
-        for node_id, node in run.nodes.items():
-            if node.metrics:
-                metrics[node_id] = node.metrics
+        for lid, l in run.loggables.items():
+            if l.metrics:
+                metrics[lid] = l.metrics
         return {"metrics": metrics}
 
     @app.get("/runs/{run_id}/images")
@@ -703,17 +719,17 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
         run = state.runs[run_id]
         images: dict[str, list] = {}
-        for node_id, node in run.nodes.items():
-            if node.images:
-                images[node_id] = [
+        for lid, l in run.loggables.items():
+            if l.images:
+                images[lid] = [
                     {
-                        "node": node_id,
+                        "node": lid,
                         "media_id": img.get("media_id", ""),
                         "name": img.get("name", ""),
                         "step": img.get("step"),
                         "timestamp": img.get("timestamp", 0),
                     }
-                    for img in node.images
+                    for img in l.images
                 ]
         return {"images": images}
 
@@ -723,18 +739,18 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
         run = state.runs[run_id]
         audio: dict[str, list] = {}
-        for node_id, node in run.nodes.items():
-            if node.audio:
-                audio[node_id] = [
+        for lid, l in run.loggables.items():
+            if l.audio:
+                audio[lid] = [
                     {
-                        "node": node_id,
+                        "node": lid,
                         "media_id": a.get("media_id", ""),
                         "name": a.get("name", ""),
                         "sr": a.get("sr", 16000),
                         "step": a.get("step"),
                         "timestamp": a.get("timestamp", 0),
                     }
-                    for a in node.audio
+                    for a in l.audio
                 ]
         return {"audio": audio}
 
@@ -751,11 +767,11 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         if run_id not in state.runs:
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
         run = state.runs[run_id]
-        if name not in run.nodes:
+        if name not in run.loggables:
             return JSONResponse(status_code=404, content={"error": f"Node '{name}' not found"})
-        n = run.nodes[name]
+        n = run.loggables[name]
         return {
-            "name": n.name, "func_name": n.func_name, "docstring": n.docstring,
+            "name": n.loggable_id, "func_name": n.func_name, "docstring": n.docstring,
             "exec_count": n.exec_count,
             "is_source": n.is_source, "params": n.params,
             "recent_logs": n.logs[-20:], "errors": n.errors,
@@ -931,11 +947,11 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         run = state.get_latest_run()
         if not run:
             return JSONResponse(status_code=404, content={"error": "No runs"})
-        if name not in run.nodes:
+        if name not in run.loggables:
             return JSONResponse(status_code=404, content={"error": f"Node '{name}' not found"})
-        n = run.nodes[name]
+        n = run.loggables[name]
         return {
-            "name": n.name, "func_name": n.func_name, "docstring": n.docstring,
+            "name": n.loggable_id, "func_name": n.func_name, "docstring": n.docstring,
             "exec_count": n.exec_count, "is_source": n.is_source, "params": n.params,
             "recent_logs": n.logs[-20:], "errors": n.errors,
             "metrics": n.metrics, "progress": n.progress,

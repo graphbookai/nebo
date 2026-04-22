@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from nebo.server.daemon import DaemonState, Run, NodeState, LogEntry, ErrorEntry
+from nebo.server.daemon import DaemonState, Run, LoggableState, LogEntry, ErrorEntry
 
 
 class TestDaemonState:
@@ -108,67 +108,67 @@ class TestDaemonEventIngestion:
         self.state = DaemonState()
 
     @pytest.mark.asyncio
-    async def test_ingest_node_register(self) -> None:
+    async def test_ingest_loggable_register(self) -> None:
         """Should register nodes from events."""
         run = self.state.create_run("s.py", run_id="r1")
         await self.state.ingest_events([
-            {"type": "node_register", "data": {"node_id": "my_func", "func_name": "my_func", "docstring": "Does stuff"}},
+            {"type": "loggable_register", "data": {"loggable_id": "my_func", "func_name": "my_func", "docstring": "Does stuff"}},
         ], "r1")
-        assert "my_func" in run.nodes
-        assert run.nodes["my_func"].docstring == "Does stuff"
+        assert "my_func" in run.loggables
+        assert run.loggables["my_func"].docstring == "Does stuff"
         assert run.status == "running"  # auto-transitions from starting
 
     @pytest.mark.asyncio
-    async def test_ingest_node_register_preserves_group(self) -> None:
-        """node_register events carrying 'group' must land on NodeState.group."""
+    async def test_ingest_loggable_register_preserves_group(self) -> None:
+        """loggable_register events carrying 'group' must land on LoggableState.group."""
         run = self.state.create_run("s.py", run_id="r1")
         await self.state.ingest_events([
             {
-                "type": "node_register",
+                "type": "loggable_register",
                 "data": {
-                    "node_id": "Agent.think",
+                    "loggable_id": "Agent.think",
                     "func_name": "think",
                     "docstring": None,
                     "group": "Agent",
                 },
             },
         ], "r1")
-        node = run.nodes["Agent.think"]
+        node = run.loggables["Agent.think"]
         assert node.group == "Agent"
         # And it must be exposed by the graph API payload the UI consumes.
         graph = run.get_graph()
         assert graph["nodes"]["Agent.think"]["group"] == "Agent"
 
     @pytest.mark.asyncio
-    async def test_ingest_node_register_preserves_ui_hints(self) -> None:
-        """node_register events carrying 'ui_hints' must reach the graph payload."""
+    async def test_ingest_loggable_register_preserves_ui_hints(self) -> None:
+        """loggable_register events carrying 'ui_hints' must reach the graph payload."""
         run = self.state.create_run("s.py", run_id="r1")
         await self.state.ingest_events([
             {
-                "type": "node_register",
+                "type": "loggable_register",
                 "data": {
-                    "node_id": "train",
+                    "loggable_id": "train",
                     "func_name": "train",
                     "ui_hints": {"collapsed": True, "color": "blue"},
                 },
             },
         ], "r1")
-        node = run.nodes["train"]
+        node = run.loggables["train"]
         assert node.ui_hints == {"collapsed": True, "color": "blue"}
         graph = run.get_graph()
         assert graph["nodes"]["train"]["ui_hints"] == {"collapsed": True, "color": "blue"}
 
     @pytest.mark.asyncio
-    async def test_ingest_node_register_without_group_defaults_to_none(self) -> None:
+    async def test_ingest_loggable_register_without_group_defaults_to_none(self) -> None:
         """A plain @nb.fn node without a group should still register, with group=None."""
         run = self.state.create_run("s.py", run_id="r1")
         await self.state.ingest_events([
             {
-                "type": "node_register",
-                "data": {"node_id": "plain", "func_name": "plain"},
+                "type": "loggable_register",
+                "data": {"loggable_id": "plain", "func_name": "plain"},
             },
         ], "r1")
-        node = run.nodes["plain"]
+        node = run.loggables["plain"]
         assert node.group is None
         assert node.ui_hints is None
         graph = run.get_graph()
@@ -180,8 +180,8 @@ class TestDaemonEventIngestion:
         """Should append log entries."""
         self.state.create_run("s.py", run_id="r1")
         await self.state.ingest_events([
-            {"type": "node_register", "data": {"node_id": "n1", "func_name": "n1"}},
-            {"type": "log", "node": "n1", "message": "hello world"},
+            {"type": "loggable_register", "data": {"loggable_id": "n1", "func_name": "n1"}},
+            {"type": "log", "loggable_id": "n1", "message": "hello world"},
         ], "r1")
         run = self.state.runs["r1"]
         assert len(run.logs) == 1
@@ -192,23 +192,23 @@ class TestDaemonEventIngestion:
         """Should track DAG edges and mark targets as non-source."""
         self.state.create_run("s.py", run_id="r1")
         await self.state.ingest_events([
-            {"type": "node_register", "data": {"node_id": "a", "func_name": "a"}},
-            {"type": "node_register", "data": {"node_id": "b", "func_name": "b"}},
+            {"type": "loggable_register", "data": {"loggable_id": "a", "func_name": "a"}},
+            {"type": "loggable_register", "data": {"loggable_id": "b", "func_name": "b"}},
             {"type": "edge", "data": {"source": "a", "target": "b"}},
         ], "r1")
         run = self.state.runs["r1"]
         assert len(run.edges) == 1
-        assert run.nodes["a"].is_source is True
-        assert run.nodes["b"].is_source is False
+        assert run.loggables["a"].is_source is True
+        assert run.loggables["b"].is_source is False
 
     @pytest.mark.asyncio
     async def test_ingest_error(self) -> None:
         """Should capture enriched errors."""
         self.state.create_run("s.py", run_id="r1")
         await self.state.ingest_events([
-            {"type": "node_register", "data": {"node_id": "n1", "func_name": "n1", "docstring": "A step"}},
-            {"type": "error", "node": "n1", "data": {
-                "node": "n1", "type": "ValueError", "error": "bad value",
+            {"type": "loggable_register", "data": {"loggable_id": "n1", "func_name": "n1", "docstring": "A step"}},
+            {"type": "error", "loggable_id": "n1", "data": {
+                "loggable_id": "n1", "type": "ValueError", "error": "bad value",
                 "traceback": "Traceback...", "timestamp": 1234,
             }},
         ], "r1")
@@ -222,13 +222,13 @@ class TestDaemonEventIngestion:
         """Should store metrics on nodes."""
         self.state.create_run("s.py", run_id="r1")
         await self.state.ingest_events([
-            {"type": "node_register", "data": {"node_id": "train", "func_name": "train"}},
-            {"type": "metric", "node": "train", "name": "loss", "value": 0.5, "step": 0},
-            {"type": "metric", "node": "train", "name": "loss", "value": 0.3, "step": 1},
+            {"type": "loggable_register", "data": {"loggable_id": "train", "func_name": "train"}},
+            {"type": "metric", "loggable_id": "train", "name": "loss", "value": 0.5, "step": 0},
+            {"type": "metric", "loggable_id": "train", "name": "loss", "value": 0.3, "step": 1},
         ], "r1")
         run = self.state.runs["r1"]
-        assert "loss" in run.nodes["train"].metrics
-        assert len(run.nodes["train"].metrics["loss"]) == 2
+        assert "loss" in run.loggables["train"].metrics
+        assert len(run.loggables["train"].metrics["loss"]) == 2
 
     @pytest.mark.asyncio
     async def test_ingest_creates_implicit_run(self) -> None:
@@ -275,7 +275,7 @@ class TestDaemonEventIngestion:
         """When no ui_config event is sent, get_graph() exposes None."""
         run = self.state.create_run("s.py", run_id="r1")
         await self.state.ingest_events([
-            {"type": "node_register", "data": {"node_id": "n1", "func_name": "n1"}},
+            {"type": "loggable_register", "data": {"loggable_id": "n1", "func_name": "n1"}},
         ], "r1")
         graph = run.get_graph()
         assert graph["ui_config"] is None
@@ -295,7 +295,7 @@ class TestRunSummary:
     def test_get_graph(self) -> None:
         """Should return serializable graph dict."""
         run = Run(id="r1", script_path="s.py")
-        run.nodes["a"] = NodeState(name="a", func_name="a", docstring="Step A")
+        run.loggables["a"] = LoggableState(loggable_id="a", func_name="a", docstring="Step A")
         run.edges.append({"source": "a", "target": "b"})
         graph = run.get_graph()
         assert "a" in graph["nodes"]
@@ -322,10 +322,10 @@ class TestGetNodeEndpoint:
         import asyncio
         asyncio.get_event_loop().run_until_complete(
             state.ingest_events([
-                {"type": "node_register", "data": {"node_id": "train", "func_name": "train"}},
-                {"type": "metric", "node": "train", "name": "loss", "value": 0.5, "step": 0},
-                {"type": "metric", "node": "train", "name": "loss", "value": 0.3, "step": 1},
-                {"type": "progress", "node": "train", "data": {"current": 1, "total": 2, "name": "epoch"}},
+                {"type": "loggable_register", "data": {"loggable_id": "train", "func_name": "train"}},
+                {"type": "metric", "loggable_id": "train", "name": "loss", "value": 0.5, "step": 0},
+                {"type": "metric", "loggable_id": "train", "name": "loss", "value": 0.3, "step": 1},
+                {"type": "progress", "loggable_id": "train", "data": {"current": 1, "total": 2, "name": "epoch"}},
             ], "r1")
         )
         app = create_daemon_app(state=state)
