@@ -5,29 +5,42 @@ from __future__ import annotations
 import threading
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 
 @dataclass
-class NodeInfo:
-    """Information about a registered node."""
-
-    name: str
-    func_name: str
-    docstring: Optional[str] = None
-    exec_count: int = 0
-    is_source: bool = True  # starts as True, set to False when it receives an edge
-    pausable: bool = False
-    params: dict = field(default_factory=dict)
+class LoggableInfo:
+    """Base class for any entity that collects logs/metrics/images/audio/errors."""
+    loggable_id: str = ""
+    kind: Literal["node", "global"] = "node"
     logs: list = field(default_factory=list)
-    metrics: dict = field(default_factory=lambda: {})  # name -> [(step, value)]
+    metrics: dict = field(default_factory=lambda: {})  # name -> {type, entries}
     errors: list = field(default_factory=list)
     images: list = field(default_factory=list)
     audio: list = field(default_factory=list)
-    progress: Optional[dict] = None  # {current, total, name}
+    progress: Optional[dict] = None
+
+
+@dataclass
+class NodeInfo(LoggableInfo):
+    """A loggable that is also a DAG node — produced by @nb.fn()."""
+    name: str = ""  # mirrors loggable_id; kept for terminal display strings
+    func_name: str = ""
+    docstring: Optional[str] = None
+    exec_count: int = 0
+    is_source: bool = True
+    pausable: bool = False
+    params: dict = field(default_factory=dict)
     materialized: bool = False
-    group: Optional[str] = None  # Class name if method is in a decorated class
-    ui_hints: Optional[dict] = None  # Per-node UI display hints
+    group: Optional[str] = None
+    ui_hints: Optional[dict] = None
+    kind: Literal["node", "global"] = "node"
+
+
+@dataclass
+class GlobalInfo(LoggableInfo):
+    """The single process-wide loggable catching logs outside any @fn context."""
+    kind: Literal["node", "global"] = "global"
 
 
 @dataclass
@@ -41,7 +54,7 @@ class DAGEdge:
 @dataclass
 class _RunSnapshot:
     """Snapshot of per-run state fields for save/restore across runs."""
-    nodes: dict
+    loggables: dict
     edges: list
     edge_set: set
     return_origins: dict
@@ -68,7 +81,12 @@ class SessionState:
         if self._initialized:
             return
         self._initialized = True
-        self.nodes: dict[str, NodeInfo] = {}
+        self.loggables: dict[str, LoggableInfo] = {}
+        # Seed the global loggable so logs emitted outside any @fn context
+        # have a home even before the first run_start / clear_run_state.
+        self.loggables["__global__"] = GlobalInfo(
+            loggable_id="__global__", kind="global"
+        )
         self.edges: list[DAGEdge] = []
         self._edge_set: set[tuple[str, str]] = set()
         self.workflow_description: Optional[str] = None
@@ -91,6 +109,11 @@ class SessionState:
         # Multi-run support
         self._run_snapshots: dict[str, _RunSnapshot] = {}
         self._active_run_id: Optional[str] = None
+
+    @property
+    def nodes(self) -> dict[str, NodeInfo]:
+        """Backward-compat view — returns only node-kind loggables."""
+        return {lid: l for lid, l in self.loggables.items() if isinstance(l, NodeInfo)}
 
     def ensure_display(self) -> None:
         """Ensure the terminal display is created and started."""
@@ -123,8 +146,10 @@ class SessionState:
         (triggered by the first log/metric/image/audio/text call).
         """
         with self._lock_state:
-            if node_id not in self.nodes:
-                self.nodes[node_id] = NodeInfo(
+            existing = self.loggables.get(node_id)
+            if existing is None or not isinstance(existing, NodeInfo):
+                self.loggables[node_id] = NodeInfo(
+                    loggable_id=node_id,
                     name=node_id,
                     func_name=func_name,
                     docstring=docstring,
@@ -134,9 +159,9 @@ class SessionState:
                 )
                 if pausable:
                     self._has_pausable = True
-            elif group is not None and self.nodes[node_id].group is None:
-                self.nodes[node_id].group = group
-        return self.nodes[node_id]
+            elif group is not None and existing.group is None:
+                existing.group = group
+        return self.loggables[node_id]  # type: ignore[return-value]
 
     def ensure_node(self, node_id: str) -> None:
         """Materialize a node and emit its ``node_register`` event.
@@ -148,8 +173,8 @@ class SessionState:
         logging from an already-executing node is a no-op on the
         already-materialized node (idempotent).
         """
-        node = self.nodes.get(node_id)
-        if node is None or node.materialized:
+        node = self.loggables.get(node_id)
+        if node is None or not isinstance(node, NodeInfo) or node.materialized:
             return
         node.materialized = True
         self._send_to_client({
@@ -190,8 +215,9 @@ class SessionState:
             if key not in self._edge_set:
                 self._edge_set.add(key)
                 self.edges.append(DAGEdge(source=source, target=target))
-                if target in self.nodes:
-                    self.nodes[target].is_source = False
+                target_node = self.loggables.get(target)
+                if isinstance(target_node, NodeInfo):
+                    target_node.is_source = False
                 added = True
         if added:
             self._send_to_client({
@@ -258,8 +284,9 @@ class SessionState:
     def increment_count(self, node_id: str) -> None:
         """Increment the execution count for a node."""
         with self._lock_state:
-            if node_id in self.nodes:
-                self.nodes[node_id].exec_count += 1
+            node = self.loggables.get(node_id)
+            if isinstance(node, NodeInfo):
+                node.exec_count += 1
         self._send_to_client({
             "type": "node_executed",
             "node": node_id,
@@ -296,7 +323,7 @@ class SessionState:
         """Snapshot current per-run fields into _run_snapshots[run_id]."""
         with self._lock_state:
             self._run_snapshots[run_id] = _RunSnapshot(
-                nodes=dict(self.nodes),
+                loggables=dict(self.loggables),
                 edges=list(self.edges),
                 edge_set=set(self._edge_set),
                 return_origins=dict(self._return_origins),
@@ -313,7 +340,7 @@ class SessionState:
             self.clear_run_state()
             return
         with self._lock_state:
-            self.nodes = dict(snap.nodes)
+            self.loggables = dict(snap.loggables)
             self.edges = list(snap.edges)
             self._edge_set = set(snap.edge_set)
             self._return_origins = dict(snap.return_origins)
@@ -325,7 +352,10 @@ class SessionState:
     def clear_run_state(self) -> None:
         """Reset per-run fields to empty (for new runs)."""
         with self._lock_state:
-            self.nodes.clear()
+            self.loggables.clear()
+            self.loggables["__global__"] = GlobalInfo(
+                loggable_id="__global__", kind="global"
+            )
             self.edges.clear()
             self._edge_set.clear()
             self._return_origins.clear()
@@ -337,7 +367,10 @@ class SessionState:
     def reset(self) -> None:
         """Reset all state. Primarily for testing."""
         with self._lock_state:
-            self.nodes.clear()
+            self.loggables.clear()
+            self.loggables["__global__"] = GlobalInfo(
+                loggable_id="__global__", kind="global"
+            )
             self.edges.clear()
             self._edge_set.clear()
             self._return_origins.clear()
