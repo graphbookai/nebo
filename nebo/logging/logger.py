@@ -8,6 +8,9 @@ from typing import Any, Optional, Union
 from nebo.core.state import _current_node, get_state
 
 
+GLOBAL_LOGGABLE_ID = "__global__"
+
+
 def _ensure_initialized() -> None:
     """Trigger auto-init if not yet initialized."""
     try:
@@ -96,22 +99,20 @@ def log(message: Union[str, Any], *, step: Optional[int] = None) -> None:
         message = str(message)
 
     state = get_state()
-    node_id = _current_node.get()
+    node_id = _current_node.get() or GLOBAL_LOGGABLE_ID
     timestamp = time.time()
 
-    if node_id:
-        state.ensure_loggable(node_id)
+    state.ensure_loggable(node_id)
 
     entry = {
         "type": "log",
-        "node": node_id,
+        "loggable_id": node_id,
         "message": message,
         "step": step,
         "timestamp": timestamp,
     }
 
-    if node_id and node_id in state.nodes:
-        state.nodes[node_id].logs.append(entry)
+    state.loggables[node_id].logs.append(entry)
 
     state._send_to_client(entry)
 
@@ -126,34 +127,31 @@ def log_metric(name: str, value: float, step: Optional[int] = None) -> None:
     """
     _ensure_initialized()
     state = get_state()
-    node_id = _current_node.get()
+    node_id = _current_node.get() or GLOBAL_LOGGABLE_ID
     timestamp = time.time()
 
-    if node_id:
-        state.ensure_loggable(node_id)
+    state.ensure_loggable(node_id)
 
     if step is None:
         # Auto-increment step
-        if node_id and node_id in state.nodes:
-            node = state.nodes[node_id]
-            if name not in node.metrics:
-                node.metrics[name] = []
-            step = len(node.metrics[name])
+        loggable = state.loggables[node_id]
+        if name not in loggable.metrics:
+            loggable.metrics[name] = []
+        step = len(loggable.metrics[name])
 
     entry = {
         "type": "metric",
-        "node": node_id,
+        "loggable_id": node_id,
         "name": name,
         "value": value,
         "step": step,
         "timestamp": timestamp,
     }
 
-    if node_id and node_id in state.nodes:
-        node = state.nodes[node_id]
-        if name not in node.metrics:
-            node.metrics[name] = []
-        node.metrics[name].append((step, value))
+    loggable = state.loggables[node_id]
+    if name not in loggable.metrics:
+        loggable.metrics[name] = []
+    loggable.metrics[name].append((step, value))
 
     state._send_to_client(entry)
 
@@ -172,25 +170,23 @@ def log_image(image: Any, *, name: Optional[str] = None, step: Optional[int] = N
     import base64
 
     state = get_state()
-    node_id = _current_node.get()
+    node_id = _current_node.get() or GLOBAL_LOGGABLE_ID
     timestamp = time.time()
 
-    if node_id:
-        state.ensure_loggable(node_id)
+    state.ensure_loggable(node_id)
 
     image_bytes = serialize_image(image)
 
     entry = {
         "type": "image",
-        "node": node_id,
+        "loggable_id": node_id,
         "name": name,
         "data": base64.b64encode(image_bytes).decode("ascii"),
         "step": step,
         "timestamp": timestamp,
     }
 
-    if node_id and node_id in state.nodes:
-        state.nodes[node_id].images.append({"name": name, "step": step, "timestamp": timestamp})
+    state.loggables[node_id].images.append({"name": name, "step": step, "timestamp": timestamp})
 
     state._send_to_client(entry)
 
@@ -209,17 +205,16 @@ def log_audio(audio: Any, sr: int = 16000, *, name: Optional[str] = None, step: 
     import base64
 
     state = get_state()
-    node_id = _current_node.get()
+    node_id = _current_node.get() or GLOBAL_LOGGABLE_ID
     timestamp = time.time()
 
-    if node_id:
-        state.ensure_loggable(node_id)
+    state.ensure_loggable(node_id)
 
     audio_bytes = serialize_audio(audio, sr)
 
     entry = {
         "type": "audio",
-        "node": node_id,
+        "loggable_id": node_id,
         "name": name,
         "data": base64.b64encode(audio_bytes).decode("ascii"),
         "sr": sr,
@@ -227,8 +222,7 @@ def log_audio(audio: Any, sr: int = 16000, *, name: Optional[str] = None, step: 
         "timestamp": timestamp,
     }
 
-    if node_id and node_id in state.nodes:
-        state.nodes[node_id].audio.append({"name": name, "step": step, "sr": sr, "timestamp": timestamp})
+    state.loggables[node_id].audio.append({"name": name, "step": step, "sr": sr, "timestamp": timestamp})
 
     state._send_to_client(entry)
 
@@ -242,22 +236,20 @@ def log_text(name: str, text: str) -> None:
     """
     _ensure_initialized()
     state = get_state()
-    node_id = _current_node.get()
+    node_id = _current_node.get() or GLOBAL_LOGGABLE_ID
     timestamp = time.time()
 
-    if node_id:
-        state.ensure_loggable(node_id)
+    state.ensure_loggable(node_id)
 
     entry = {
         "type": "text",
-        "node": node_id,
+        "loggable_id": node_id,
         "name": name,
         "content": text,
         "timestamp": timestamp,
     }
 
-    if node_id and node_id in state.nodes:
-        state.nodes[node_id].logs.append(entry)
+    state.loggables[node_id].logs.append(entry)
 
     state._send_to_client(entry)
 

@@ -226,3 +226,46 @@ class TestImageSerializer:
         node = next(n for n in state.nodes.values() if n.func_name == "f")
         assert len(node.images) == 1
         assert node.images[0]["name"] == "x"
+
+
+def test_log_outside_fn_routes_to_global():
+    import nebo as nb
+    nb.get_state().reset()  # state already seeds "__global__"
+    nb.log("hello from top-level")
+    g = nb.get_state().loggables["__global__"]
+    assert len(g.logs) == 1
+    assert g.logs[0]["message"] == "hello from top-level"
+    assert g.logs[0]["loggable_id"] == "__global__"
+
+
+def test_log_metric_outside_fn_routes_to_global():
+    import nebo as nb
+    nb.get_state().reset()
+    nb.log_metric("top_lvl_metric", 3.14)
+    g = nb.get_state().loggables["__global__"]
+    assert "top_lvl_metric" in g.metrics
+    # metrics format still the list-of-tuples at this stage (schema change lands in sub-project 3)
+    assert g.metrics["top_lvl_metric"][-1][1] == 3.14
+
+
+def test_log_inside_fn_still_routes_to_node():
+    import nebo as nb
+    nb.get_state().reset()
+
+    @nb.fn()
+    def inner():
+        nb.log("from inner")
+        return 1
+
+    inner()
+    state = nb.get_state()
+    assert "__global__" in state.loggables
+    assert state.loggables["__global__"].logs == []
+    # node_id uses __qualname__, which for a function defined inside a
+    # pytest test function is "<test_fn>.<locals>.inner"; look it up by
+    # func_name instead of by a hard-coded key.
+    inner_loggable = next(
+        lg for lg in state.loggables.values()
+        if getattr(lg, "func_name", None) == "inner"
+    )
+    assert len(inner_loggable.logs) == 1
