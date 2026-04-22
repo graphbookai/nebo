@@ -21,7 +21,7 @@ def test_write_header():
     assert magic == b"nebo"
 
     version = struct.unpack(">H", buf.read(2))[0]
-    assert version == 2
+    assert version == 3
 
     meta_size = struct.unpack(">I", buf.read(4))[0]
     meta = msgpack.unpackb(buf.read(meta_size), raw=False)
@@ -288,3 +288,83 @@ def test_fileformat_v2_writes_loggable_register_entry_type():
     assert raw[0]["type"] == "loggable_register"
     assert raw[0]["payload"].get("loggable_id") == "x"
     assert "node" not in raw[0]["payload"]
+
+
+def test_fileformat_v3_preserves_metric_type_and_tags():
+    """v3 writer + reader round-trip preserves metric_type and tags."""
+    from nebo.core.fileformat import NeboFileWriter, NeboFileReader
+
+    buf = io.BytesIO()
+    writer = NeboFileWriter(buf, run_id="r1", script_path="s.py")
+    writer.write_header()
+    writer.write_entry(
+        "metric",
+        {
+            "loggable_id": "n",
+            "name": "loss",
+            "metric_type": "line",
+            "value": 0.5,
+            "step": 0,
+            "tags": ["warmup"],
+        },
+    )
+    writer.close()
+
+    buf.seek(0)
+    reader = NeboFileReader(buf)
+    reader.read_header()
+    events = list(reader.read_entries())
+    assert events[0]["type"] == "metric"
+    assert events[0]["payload"]["metric_type"] == "line"
+    assert events[0]["payload"]["tags"] == ["warmup"]
+    assert events[0]["payload"]["value"] == 0.5
+
+
+def test_fileformat_v2_metric_upgrades_to_line_with_empty_tags():
+    """A v2 metric entry with no metric_type/tags is synthesized to line + []."""
+    from nebo.core.fileformat import (
+        NeboFileWriter,
+        NeboFileReader,
+        MAGIC,
+    )
+
+    # Write a v3 file, then patch the version field in the header to 2 so the
+    # reader takes the v2-upgrade path. The on-disk entry layout did not change
+    # between v2 and v3 -- only which payload fields metric entries carry --
+    # so the rest of the file is byte-identical.
+    buf = io.BytesIO()
+    writer = NeboFileWriter(buf, run_id="r1", script_path="s.py")
+    writer.write_header()
+    writer.write_entry(
+        "metric",
+        {
+            "loggable_id": "n",
+            "name": "loss",
+            "value": 0.5,
+            "step": 0,
+        },
+    )
+    writer.close()
+
+    data = buf.getvalue()
+    # Version is a u16 big-endian immediately after MAGIC (see write_header).
+    version_offset = len(MAGIC)
+    patched = (
+        data[:version_offset]
+        + struct.pack(">H", 2)
+        + data[version_offset + 2:]
+    )
+
+    buf2 = io.BytesIO(patched)
+    reader = NeboFileReader(buf2)
+    meta = reader.read_header()
+    assert meta["run_id"] == "r1"
+
+    events = list(reader.read_entries())
+    assert events[0]["type"] == "metric"
+    # v2 metric record is upgraded to v3 shape by the reader.
+    assert events[0]["payload"]["metric_type"] == "line"
+    assert events[0]["payload"]["tags"] == []
+    # Existing v2 fields survive the upgrade.
+    assert events[0]["payload"]["value"] == 0.5
+    assert events[0]["payload"]["loggable_id"] == "n"

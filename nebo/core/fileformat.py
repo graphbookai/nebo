@@ -3,7 +3,7 @@
 File structure:
     [Header]
       magic: b"nebo" (4 bytes)
-      version: u16 big-endian (currently 2)
+      version: u16 big-endian (currently 3)
       metadata_size: u32 big-endian
       metadata: msgpack map {run_id, script_path, started_at, nebo_version, args}
 
@@ -22,6 +22,10 @@ Format versions:
         natively. Adds a new entry-type code ``loggable_register`` = 16.
         The legacy ``node_register`` code (4) stays in the table so v1 files
         decode. Labels on image events pass through unchanged.
+    v3: metric entries carry ``metric_type`` and ``tags`` inline on the
+        payload. On read, v2 metric entries are upgraded on the fly:
+        ``metric_type`` defaults to ``"line"`` and ``tags`` defaults to ``[]``.
+        The on-disk format is otherwise identical to v2.
 """
 
 from __future__ import annotations
@@ -32,7 +36,7 @@ from typing import Any, BinaryIO, Iterator, Optional
 
 import msgpack
 
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
 MAGIC = b"nebo"
 
 # Entry-type string -> on-disk integer code.
@@ -105,7 +109,7 @@ def _v1_payload_to_in_memory(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 class NeboFileWriter:
-    """Append-only writer for .nebo files (emits format v2)."""
+    """Append-only writer for .nebo files (emits format v3)."""
 
     def __init__(
         self,
@@ -158,13 +162,14 @@ class NeboFileWriter:
 
 
 class NeboFileReader:
-    """Reader for .nebo files (supports formats v1 and v2)."""
+    """Reader for .nebo files (supports formats v1, v2, and v3)."""
 
     def __init__(self, stream: BinaryIO) -> None:
         self._stream = stream
         # Populated by read_header(); None until the header has been parsed.
-        # Raw-read paths that skip read_header() default to treating data as v2
-        # (passthrough), which matches all freshly-written files.
+        # Raw-read paths that skip read_header() default to treating data as
+        # the current format (passthrough), which matches all freshly-written
+        # files.
         self._version: Optional[int] = None
 
     def read_header(self) -> dict[str, Any]:
@@ -204,21 +209,30 @@ class NeboFileReader:
     def read_next_entry(self) -> Optional[dict[str, Any]]:
         """Read the next entry and translate it to the in-memory shape.
 
-        For v2 files the entry passes through unchanged. For v1 files the
+        For v3 files the entry passes through unchanged. For v1 files the
         legacy on-disk spellings (``node`` / ``node_register`` /
         ``data.node_id``) are rewritten to their in-memory equivalents
         (``loggable_id`` / ``loggable_register`` / ``data.loggable_id``).
-        Returns None at EOF.
+        For v2 (and older) metric entries, ``metric_type`` and ``tags`` are
+        synthesized onto the payload (``"line"`` / ``[]``) since they did
+        not exist on-disk prior to v3. Returns None at EOF.
         """
         entry = self.read_next_entry_raw()
         if entry is None:
             return None
         if self._version == 1:
-            return {
+            entry = {
                 "type": _v1_entry_type_to_in_memory(entry["type"]),
                 "payload": _v1_payload_to_in_memory(entry["payload"]),
             }
-        # v2 (or raw-read with no header parsed yet): passthrough.
+        # v2 files predate metric_type / tags; synthesize defaults so callers
+        # never have to care what format version produced the file.
+        if self._version is not None and self._version <= 2:
+            if entry["type"] == "metric" and isinstance(entry["payload"], dict):
+                payload = dict(entry["payload"])
+                payload.setdefault("metric_type", "line")
+                payload.setdefault("tags", [])
+                entry = {"type": entry["type"], "payload": payload}
         return entry
 
     def skip_next_entry(self) -> bool:
