@@ -405,6 +405,32 @@ class TestGetNodeEndpoint:
         body = resp.json()
         assert "progress" in body, f"missing 'progress' field in response: {body}"
 
+    def test_get_node_returns_kind_node(self) -> None:
+        """GET /loggables/{loggable_id} must expose kind so the UI can distinguish nodes from the global."""
+        client = self._client_with_metric()
+        body = client.get("/loggables/train").json()
+        assert body["kind"] == "node"
+
+    def test_get_global_loggable_returns_kind_global(self) -> None:
+        """The pre-seeded __global__ loggable must be fetchable with kind=global."""
+        from fastapi.testclient import TestClient
+        from nebo.server.daemon import DaemonState, create_daemon_app
+        import asyncio
+
+        state = DaemonState()
+        state.create_run("s.py", run_id="r1")
+        asyncio.get_event_loop().run_until_complete(
+            state.ingest_events(
+                [{"type": "run_start", "data": {"script_path": "s.py"}}], "r1"
+            )
+        )
+        client = TestClient(create_daemon_app(state=state))
+        resp = client.get("/runs/r1/loggables/__global__")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["kind"] == "global"
+        assert body["loggable_id"] == "__global__"
+
 
 class TestRunCompletedEventClearsActiveRun:
     """Regression test for Bug 10 via the `/events` ingest path.
