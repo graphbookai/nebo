@@ -73,6 +73,8 @@ document.documentElement.classList.toggle('dark', initialSettings.theme === 'dar
 
 export type NodeTab = 'info' | 'logs' | 'metrics' | 'images' | 'audio' | 'ask'
 
+export type RightPanelTab = 'trace' | 'chat' | 'settings'
+
 export interface PinnedPanel {
   id: string
   runId: string
@@ -209,10 +211,10 @@ interface NeboStore {
   viewMode: 'graph' | 'grid'
   setViewMode: (mode: 'graph' | 'grid') => void
 
-  // Right panel (trace + chat)
-  rightPanelTab: 'trace' | 'chat'
+  // Right panel (trace + chat + settings)
+  rightPanelTab: RightPanelTab
   rightPanelOpen: boolean
-  setRightPanelTab: (tab: 'trace' | 'chat') => void
+  setRightPanelTab: (tab: RightPanelTab) => void
   toggleRightPanel: () => void
 
   // Timeline

@@ -1,5 +1,13 @@
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import type { MetricEntry } from '@/lib/api'
+import {
+  chartAxisTick,
+  chartGridStroke,
+  chartTooltipContent,
+  chartTooltipLabel,
+  chartTooltipWrapper,
+  chartTooltipAllowEscape,
+} from './chartStyles'
 
 const MAX_DISPLAY_POINTS = 500
 
@@ -25,7 +33,6 @@ function downsample(series: LinePoint[]): LinePoint[] {
   for (let i = 0; i < series.length; i += step) {
     result.push(series[i])
   }
-  // Always include the last point
   if (result[result.length - 1] !== series[series.length - 1]) {
     result.push(series[series.length - 1])
   }
@@ -39,27 +46,14 @@ export function LineMetric({ entries }: { entries: MetricEntry[] }) {
     <div className="h-[120px]">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.3 0 0)" />
-          <XAxis
-            dataKey="step"
-            tick={{ fontSize: 10, fill: 'oklch(0.556 0 0)' }}
-            tickLine={false}
-            axisLine={false}
-          />
-          <YAxis
-            tick={{ fontSize: 10, fill: 'oklch(0.556 0 0)' }}
-            tickLine={false}
-            axisLine={false}
-            width={40}
-          />
+          <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
+          <XAxis dataKey="step" tick={chartAxisTick} tickLine={false} axisLine={false} />
+          <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
           <Tooltip
-            contentStyle={{
-              backgroundColor: 'oklch(0.205 0 0)',
-              border: '1px solid oklch(0.3 0 0)',
-              borderRadius: '6px',
-              fontSize: '11px',
-            }}
-            labelStyle={{ color: 'oklch(0.708 0 0)' }}
+            contentStyle={chartTooltipContent}
+            labelStyle={chartTooltipLabel}
+            wrapperStyle={chartTooltipWrapper}
+            allowEscapeViewBox={chartTooltipAllowEscape}
             formatter={(value) => [(value as number)?.toFixed(4) ?? '', 'value']}
             labelFormatter={(step) => `Step ${step}`}
           />

@@ -1,5 +1,12 @@
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import type { MetricEntry } from '@/lib/api'
+import {
+  chartAxisTick,
+  chartTooltipContent,
+  chartTooltipLabel,
+  chartTooltipWrapper,
+  chartTooltipAllowEscape,
+} from './chartStyles'
 
 function fdBins(samples: number[]): { x: number; count: number }[] {
   if (samples.length < 2) return samples.map(s => ({ x: s, count: 1 }))
@@ -41,10 +48,20 @@ export function HistogramMetric({ entries }: { entries: MetricEntry[] }) {
   return (
     <ResponsiveContainer width="100%" height={160}>
       <AreaChart data={data}>
-        <XAxis dataKey="x" type="number" tick={{ fontSize: 10, fill: 'oklch(0.556 0 0)' }} tickLine={false} axisLine={false} tickFormatter={(v) => Number(v).toFixed(2)} />
-        <YAxis tick={{ fontSize: 10, fill: 'oklch(0.556 0 0)' }} tickLine={false} axisLine={false} width={40} />
+        <XAxis
+          dataKey="x"
+          type="number"
+          tick={chartAxisTick}
+          tickLine={false}
+          axisLine={false}
+          tickFormatter={(v) => Number(v).toFixed(2)}
+        />
+        <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
         <Tooltip
-          contentStyle={{ backgroundColor: 'oklch(0.205 0 0)', border: '1px solid oklch(0.3 0 0)', borderRadius: 6, fontSize: 11 }}
+          contentStyle={chartTooltipContent}
+          labelStyle={chartTooltipLabel}
+          wrapperStyle={chartTooltipWrapper}
+          allowEscapeViewBox={chartTooltipAllowEscape}
           labelFormatter={(v) => `x≈${Number(v).toFixed(2)}`}
         />
         <Area type="monotone" dataKey="count" stroke="#60a5fa" fill="#60a5fa" fillOpacity={0.3} isAnimationActive={false} />

@@ -1,5 +1,11 @@
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import type { MetricEntry } from '@/lib/api'
+import {
+  chartTooltipContent,
+  chartTooltipLabel,
+  chartTooltipWrapper,
+  chartTooltipAllowEscape,
+} from './chartStyles'
 
 const COLORS = ['#60a5fa', '#f472b6', '#34d399', '#facc15', '#a78bfa', '#22d3ee', '#f87171']
 
@@ -17,9 +23,12 @@ export function PieMetric({ entries }: { entries: MetricEntry[] }) {
           {data.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
         </Pie>
         <Tooltip
-          contentStyle={{ backgroundColor: 'oklch(0.205 0 0)', border: '1px solid oklch(0.3 0 0)', borderRadius: 6, fontSize: 11 }}
+          contentStyle={chartTooltipContent}
+          labelStyle={chartTooltipLabel}
+          wrapperStyle={chartTooltipWrapper}
+          allowEscapeViewBox={chartTooltipAllowEscape}
         />
-        <Legend verticalAlign="bottom" wrapperStyle={{ fontSize: 10 }} />
+        <Legend verticalAlign="bottom" wrapperStyle={{ fontSize: 10, color: 'var(--color-muted-foreground)' }} />
       </PieChart>
     </ResponsiveContainer>
   )

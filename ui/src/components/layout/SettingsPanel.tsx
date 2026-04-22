@@ -1,4 +1,4 @@
-import { Settings, Moon, Sun, Map, Gamepad2, FoldVertical, GripHorizontal, EyeOff, ImageIcon } from 'lucide-react'
+import { Settings, Moon, Sun, Map, Gamepad2, FoldVertical, GripHorizontal, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -7,9 +7,6 @@ import { useStore } from '@/store'
 export function SettingsPanel() {
   const settings = useStore(s => s.settings)
   const updateSetting = useStore(s => s.updateSetting)
-  const labelKeySettings = useStore(s => s.labelKeySettings)
-  const setLabelKeyVisible = useStore(s => s.setLabelKeyVisible)
-  const setLabelKeyOpacity = useStore(s => s.setLabelKeyOpacity)
 
   return (
     <Popover>
@@ -18,7 +15,7 @@ export function SettingsPanel() {
           <Settings className="h-4 w-4" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-72" align="end">
+      <PopoverContent className="w-60" align="end">
         <div className="space-y-4">
           <h4 className="text-sm font-medium">Settings</h4>
 
@@ -98,47 +95,6 @@ export function SettingsPanel() {
             />
           </div>
 
-          {/* Image labels */}
-          {Object.keys(labelKeySettings).length > 0 && (
-            <details className="border-t border-border pt-3">
-              <summary className="text-sm font-medium cursor-pointer select-none flex items-center gap-2">
-                <ImageIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                Image labels
-                <span className="text-xs text-muted-foreground">({Object.keys(labelKeySettings).length})</span>
-              </summary>
-              <div className="space-y-3 pt-2">
-                {Object.entries(labelKeySettings).map(([triple, s]) => {
-                  const [loggable, image, key] = triple.split('|')
-                  return (
-                    <div key={triple} className="space-y-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <span
-                          className="text-[10px] text-muted-foreground truncate"
-                          title={`${loggable} > ${image} > ${key}`}
-                        >
-                          {loggable} › {image} › <span className="font-medium text-foreground">{key}</span>
-                        </span>
-                        <Switch
-                          checked={s.visible}
-                          onCheckedChange={(v) => setLabelKeyVisible(loggable, image, key, v)}
-                        />
-                      </div>
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        value={s.opacity}
-                        onChange={(e) => setLabelKeyOpacity(loggable, image, key, Number(e.target.value))}
-                        disabled={!s.visible}
-                        className="w-full h-1 accent-primary cursor-pointer disabled:opacity-40"
-                        aria-label={`${key} opacity`}
-                      />
-                    </div>
-                  )
-                })}
-              </div>
-            </details>
-          )}
         </div>
       </PopoverContent>
     </Popover>

@@ -138,7 +138,7 @@ export function LoggableTabContainer({ runId, loggableId }: LoggableTabContainer
       </div>
 
       {/* Tab content */}
-      <div className="p-3 max-h-[300px] overflow-auto" onClick={e => e.stopPropagation()}>
+      <div className="p-3 max-h-[420px] overflow-auto" onClick={e => e.stopPropagation()}>
         <LoggableTabContent runId={runId} loggableId={loggableId} tab={resolvedTab} comparisonRunIds={isComparison ? comparisonRunIds : undefined} />
       </div>
     </div>

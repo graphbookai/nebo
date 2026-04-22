@@ -8,6 +8,14 @@ import { BarMetric } from '@/components/charts/BarMetric'
 import { PieMetric } from '@/components/charts/PieMetric'
 import { ScatterMetric } from '@/components/charts/ScatterMetric'
 import { HistogramMetric } from '@/components/charts/HistogramMetric'
+import {
+  chartAxisTick,
+  chartGridStroke,
+  chartTooltipContent,
+  chartTooltipLabel,
+  chartTooltipWrapper,
+  chartTooltipAllowEscape,
+} from '@/components/charts/chartStyles'
 
 interface NodeMetricsProps {
   runId: string
@@ -195,27 +203,14 @@ function ComparisonMetrics({
           <div className="h-[120px] mt-1">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={data}>
-                <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.3 0 0)" />
-                <XAxis
-                  dataKey="step"
-                  tick={{ fontSize: 10, fill: 'oklch(0.556 0 0)' }}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 10, fill: 'oklch(0.556 0 0)' }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={40}
-                />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
+                <XAxis dataKey="step" tick={chartAxisTick} tickLine={false} axisLine={false} />
+                <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
                 <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'oklch(0.205 0 0)',
-                    border: '1px solid oklch(0.3 0 0)',
-                    borderRadius: '6px',
-                    fontSize: '11px',
-                  }}
-                  labelStyle={{ color: 'oklch(0.708 0 0)' }}
+                  contentStyle={chartTooltipContent}
+                  labelStyle={chartTooltipLabel}
+                  wrapperStyle={chartTooltipWrapper}
+                  allowEscapeViewBox={chartTooltipAllowEscape}
                   formatter={(value, dataKey) => {
                     const key = String(dataKey ?? '')
                     const displayName =
