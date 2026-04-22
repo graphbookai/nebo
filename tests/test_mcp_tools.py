@@ -58,10 +58,32 @@ class TestMCPObservationTools:
 
     @pytest.mark.asyncio
     async def test_get_metrics_not_found(self) -> None:
-        """Should return error when node not found."""
+        """Should return error when loggable not found."""
         from nebo.mcp.tools import get_metrics
-        result = await get_metrics("nonexistent_node")
+        result = await get_metrics("nonexistent_loggable")
         assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_get_loggable_status_not_found(self) -> None:
+        """get_loggable_status should return error when loggable missing."""
+        from nebo.mcp.tools import get_loggable_status
+        result = await get_loggable_status("nonexistent", server_url="http://localhost:19999")
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_get_logs_accepts_loggable_id_kwarg(self) -> None:
+        """get_logs should accept loggable_id= filter keyword."""
+        from nebo.mcp.tools import get_logs
+        result = await get_logs(loggable_id="some_id", server_url="http://localhost:19999")
+        # Should not raise; structure returns {"logs": [...]}
+        assert "logs" in result or "error" in result
+
+    def test_mcp_server_registers_loggable_status_tool(self) -> None:
+        """MCP_TOOLS should expose nebo_get_loggable_status (renamed from nebo_get_node_status)."""
+        from nebo.mcp.server import MCP_TOOLS
+        names = [t["name"] for t in MCP_TOOLS]
+        assert "nebo_get_loggable_status" in names
+        assert "nebo_get_node_status" not in names
 
 
 class TestMCPActionTools:

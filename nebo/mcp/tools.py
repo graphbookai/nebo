@@ -51,39 +51,44 @@ async def get_graph(run_id: Optional[str] = None, server_url: str = _DEFAULT_URL
         return get_state().get_graph_dict()
 
 
-async def get_node_status(name: str, run_id: Optional[str] = None, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
-    """Get detailed status for a specific node."""
+async def get_loggable_status(loggable_id: str, run_id: Optional[str] = None, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
+    """Get detailed status for a specific loggable (node or global)."""
     try:
         if run_id:
-            return _get(f"{server_url}/runs/{run_id}/nodes/{name}")
+            return _get(f"{server_url}/runs/{run_id}/loggables/{loggable_id}")
         else:
-            return _get(f"{server_url}/nodes/{name}")
+            return _get(f"{server_url}/loggables/{loggable_id}")
     except Exception:
         from nebo.core.state import get_state
         state = get_state()
-        node = state.nodes.get(name)
-        if node is None:
-            return {"error": f"Node '{name}' not found"}
-        return {
-            "name": node.name, "func_name": node.func_name,
-            "docstring": node.docstring, "exec_count": node.exec_count,
-            "is_source": node.is_source, "params": node.params,
-            "recent_logs": node.logs[-20:], "errors": node.errors,
-            "progress": node.progress,
+        loggable = state.loggables.get(loggable_id)
+        if loggable is None:
+            return {"error": f"Loggable '{loggable_id}' not found"}
+        result: dict[str, Any] = {
+            "loggable_id": loggable.loggable_id,
+            "kind": loggable.kind,
+            "recent_logs": loggable.logs[-20:],
+            "errors": loggable.errors,
+            "progress": loggable.progress,
         }
+        # Node-specific fields (present only on NodeInfo)
+        for attr in ("name", "func_name", "docstring", "exec_count", "is_source", "params"):
+            if hasattr(loggable, attr):
+                result[attr] = getattr(loggable, attr)
+        return result
 
 
 async def get_logs(
-    node: Optional[str] = None,
+    loggable_id: Optional[str] = None,
     run_id: Optional[str] = None,
     limit: int = 100,
     server_url: str = _DEFAULT_URL,
 ) -> dict[str, Any]:
-    """Get recent logs, optionally filtered by node and run."""
+    """Get recent logs, optionally filtered by loggable and run."""
     try:
         params_parts = [f"limit={limit}"]
-        if node:
-            params_parts.append(f"node={urllib.request.quote(node)}")
+        if loggable_id:
+            params_parts.append(f"loggable_id={urllib.request.quote(loggable_id)}")
         qs = "&".join(params_parts)
         if run_id:
             url = f"{server_url}/runs/{run_id}/logs?{qs}"
@@ -94,45 +99,45 @@ async def get_logs(
         from nebo.core.state import get_state
         state = get_state()
         all_logs = []
-        for nid, n in state.nodes.items():
-            if node and nid != node:
+        for lid, lg in state.loggables.items():
+            if loggable_id and lid != loggable_id:
                 continue
-            all_logs.extend(n.logs)
+            all_logs.extend(lg.logs)
         all_logs.sort(key=lambda x: x.get("timestamp", 0))
         return {"logs": all_logs[-limit:]}
 
 
 async def get_metrics(
-    node: str,
+    loggable_id: str,
     name: Optional[str] = None,
     server_url: str = _DEFAULT_URL,
 ) -> dict[str, Any]:
-    """Get metric time series data for a node."""
-    # Try daemon first (node status includes metrics)
+    """Get metric time series data for a loggable."""
+    # Try daemon first (loggable status includes metrics)
     try:
-        result = _get(f"{server_url}/nodes/{node}")
+        result = _get(f"{server_url}/loggables/{loggable_id}")
         if "error" not in result:
             metrics = result.get("metrics", {})
             if name:
                 if name in metrics:
-                    return {"node": node, "metrics": {name: metrics[name]}}
-                return {"error": f"Metric '{name}' not found for node '{node}'"}
-            return {"node": node, "metrics": metrics}
+                    return {"loggable_id": loggable_id, "metrics": {name: metrics[name]}}
+                return {"error": f"Metric '{name}' not found for loggable '{loggable_id}'"}
+            return {"loggable_id": loggable_id, "metrics": metrics}
     except Exception:
         pass
     # Fallback to local state
     from nebo.core.state import get_state
     state = get_state()
-    node_info = state.nodes.get(node)
-    if node_info is None:
-        return {"error": f"Node '{node}' not found"}
-    metrics = node_info.metrics
+    loggable = state.loggables.get(loggable_id)
+    if loggable is None:
+        return {"error": f"Loggable '{loggable_id}' not found"}
+    metrics = loggable.metrics
     if name:
         if name in metrics:
-            return {"node": node, "metrics": {name: [{"step": s, "value": v} for s, v in metrics[name]]}}
-        return {"error": f"Metric '{name}' not found for node '{node}'"}
+            return {"loggable_id": loggable_id, "metrics": {name: [{"step": s, "value": v} for s, v in metrics[name]]}}
+        return {"error": f"Metric '{name}' not found for loggable '{loggable_id}'"}
     return {
-        "node": node,
+        "loggable_id": loggable_id,
         "metrics": {k: [{"step": s, "value": v} for s, v in entries] for k, entries in metrics.items()},
     }
 
@@ -149,8 +154,8 @@ async def get_errors(run_id: Optional[str] = None, server_url: str = _DEFAULT_UR
         from nebo.core.state import get_state
         state = get_state()
         all_errors = []
-        for n in state.nodes.values():
-            all_errors.extend(n.errors)
+        for lg in state.loggables.values():
+            all_errors.extend(lg.errors)
         return {"errors": all_errors}
 
 
@@ -172,7 +177,11 @@ async def get_description(server_url: str = _DEFAULT_URL) -> dict[str, Any]:
     state = get_state()
     return {
         "workflow_description": state.workflow_description,
-        "node_descriptions": {nid: n.docstring for nid, n in state.nodes.items() if n.docstring},
+        "node_descriptions": {
+            lid: getattr(lg, "docstring", None)
+            for lid, lg in state.loggables.items()
+            if getattr(lg, "docstring", None)
+        },
     }
 
 

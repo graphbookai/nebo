@@ -26,24 +26,24 @@ MCP_TOOLS = [
         },
     },
     {
-        "name": "nebo_get_node_status",
-        "description": "Get detailed status for a specific node. Includes execution count, params, docstring, recent logs, errors.",
+        "name": "nebo_get_loggable_status",
+        "description": "Get detailed status for a specific loggable (node or global). Includes execution count, params, docstring, recent logs, errors.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "name": {"type": "string", "description": "The node name."},
+                "loggable_id": {"type": "string", "description": "The loggable ID."},
                 "run_id": {"type": "string", "description": "Optional run ID."},
             },
-            "required": ["name"],
+            "required": ["loggable_id"],
         },
     },
     {
         "name": "nebo_get_logs",
-        "description": "Get recent log entries, optionally filtered by node and run.",
+        "description": "Get recent log entries, optionally filtered by loggable and run.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "node": {"type": "string", "description": "Optional node name filter."},
+                "loggable_id": {"type": "string", "description": "Optional loggable ID filter."},
                 "run_id": {"type": "string", "description": "Optional run ID."},
                 "limit": {"type": "integer", "description": "Max entries (default 100)."},
             },
@@ -51,14 +51,14 @@ MCP_TOOLS = [
     },
     {
         "name": "nebo_get_metrics",
-        "description": "Get metric time series for a node.",
+        "description": "Get metric time series for a loggable.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "node": {"type": "string", "description": "The node name."},
+                "loggable_id": {"type": "string", "description": "The loggable ID."},
                 "name": {"type": "string", "description": "Optional specific metric name."},
             },
-            "required": ["node"],
+            "required": ["loggable_id"],
         },
     },
     {
@@ -230,9 +230,9 @@ async def handle_tool_call(name: str, arguments: dict[str, Any], server_url: str
     handlers = {
         # Observation
         "nebo_get_graph": lambda a: tools.get_graph(a.get("run_id"), server_url),
-        "nebo_get_node_status": lambda a: tools.get_node_status(a["name"], a.get("run_id"), server_url),
-        "nebo_get_logs": lambda a: tools.get_logs(a.get("node"), a.get("run_id"), a.get("limit", 100), server_url),
-        "nebo_get_metrics": lambda a: tools.get_metrics(a["node"], a.get("name"), server_url),
+        "nebo_get_loggable_status": lambda a: tools.get_loggable_status(a["loggable_id"], a.get("run_id"), server_url),
+        "nebo_get_logs": lambda a: tools.get_logs(a.get("loggable_id"), a.get("run_id"), a.get("limit", 100), server_url),
+        "nebo_get_metrics": lambda a: tools.get_metrics(a["loggable_id"], a.get("name"), server_url),
         "nebo_get_errors": lambda a: tools.get_errors(a.get("run_id"), server_url),
         "nebo_get_description": lambda a: tools.get_description(server_url),
         # Action
