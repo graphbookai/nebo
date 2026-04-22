@@ -130,11 +130,24 @@ function MetricBlock({
         </div>
       )}
       <div className="mt-1">
-        {series.type === 'line' && <LineMetric entries={filtered} />}
-        {series.type === 'bar' && <BarMetric entries={filtered} />}
-        {series.type === 'pie' && <PieMetric entries={filtered} />}
-        {series.type === 'scatter' && <ScatterMetric entries={filtered} />}
-        {series.type === 'histogram' && <HistogramMetric entries={filtered} />}
+        {series.type === 'line' ? (
+          <LineMetric entries={filtered} />
+        ) : (
+          <div className="space-y-3">
+            {filtered.map((e, i) => {
+              const stepLabel = e.step != null ? `Step ${e.step}` : `#${i}`
+              return (
+                <div key={`${e.timestamp}-${i}`}>
+                  <div className="text-[10px] text-muted-foreground mb-0.5">{stepLabel}</div>
+                  {series.type === 'bar' && <BarMetric entry={e} />}
+                  {series.type === 'pie' && <PieMetric entry={e} />}
+                  {series.type === 'scatter' && <ScatterMetric entry={e} />}
+                  {series.type === 'histogram' && <HistogramMetric entry={e} />}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )

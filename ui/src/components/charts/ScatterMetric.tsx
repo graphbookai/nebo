@@ -8,11 +8,10 @@ import {
 } from './chartStyles'
 import { PortalTooltip } from './PortalTooltip'
 
-export function ScatterMetric({ entries }: { entries: MetricEntry[] }) {
-  if (entries.length === 0) return null
-  const latest = entries[entries.length - 1].value as { x: number[]; y: number[] }
-  if (!Array.isArray(latest?.x) || !Array.isArray(latest?.y)) return null
-  const data = latest.x.map((x, i) => ({ x, y: latest.y[i] }))
+export function ScatterMetric({ entry }: { entry: MetricEntry }) {
+  const value = entry.value as { x: number[]; y: number[] } | undefined
+  if (!value || !Array.isArray(value.x) || !Array.isArray(value.y)) return null
+  const data = value.x.map((x, i) => ({ x, y: value.y[i] }))
   return (
     <ResponsiveContainer width="100%" height={160}>
       <ScatterChart>

@@ -23,19 +23,18 @@ function fdBins(samples: number[]): { x: number; count: number }[] {
   return counts.map((c, i) => ({ x: min + (i + 0.5) * size, count: c }))
 }
 
-export function HistogramMetric({ entries }: { entries: MetricEntry[] }) {
-  if (entries.length === 0) return null
-  const latest = entries[entries.length - 1].value
+export function HistogramMetric({ entry }: { entry: MetricEntry }) {
+  const value = entry.value
   let data: { x: number; count: number }[]
-  if (Array.isArray(latest)) {
-    data = fdBins(latest as number[])
+  if (Array.isArray(value)) {
+    data = fdBins(value as number[])
   } else if (
-    latest &&
-    typeof latest === 'object' &&
-    'bins' in latest &&
-    'counts' in latest
+    value &&
+    typeof value === 'object' &&
+    'bins' in value &&
+    'counts' in value
   ) {
-    const v = latest as { bins: number[]; counts: number[] }
+    const v = value as { bins: number[]; counts: number[] }
     data = v.bins.map((x, i) => ({ x, count: v.counts[i] ?? 0 }))
   } else {
     return null

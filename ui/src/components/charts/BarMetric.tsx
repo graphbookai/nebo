@@ -3,12 +3,12 @@ import type { MetricEntry } from '@/lib/api'
 import { chartAxisTick, chartBarCursor, chartHiddenWrapper } from './chartStyles'
 import { PortalTooltip } from './PortalTooltip'
 
-export function BarMetric({ entries }: { entries: MetricEntry[] }) {
-  if (entries.length === 0) return null
-  const latest = entries[entries.length - 1].value as Record<string, number>
-  const data = Object.entries(latest).map(([label, value]) => ({
+export function BarMetric({ entry }: { entry: MetricEntry }) {
+  const value = entry.value as Record<string, number> | undefined
+  if (!value) return null
+  const data = Object.entries(value).map(([label, v]) => ({
     label,
-    value: typeof value === 'number' ? value : Number(value) || 0,
+    value: typeof v === 'number' ? v : Number(v) || 0,
   }))
   return (
     <ResponsiveContainer width="100%" height={140}>
