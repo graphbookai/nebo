@@ -123,23 +123,48 @@ def _scalar(v: Any) -> Any:
     return v
 
 
+_STACKABLE_TYPES = ("bar", "histogram")
+
+
+def _split_metric_type(mtype: str) -> tuple[str, str]:
+    """Split "base[,modifier]" into (base, modifier). Modifier is "" if absent."""
+    if "," in mtype:
+        base, modifier = mtype.split(",", 1)
+        return base, modifier
+    return mtype, ""
+
+
 def _normalize_metric_value(value: Any, mtype: str) -> Any:
-    """Per-type normalization; tensors/ndarrays -> plain Python."""
+    """Per-type normalization; tensors/ndarrays -> plain Python.
+
+    Accepts an optional ",stacked" modifier on ``bar`` and ``histogram`` types
+    ("bar,stacked", "histogram,stacked"). The modifier only affects UI
+    rendering — the value shape requirements match the unmodified type.
+    """
     if hasattr(value, "tolist"):
         value = value.tolist()
-    if mtype == "line":
+    base, modifier = _split_metric_type(mtype)
+    if modifier and modifier != "stacked":
+        raise ValueError(
+            f"unknown metric type modifier {modifier!r} in {mtype!r}"
+        )
+    if modifier == "stacked" and base not in _STACKABLE_TYPES:
+        raise ValueError(
+            f",stacked is only valid on {_STACKABLE_TYPES}, not {base!r}"
+        )
+    if base == "line":
         if isinstance(value, (int, float)):
             return float(value)
         raise TypeError(
             f"line metric requires scalar value, got {type(value).__name__}"
         )
-    if mtype == "bar" or mtype == "pie":
+    if base == "bar" or base == "pie":
         if isinstance(value, dict):
             return {str(k): _scalar(v) for k, v in value.items()}
         raise TypeError(
-            f"{mtype} metric requires dict[str, number], got {type(value).__name__}"
+            f"{base} metric requires dict[str, number], got {type(value).__name__}"
         )
-    if mtype == "scatter":
+    if base == "scatter":
         if isinstance(value, dict) and "x" in value and "y" in value:
             return {"x": list(value["x"]), "y": list(value["y"])}
         if isinstance(value, list):
@@ -151,7 +176,7 @@ def _normalize_metric_value(value: Any, mtype: str) -> Any:
                 ys.append(_scalar(y))
             return {"x": xs, "y": ys}
         raise TypeError("scatter metric requires dict{x,y} or list[(x,y)]")
-    if mtype == "histogram":
+    if base == "histogram":
         if isinstance(value, dict) and "bins" in value and "counts" in value:
             return {"bins": list(value["bins"]), "counts": list(value["counts"])}
         if isinstance(value, list):

@@ -113,18 +113,59 @@ def histogram_demo() -> None:
         )
 
 
+@nb.fn()
+def bar_stacked_demo() -> None:
+    """Bar stacked: one chart with x = step, categories stacked vertically."""
+    rng = np.random.default_rng(42)
+    for step in range(6):
+        split = "a" if step % 2 == 0 else "b"
+        counts = {
+            "cat":  int(rng.integers(10, 50)),
+            "dog":  int(rng.integers(10, 50)),
+            "bird": int(rng.integers(5, 25)),
+            "fish": int(rng.integers(0, 15)),
+        }
+        nb.log_metric(
+            "class_counts_stacked",
+            counts,
+            type="bar,stacked",
+            step=step,
+            tags=[f"split:{split}"],
+        )
+
+
+@nb.fn()
+def histogram_stacked_demo() -> None:
+    """Histogram stacked: one chart with overlapping Area per step."""
+    rng = np.random.default_rng(7)
+    for step in range(5):
+        samples = rng.normal(loc=step * 0.5, scale=1.0, size=500).tolist()
+        bucket = "warm" if step < 2 else "cool"
+        nb.log_metric(
+            "latencies_stacked",
+            samples,
+            type="histogram,stacked",
+            step=step,
+            tags=[f"bucket:{bucket}"],
+        )
+
+
 def main() -> None:
     nb.md(
         "# Metrics gallery\n\n"
         "Each demo attaches `tags` to every emission so the chip row above "
-        "each chart can filter what's rendered. Line metrics plot over step; "
-        "bar / pie / scatter / histogram emit **one chart per step**."
+        "each chart can filter what's rendered. `line` plots over step; "
+        "`bar` / `pie` / `scatter` / `histogram` emit **one chart per step**. "
+        "`bar,stacked` and `histogram,stacked` combine emissions into a "
+        "single chart."
     )
     line_demo()
     bar_demo()
     pie_demo()
     scatter_demo()
     histogram_demo()
+    bar_stacked_demo()
+    histogram_stacked_demo()
 
 
 if __name__ == "__main__":

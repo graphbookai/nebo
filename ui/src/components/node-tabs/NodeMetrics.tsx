@@ -8,8 +8,11 @@ import { BarMetric } from '@/components/charts/BarMetric'
 import { PieMetric } from '@/components/charts/PieMetric'
 import { ScatterMetric } from '@/components/charts/ScatterMetric'
 import { HistogramMetric } from '@/components/charts/HistogramMetric'
+import { BarStackedMetric } from '@/components/charts/BarStackedMetric'
+import { HistogramStackedMetric } from '@/components/charts/HistogramStackedMetric'
 import { chartAxisTick, chartGridStroke, chartHiddenWrapper } from '@/components/charts/chartStyles'
 import { PortalTooltip } from '@/components/charts/PortalTooltip'
+import { parseMetricType } from '@/components/charts/metricType'
 
 interface NodeMetricsProps {
   runId: string
@@ -130,25 +133,37 @@ function MetricBlock({
         </div>
       )}
       <div className="mt-1">
-        {series.type === 'line' ? (
-          <LineMetric entries={filtered} />
-        ) : (
-          <div className="space-y-3">
-            {filtered.map((e, i) => {
-              const stepLabel = e.step != null ? `Step ${e.step}` : `#${i}`
-              return (
-                <div key={`${e.timestamp}-${i}`}>
-                  <div className="text-[10px] text-muted-foreground mb-0.5">{stepLabel}</div>
-                  {series.type === 'bar' && <BarMetric entry={e} />}
-                  {series.type === 'pie' && <PieMetric entry={e} />}
-                  {series.type === 'scatter' && <ScatterMetric entry={e} />}
-                  {series.type === 'histogram' && <HistogramMetric entry={e} />}
-                </div>
-              )
-            })}
-          </div>
-        )}
+        <MetricChart type={series.type} entries={filtered} />
       </div>
+    </div>
+  )
+}
+
+function MetricChart({ type, entries }: { type: string; entries: MetricEntry[] }) {
+  const { base, stacked } = parseMetricType(type)
+  if (base === 'line') {
+    return <LineMetric entries={entries} />
+  }
+  if (base === 'bar' && stacked) {
+    return <BarStackedMetric entries={entries} />
+  }
+  if (base === 'histogram' && stacked) {
+    return <HistogramStackedMetric entries={entries} />
+  }
+  return (
+    <div className="space-y-3">
+      {entries.map((e, i) => {
+        const stepLabel = e.step != null ? `Step ${e.step}` : `#${i}`
+        return (
+          <div key={`${e.timestamp}-${i}`}>
+            <div className="text-[10px] text-muted-foreground mb-0.5">{stepLabel}</div>
+            {base === 'bar' && <BarMetric entry={e} />}
+            {base === 'pie' && <PieMetric entry={e} />}
+            {base === 'scatter' && <ScatterMetric entry={e} />}
+            {base === 'histogram' && <HistogramMetric entry={e} />}
+          </div>
+        )
+      })}
     </div>
   )
 }
