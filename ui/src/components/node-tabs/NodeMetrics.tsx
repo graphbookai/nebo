@@ -1,8 +1,13 @@
 // Renders a single loggable's tab; works for node- and global-kind loggables.
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useStore } from '@/store'
-import type { LoggableMetricSeries, MetricEntry } from '@/lib/api'
+import type { MetricEntry } from '@/lib/api'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+import { LineMetric } from '@/components/charts/LineMetric'
+import { BarMetric } from '@/components/charts/BarMetric'
+import { PieMetric } from '@/components/charts/PieMetric'
+import { ScatterMetric } from '@/components/charts/ScatterMetric'
+import { HistogramMetric } from '@/components/charts/HistogramMetric'
 
 interface NodeMetricsProps {
   runId: string
@@ -42,27 +47,111 @@ function downsample(series: LinePoint[]): LinePoint[] {
 }
 
 export function NodeMetrics({ runId, loggableId, comparisonRunIds }: NodeMetricsProps) {
+  const metrics = useStore(s => s.runs.get(runId)?.loggableMetrics[loggableId]) ?? {}
+
+  if (comparisonRunIds) {
+    return (
+      <ComparisonMetrics
+        runId={runId}
+        loggableId={loggableId}
+        comparisonRunIds={comparisonRunIds}
+      />
+    )
+  }
+
+  if (Object.keys(metrics).length === 0) {
+    return <p className="text-xs text-muted-foreground">No metrics for this node</p>
+  }
+
+  return (
+    <div className="space-y-4">
+      {Object.entries(metrics).map(([name, series]) => (
+        <MetricBlock key={name} name={name} series={series} />
+      ))}
+    </div>
+  )
+}
+
+function MetricBlock({
+  name,
+  series,
+}: {
+  name: string
+  series: { type: string; entries: MetricEntry[] }
+}) {
+  const [activeTags, setActiveTags] = useState<Set<string>>(new Set())
+
+  const allTags = useMemo(() => {
+    const s = new Set<string>()
+    for (const e of series.entries) for (const t of e.tags) s.add(t)
+    return [...s].sort()
+  }, [series.entries])
+
+  const filtered = useMemo(() => {
+    if (activeTags.size === 0) return series.entries
+    return series.entries.filter(e => e.tags.some(t => activeTags.has(t)))
+  }, [series.entries, activeTags])
+
+  const toggleTag = (t: string) =>
+    setActiveTags(prev => {
+      const next = new Set(prev)
+      if (next.has(t)) next.delete(t)
+      else next.add(t)
+      return next
+    })
+
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-foreground">{name}</span>
+        <span className="text-[10px] text-muted-foreground">{series.type}</span>
+      </div>
+      {allTags.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {allTags.map(t => {
+            const on = activeTags.has(t)
+            return (
+              <button
+                key={t}
+                onClick={() => toggleTag(t)}
+                className={
+                  'text-[10px] rounded px-1.5 py-0.5 border ' +
+                  (on
+                    ? 'bg-accent text-accent-foreground border-accent'
+                    : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted')
+                }
+              >
+                {t}
+              </button>
+            )
+          })}
+        </div>
+      )}
+      <div className="mt-1">
+        {series.type === 'line' && <LineMetric entries={filtered} />}
+        {series.type === 'bar' && <BarMetric entries={filtered} />}
+        {series.type === 'pie' && <PieMetric entries={filtered} />}
+        {series.type === 'scatter' && <ScatterMetric entries={filtered} />}
+        {series.type === 'histogram' && <HistogramMetric entries={filtered} />}
+      </div>
+    </div>
+  )
+}
+
+function ComparisonMetrics({
+  loggableId,
+  comparisonRunIds,
+}: {
+  runId: string
+  loggableId: string
+  comparisonRunIds: string[]
+}) {
   const runs = useStore(s => s.runs)
   const runColors = useStore(s => s.runColors)
   const runNames = useStore(s => s.runNames)
-  const metrics = useStore(s => s.runs.get(runId)?.loggableMetrics[loggableId])
 
-  // Single-run mode: group by metric type. Only 'line' gets a real chart here;
-  // other types render a placeholder until Task 5 adds real dispatchers.
-  const singleMetricEntries = useMemo(() => {
-    if (comparisonRunIds) return []
-    if (!metrics) return []
-    return Object.entries(metrics).map(([name, series]) => ({
-      name,
-      series: series as LoggableMetricSeries,
-    }))
-  }, [metrics, comparisonRunIds])
-
-  // Comparison mode: only supports line metrics for now.
+  // Collect all metric names across all runs that are line-typed.
   const comparisonMetricEntries = useMemo(() => {
-    if (!comparisonRunIds) return []
-
-    // Collect all metric names across all runs that are line-typed.
     const metricNames = new Set<string>()
     for (const rid of comparisonRunIds) {
       const runMetrics = runs.get(rid)?.loggableMetrics[loggableId]
@@ -94,141 +183,85 @@ export function NodeMetrics({ runId, loggableId, comparisonRunIds }: NodeMetrics
     })
   }, [comparisonRunIds, runs, loggableId])
 
-  if (comparisonRunIds) {
-    if (comparisonMetricEntries.length === 0) {
-      return <p className="text-xs text-muted-foreground">No metrics for this node</p>
-    }
-
-    return (
-      <div className="space-y-4">
-        {comparisonMetricEntries.map(({ name, data }) => (
-          <div key={name}>
-            <span className="text-xs font-medium text-foreground">{name}</span>
-            <div className="h-[120px] mt-1">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.3 0 0)" />
-                  <XAxis
-                    dataKey="step"
-                    tick={{ fontSize: 10, fill: 'oklch(0.556 0 0)' }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 10, fill: 'oklch(0.556 0 0)' }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={40}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'oklch(0.205 0 0)',
-                      border: '1px solid oklch(0.3 0 0)',
-                      borderRadius: '6px',
-                      fontSize: '11px',
-                    }}
-                    labelStyle={{ color: 'oklch(0.708 0 0)' }}
-                    formatter={(value, dataKey) => {
-                      const key = String(dataKey ?? '')
-                      const displayName = runNames.get(key) || runs.get(key)?.summary.script_path.split('/').pop() || key
-                      return [value != null ? Number(value).toFixed(4) : '', displayName]
-                    }}
-                    labelFormatter={(step) => `Step ${step}`}
-                  />
-                  {comparisonRunIds.map(rid => (
-                    <Line
-                      key={rid}
-                      type="monotone"
-                      dataKey={rid}
-                      stroke={runColors.get(rid) ?? '#60a5fa'}
-                      strokeWidth={1.5}
-                      dot={false}
-                      isAnimationActive={false}
-                      connectNulls
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-            {/* Legend */}
-            <div className="flex flex-wrap gap-3 mt-1">
-              {comparisonRunIds.map(rid => {
-                const color = runColors.get(rid) ?? '#60a5fa'
-                const displayName = runNames.get(rid) || runs.get(rid)?.summary.script_path.split('/').pop() || rid
-                return (
-                  <div key={rid} className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                    <span className="text-[10px] text-muted-foreground">{displayName}</span>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-    )
-  }
-
-  // Single-run mode
-  if (singleMetricEntries.length === 0) {
+  if (comparisonMetricEntries.length === 0) {
     return <p className="text-xs text-muted-foreground">No metrics for this node</p>
   }
 
   return (
     <div className="space-y-4">
-      {singleMetricEntries.map(({ name, series }) => {
-        if (series.type !== 'line') {
-          return (
-            <div key={name} className="text-xs text-muted-foreground">
-              {name} ({series.type}) — renderer coming in Task 5
-            </div>
-          )
-        }
-        const data = downsample(toLinePoints(series.entries))
-        return (
-          <div key={name}>
-            <span className="text-xs font-medium text-foreground">{name}</span>
-            <div className="h-[120px] mt-1">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.3 0 0)" />
-                  <XAxis
-                    dataKey="step"
-                    tick={{ fontSize: 10, fill: 'oklch(0.556 0 0)' }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 10, fill: 'oklch(0.556 0 0)' }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={40}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'oklch(0.205 0 0)',
-                      border: '1px solid oklch(0.3 0 0)',
-                      borderRadius: '6px',
-                      fontSize: '11px',
-                    }}
-                    labelStyle={{ color: 'oklch(0.708 0 0)' }}
-                    formatter={(value) => [(value as number)?.toFixed(4) ?? '', name]}
-                    labelFormatter={(step) => `Step ${step}`}
-                  />
+      {comparisonMetricEntries.map(({ name, data }) => (
+        <div key={name}>
+          <span className="text-xs font-medium text-foreground">{name}</span>
+          <div className="h-[120px] mt-1">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={data}>
+                <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.3 0 0)" />
+                <XAxis
+                  dataKey="step"
+                  tick={{ fontSize: 10, fill: 'oklch(0.556 0 0)' }}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 10, fill: 'oklch(0.556 0 0)' }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={40}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'oklch(0.205 0 0)',
+                    border: '1px solid oklch(0.3 0 0)',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                  }}
+                  labelStyle={{ color: 'oklch(0.708 0 0)' }}
+                  formatter={(value, dataKey) => {
+                    const key = String(dataKey ?? '')
+                    const displayName =
+                      runNames.get(key) ||
+                      runs.get(key)?.summary.script_path.split('/').pop() ||
+                      key
+                    return [value != null ? Number(value).toFixed(4) : '', displayName]
+                  }}
+                  labelFormatter={step => `Step ${step}`}
+                />
+                {comparisonRunIds.map(rid => (
                   <Line
+                    key={rid}
                     type="monotone"
-                    dataKey="value"
-                    stroke="#3b82f6"
+                    dataKey={rid}
+                    stroke={runColors.get(rid) ?? '#60a5fa'}
                     strokeWidth={1.5}
                     dot={false}
                     isAnimationActive={false}
+                    connectNulls
                   />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
           </div>
-        )
-      })}
+          {/* Legend */}
+          <div className="flex flex-wrap gap-3 mt-1">
+            {comparisonRunIds.map(rid => {
+              const color = runColors.get(rid) ?? '#60a5fa'
+              const displayName =
+                runNames.get(rid) ||
+                runs.get(rid)?.summary.script_path.split('/').pop() ||
+                rid
+              return (
+                <div key={rid} className="flex items-center gap-1">
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: color }}
+                  />
+                  <span className="text-[10px] text-muted-foreground">{displayName}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
