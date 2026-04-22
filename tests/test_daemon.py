@@ -437,7 +437,9 @@ class TestGetNodeEndpoint:
         body = resp.json()
         assert "metrics" in body, f"missing 'metrics' field in response: {body}"
         assert "loss" in body["metrics"]
-        assert len(body["metrics"]["loss"]) == 2
+        series = body["metrics"]["loss"]
+        assert series["type"] == "line"
+        assert len(series["entries"]) == 2
 
     def test_get_node_returns_progress(self) -> None:
         """GET /loggables/{loggable_id} must include the loggable's progress state."""
