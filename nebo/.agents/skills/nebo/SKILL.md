@@ -1,13 +1,13 @@
 ---
 name: nebo
-description: Use when writing Python code that needs function-level logging, DAG-structured pipeline visualization, scalar metrics tracking, or progress bars — particularly for ML training loops, data-processing pipelines, or agentic workflows using the nebo library
+description: Use when writing Python code that needs multi-modal logging (text, metrics, images, audio, text), DAG-structured pipeline visualization, scalar metrics tracking, or progress bars — particularly for ML training loops, data-processing pipelines, or agentic workflows using the nebo library
 ---
 
 # Nebo
 
 ## Overview
 
-Nebo is function-level logging for Python. You decorate functions with `@nb.fn()`, call `nb.log()` inside them, and nebo automatically infers a DAG from data flow, captures metrics, tracks progress, and exposes everything via MCP tools and a web UI.
+Nebo is a modern logging SDK for multi-modal data. You decorate functions with `@nb.fn()`, call `nb.log()` inside them, and nebo automatically infers a DAG from data flow, captures metrics, tracks progress, and exposes everything via MCP tools and a web UI.
 
 **Core principle:** Decorate every meaningful step as `@nb.fn()`. Edges between nodes are inferred from data flow — no manual wiring. Call `nb.md()` and `nb.ui()` at module level before any decorated functions execute.
 

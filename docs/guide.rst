@@ -100,6 +100,32 @@ In the DAG, ``DataPipeline`` appears as a transparent bounding box containing ``
 - A decorated method in an **undecorated** class is a regular standalone node with no bounding box.
 
 
+The Global loggable
+===================
+
+``nb.log``, ``nb.log_metric``, ``nb.log_image``, ``nb.log_audio``, and
+``nb.log_text`` all work *outside* any ``@nb.fn()`` function. Calls made
+at module scope or from non-decorated helpers land on the **Global
+loggable**, identified as ``"__global__"``.
+
+The Global loggable appears as a distinct card at the top of the grid
+view (labelled **"List"** on mobile) and is excluded from the DAG view
+— it is not a node. Its tabs (Logs, Metrics, Images, Audio, Text) work
+identically to any node's tabs.
+
+Example:
+
+.. code-block:: python
+
+    import nebo as nb
+
+    nb.log("environment looks good")           # → Global
+    nb.log_metric("warmup_heartbeat", 1.0)     # → Global
+
+    @nb.fn()
+    def train(): ...
+
+
 Logging
 =======
 
@@ -408,3 +434,15 @@ Complete Example: Data Processing Pipeline
     if __name__ == "__main__":
         result = run()
         print(result)
+
+
+More Examples
+=============
+
+Runnable examples live in the ``examples/`` directory of the repository:
+
+- ``examples/global_logging.py`` — logging from outside any ``@nb.fn()`` (the Global loggable).
+- ``examples/image_labels.py`` — ``nb.log_image()`` with points, boxes, circles, polygons, and bitmasks.
+- ``examples/metrics_gallery.py`` — all five ``nb.log_metric()`` types (line, bar, scatter, pie, histogram) plus tag filtering.
+- ``examples/basic_pipeline.py`` — minimal starting point.
+- ``examples/image_pipeline.py`` — end-to-end image pipeline with decorated edges.

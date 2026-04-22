@@ -1,4 +1,4 @@
-"""Nebo — Lightweight observability for Python programs.
+"""Nebo — A modern logging SDK for multi-modal data.
 
 Usage:
     import nebo as nb

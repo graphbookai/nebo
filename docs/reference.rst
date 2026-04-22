@@ -53,21 +53,57 @@ Logging Functions
     :param message: The message string or tensor-like object.
     :param step: Optional step counter.
 
-.. function:: nb.log_metric(name: str, value: float, step: int | None = None) -> None
+.. function:: nb.log_metric(name, value, *, type="line", step=None, tags=None)
 
-    Log a scalar metric value. If ``step`` is not provided, it auto-increments per metric name within the current node.
+   Log a metric emission.
 
-    :param name: The metric name (e.g., ``"loss"``, ``"accuracy"``).
-    :param value: The scalar value.
-    :param step: Optional step counter.
+   :param name: Metric name.
+   :param value: Type-dependent; see below.
+   :param type: ``"line"`` (default) | ``"bar"`` | ``"scatter"`` | ``"pie"`` | ``"histogram"``.
+   :param step: Optional step counter (auto-incremented for line).
+   :param tags: List of strings attached to this emission for UI filtering.
 
-.. function:: nb.log_image(image: Any, *, name: str | None = None, step: int | None = None) -> None
+   Value shape per type:
 
-    Log an image. Accepts PIL images, NumPy arrays (HWC or CHW), or PyTorch tensors.
+   - ``line``: scalar ``int | float``.
+   - ``bar`` / ``pie``: dict ``{label: number}``.
+   - ``scatter``: dict ``{"x": [...], "y": [...]}`` or list of ``(x, y)``.
+   - ``histogram``: list of raw samples, or dict ``{"bins": [...], "counts": [...]}``.
 
-    :param image: The image data.
-    :param name: Optional image name/label.
-    :param step: Optional step counter.
+   Type locks on first emission per ``(loggable, name)`` pair; re-emitting
+   with a different type raises ``ValueError``.
+
+   Example::
+
+       nb.log_metric("loss", 0.5)
+       nb.log_metric("counts", {"cat": 3, "dog": 5}, type="bar")
+       nb.log_metric("lr", 3e-4, tags=["main"])
+
+.. function:: nb.log_image(image, *, name=None, step=None, points=None, boxes=None, circles=None, polygons=None, bitmask=None)
+
+   Log an image with optional geometric labels overlaid.
+
+   :param image: PIL.Image, numpy ndarray, or torch.Tensor.
+   :param name: Display label for the image.
+   :param step: Optional step counter.
+   :param points: Single ``[x, y]`` or list ``[[x, y], ...]``.
+   :param boxes: Single ``[x1, y1, x2, y2]`` (xyxy) or a list of them.
+   :param circles: Single ``[x, y, r]`` or a list of them.
+   :param polygons: Single polygon ``[[x, y], ...]`` or a list of polygons.
+   :param bitmask: 2D mask (HxW), 3D stack (NxHxW), or a list of 2D masks.
+
+   Tensors and ndarrays are normalized to plain Python lists; bitmasks are
+   PNG-encoded and transmitted inline. The UI's Settings pane > "Image
+   labels" section exposes per-(loggable, image, key) visibility and
+   opacity controls.
+
+   Example::
+
+       nb.log_image(
+           img, name="pred",
+           boxes=[[10, 10, 50, 50]],
+           points=[[30, 30]],
+       )
 
 .. function:: nb.log_audio(audio: Any, sr: int = 16000, *, name: str | None = None, step: int | None = None) -> None
 

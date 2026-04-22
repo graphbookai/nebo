@@ -1,6 +1,6 @@
 # Nebo
 
-Lightweight observability for Python programs. Decorate your functions with `@nb.fn()`, and nebo automatically infers a DAG from your call graph, captures logs, metrics, inspections, and errors -- all queryable in real time via CLI, MCP tools, or a Rich terminal dashboard.
+A modern logging SDK for multi-modal data. Decorate your functions with `@nb.fn()`, and nebo automatically infers a DAG from your call graph, captures logs, metrics, images, audio, text, and errors -- all queryable in real time via CLI, MCP tools, or a Rich terminal dashboard.
 
 ## Installation
 
@@ -138,18 +138,21 @@ def train(data):
         nb.log(f"Epoch {epoch}: loss={loss:.4f}")
 ```
 
-### `nb.log_metric(name, value, step=None)` -- Scalar metrics
+### `nb.log_metric(name, value, *, type="line", step=None, tags=None)` -- Metrics
 
-Log scalar metrics with automatic step counting.
+Log metrics as line charts (default), bar charts, scatter plots, pie charts, or histograms. Type locks on first emission per `(loggable, name)` pair.
 
 ```python
 @nb.fn()
 def train(model, data):
     for epoch in range(100):
         loss = train_one_epoch(model, data)
-        nb.log_metric("loss", loss)
-        nb.log_metric("lr", optimizer.param_groups[0]["lr"])
+        nb.log_metric("loss", loss)                           # line (scalar)
+        nb.log_metric("counts", {"cat": 3, "dog": 5}, type="bar")
+        nb.log_metric("lr", 3e-4, tags=["main"])              # tagged for UI filter
 ```
+
+Value shape per type: `line` scalar; `bar`/`pie` `{label: number}`; `scatter` `{"x": [...], "y": [...]}` or list of `(x, y)`; `histogram` list of samples or `{"bins": [...], "counts": [...]}`.
 
 ### `nb.log_cfg(cfg)` -- Configuration logging
 
@@ -173,9 +176,9 @@ def process(items):
         transform(item)
 ```
 
-### `nb.log_image(image, name=None, step=None)` -- Image logging
+### `nb.log_image(image, *, name=None, step=None, points=None, boxes=None, circles=None, polygons=None, bitmask=None)` -- Image logging
 
-Log images (PIL, NumPy arrays, or PyTorch tensors) for visual inspection.
+Log images (PIL, NumPy arrays, or PyTorch tensors) for visual inspection, with optional geometric labels overlaid. Points are `[x, y]` (or a list of them); boxes are `[x1, y1, x2, y2]` in xyxy format; circles are `[x, y, r]`; polygons are `[[x, y], ...]`; bitmasks are 2D (HxW) or stacked (NxHxW). The UI's Settings pane > "Image labels" section exposes per-(loggable, image, key) visibility and opacity controls.
 
 ### `nb.log_audio(audio, sr=16000, name=None, step=None)` -- Audio logging
 
@@ -330,9 +333,9 @@ Two execution modes:
 |----------|-----------|-------------|
 | `fn` | `@fn()`, `@fn(depends_on=[...])`, `@fn(ui={...})` | Register a function/class as a DAG node |
 | `log` | `log(message: str)` | Log a text message |
-| `log_metric` | `log_metric(name, value, step=None)` | Log a scalar metric |
+| `log_metric` | `log_metric(name, value, *, type="line", step=None, tags=None)` | Log a metric (line/bar/scatter/pie/histogram) |
 | `log_cfg` | `log_cfg(cfg: dict)` | Log node configuration |
-| `log_image` | `log_image(image, name=None, step=None)` | Log an image |
+| `log_image` | `log_image(image, *, name=None, step=None, points=None, boxes=None, circles=None, polygons=None, bitmask=None)` | Log an image (optionally with geometric labels) |
 | `log_audio` | `log_audio(audio, sr=16000, name=None, step=None)` | Log audio data |
 | `log_text` | `log_text(name, text)` | Log rich text / Markdown |
 | `track` | `track(iterable, name=None, total=None)` | Progress tracking |

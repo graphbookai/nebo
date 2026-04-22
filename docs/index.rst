@@ -3,9 +3,9 @@ Nebo
 
 .. rst-class:: lead
 
-    AI-native observability for Python pipelines and agentic workflows.
+    A modern logging SDK for multi-modal data.
 
-Nebo is a lightweight SDK that adds observability to any Python program. Decorate functions and classes with ``@nb.fn()``, and nebo automatically infers the DAG from your runtime call graph. Logs, metrics, images, audio, and errors are captured per-node and surfaced through a web UI, a Rich terminal dashboard, a persistent daemon, or MCP tools for AI agents.
+Nebo is a modern logging SDK for multi-modal data. Decorate functions and classes with ``@nb.fn()``, and nebo automatically infers the DAG from your runtime call graph. Logs, metrics, images, audio, text, and errors are captured per-loggable and surfaced through a web UI, a Rich terminal dashboard, a persistent daemon, or MCP tools for AI agents.
 
 .. code-block:: python
 

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Nebo is function-level observability for Python. Users decorate functions with `@nb.fn()` and emit events with `nb.log()` / `nb.log_metric()` / `nb.track()` / etc.; nebo infers a DAG from the call graph and surfaces everything through a Rich terminal, a FastAPI daemon, a React web UI, and MCP tools. The repo contains the Python package (`nebo/`), the web UI (`ui/`), tests (`tests/`), docs (`docs/`), and runnable examples (`examples/`).
+Nebo is a modern logging SDK for multi-modal data. Users decorate functions with `@nb.fn()` and emit events with `nb.log()` / `nb.log_metric()` / `nb.track()` / etc.; nebo infers a DAG from the call graph and surfaces everything through a Rich terminal, a FastAPI daemon, a React web UI, and MCP tools. The repo contains the Python package (`nebo/`), the web UI (`ui/`), tests (`tests/`), docs (`docs/`), and runnable examples (`examples/`).
 
 ## Commands
 
