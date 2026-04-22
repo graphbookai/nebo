@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 import nebo as nb
-from nebo.core.state import SessionState, get_state, _RunSnapshot
+from nebo.core.state import NodeInfo, SessionState, get_state, _RunSnapshot
 from nebo.core.decorators import fn
 
 
@@ -14,6 +14,11 @@ def _reset() -> None:
     SessionState.reset_singleton()
     nb._auto_init_done = False
     nb.init(mode="local")
+
+
+def _node_count(state: SessionState) -> int:
+    """Count only node-kind loggables (excludes the seeded __global__)."""
+    return sum(1 for l in state.loggables.values() if isinstance(l, NodeInfo))
 
 
 # ---------------------------------------------------------------------------
@@ -102,11 +107,11 @@ class TestStateIsolation:
             def step_a():
                 nb.log("a")
             step_a()
-            assert len(state.nodes) > 0
+            assert _node_count(state) > 0
 
         with nb.start_run(name="second"):
             # Fresh run — no nodes carried over
-            assert len(state.nodes) == 0
+            assert _node_count(state) == 0
 
     def test_nodes_register_in_subsequent_runs(self) -> None:
         """Decorated functions must re-register nodes in each new start_run()."""
@@ -119,15 +124,19 @@ class TestStateIsolation:
         # Run 1: node should appear
         with nb.start_run(name="run-1"):
             my_step()
-            assert "my_step" in state.nodes or any(
-                n.func_name == "my_step" for n in state.nodes.values()
+            assert "my_step" in state.loggables or any(
+                isinstance(l, NodeInfo) and l.func_name == "my_step"
+                for l in state.loggables.values()
             )
 
         # Run 2: same function, fresh state — node must re-register
         with nb.start_run(name="run-2"):
             my_step()
-            assert len(state.nodes) > 0, "Node must re-register in new run"
-            node = next(n for n in state.nodes.values() if n.func_name == "my_step")
+            assert _node_count(state) > 0, "Node must re-register in new run"
+            node = next(
+                l for l in state.loggables.values()
+                if isinstance(l, NodeInfo) and l.func_name == "my_step"
+            )
             assert node.materialized, "Node must be materialized"
 
     def test_edges_cleared_for_new_run(self) -> None:
@@ -189,7 +198,7 @@ class TestResume:
             def step_a():
                 nb.log("hello from A")
             step_a()
-            node_count_a = len(state.nodes)
+            node_count_a = _node_count(state)
             assert node_count_a > 0
 
         # Start a different run
@@ -198,11 +207,11 @@ class TestResume:
             def step_b():
                 nb.log("hello from B")
             step_b()
-            assert len(state.nodes) > 0
+            assert _node_count(state) > 0
 
         # Resume run A
         with nb.start_run(run_id=run_a_id):
-            assert len(state.nodes) == node_count_a
+            assert _node_count(state) == node_count_a
 
     def test_resume_restores_description(self) -> None:
         """Resuming should restore the workflow description."""
@@ -249,7 +258,7 @@ class TestResume:
 
         with nb.start_run(run_id=custom_id) as run:
             assert run.run_id == custom_id
-            assert len(state.nodes) == 0  # fresh state
+            assert _node_count(state) == 0  # fresh state
 
 
 # ---------------------------------------------------------------------------
@@ -373,14 +382,14 @@ class TestSessionStateSnapshots:
         my_node()
 
         state.save_run_state("test-run")
-        saved_node_count = len(state.nodes)
+        saved_node_count = _node_count(state)
         assert saved_node_count > 0
 
         state.clear_run_state()
-        assert len(state.nodes) == 0
+        assert _node_count(state) == 0
 
         state.restore_run_state("test-run")
-        assert len(state.nodes) == saved_node_count
+        assert _node_count(state) == saved_node_count
 
     def test_restore_unknown_id_clears(self) -> None:
         """Restoring an unknown run_id should clear state."""
@@ -390,10 +399,10 @@ class TestSessionStateSnapshots:
         def my_node():
             nb.log("hello")
         my_node()
-        assert len(state.nodes) > 0
+        assert _node_count(state) > 0
 
         state.restore_run_state("nonexistent")
-        assert len(state.nodes) == 0
+        assert _node_count(state) == 0
 
     def test_clear_run_state(self) -> None:
         """clear_run_state should reset all per-run fields."""
@@ -403,7 +412,7 @@ class TestSessionStateSnapshots:
 
         state.clear_run_state()
         assert state.workflow_description is None
-        assert len(state.nodes) == 0
+        assert _node_count(state) == 0
         assert len(state.edges) == 0
 
     def test_snapshots_are_independent(self) -> None:
@@ -415,16 +424,16 @@ class TestSessionStateSnapshots:
             nb.log("a")
         node_a()
         state.save_run_state("snap-1")
-        count_1 = len(state.nodes)
+        count_1 = _node_count(state)
 
         @fn()
         def node_b():
             nb.log("b")
         node_b()
-        assert len(state.nodes) > count_1
+        assert _node_count(state) > count_1
 
         state.restore_run_state("snap-1")
-        assert len(state.nodes) == count_1
+        assert _node_count(state) == count_1
 
     def test_reset_clears_snapshots(self) -> None:
         """SessionState.reset() should clear all snapshots."""

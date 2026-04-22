@@ -110,11 +110,6 @@ class SessionState:
         self._run_snapshots: dict[str, _RunSnapshot] = {}
         self._active_run_id: Optional[str] = None
 
-    @property
-    def nodes(self) -> dict[str, NodeInfo]:
-        """Backward-compat view — returns only node-kind loggables."""
-        return {lid: l for lid, l in self.loggables.items() if isinstance(l, NodeInfo)}
-
     def ensure_display(self) -> None:
         """Ensure the terminal display is created and started."""
         if self._initialized_display:
@@ -303,25 +298,28 @@ class SessionState:
 
     def get_sources(self) -> list[str]:
         """Return all nodes with in-degree 0."""
-        return [nid for nid, n in self.nodes.items() if n.is_source]
+        return [
+            lid for lid, l in self.loggables.items()
+            if isinstance(l, NodeInfo) and l.is_source
+        ]
 
     def get_graph_dict(self) -> dict:
         """Return the graph as a serializable dictionary."""
         return {
             "nodes": {
-                nid: {
-                    "name": n.name,
-                    "func_name": n.func_name,
-                    "docstring": n.docstring,
-                    "exec_count": n.exec_count,
-                    "is_source": n.is_source,
-                    "params": n.params,
-                    "progress": n.progress,
-                    "group": n.group,
-                    "ui_hints": n.ui_hints,
+                lid: {
+                    "name": l.name,
+                    "func_name": l.func_name,
+                    "docstring": l.docstring,
+                    "exec_count": l.exec_count,
+                    "is_source": l.is_source,
+                    "params": l.params,
+                    "progress": l.progress,
+                    "group": l.group,
+                    "ui_hints": l.ui_hints,
                 }
-                for nid, n in self.nodes.items()
-                if n.materialized
+                for lid, l in self.loggables.items()
+                if isinstance(l, NodeInfo) and l.materialized
             },
             "edges": [{"source": e.source, "target": e.target} for e in self.edges],
             "workflow_description": self.workflow_description,

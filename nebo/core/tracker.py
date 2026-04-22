@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any, Iterable, Iterator, Optional, TypeVar
 
-from nebo.core.state import _current_node, get_state
+from nebo.core.state import NodeInfo, _current_node, get_state
 
 T = TypeVar("T")
 
@@ -63,8 +63,8 @@ class TrackedIterable(Iterator[T]):
         if self._node_id is None:
             return
         state = get_state()
-        node = state.nodes.get(self._node_id)
-        if node is not None:
+        node = state.loggables.get(self._node_id)
+        if isinstance(node, NodeInfo):
             node.progress = {
                 "current": self._current,
                 "total": self._total,

@@ -33,10 +33,10 @@ def test_class_decoration_wraps_methods(reset_state):
     p.finalize()
 
     state = get_state()
-    assert "MyProcessor.process" in state.nodes
-    assert "MyProcessor.finalize" in state.nodes
-    assert state.nodes["MyProcessor.process"].materialized
-    assert state.nodes["MyProcessor.finalize"].materialized
+    assert "MyProcessor.process" in state.loggables
+    assert "MyProcessor.finalize" in state.loggables
+    assert state.loggables["MyProcessor.process"].materialized
+    assert state.loggables["MyProcessor.finalize"].materialized
 
 
 def test_class_group_field(reset_state):
@@ -53,7 +53,7 @@ def test_class_group_field(reset_state):
     agent.think()
 
     state = get_state()
-    node = state.nodes["MyAgent.think"]
+    node = state.loggables["MyAgent.think"]
     assert node.group == "MyAgent"
 
 
@@ -79,8 +79,8 @@ def test_class_methods_materialize_on_execution(reset_state):
     obj.silent()
 
     state = get_state()
-    assert state.nodes["MyClass.logs"].materialized
-    assert state.nodes["MyClass.silent"].materialized
+    assert state.loggables["MyClass.logs"].materialized
+    assert state.loggables["MyClass.silent"].materialized
 
 
 def test_redundant_decorator_warning(reset_state):
@@ -114,9 +114,9 @@ def test_decorated_method_in_undecorated_class(reset_state):
     obj.my_method()
 
     state = get_state()
-    node_id = next(nid for nid in state.nodes if "my_method" in nid)
-    assert state.nodes[node_id].materialized
-    assert state.nodes[node_id].group is None
+    node_id = next(nid for nid in state.loggables if "my_method" in nid)
+    assert state.loggables[node_id].materialized
+    assert state.loggables[node_id].group is None
 
 
 def test_called_fn_inside_class_group(reset_state):
@@ -140,8 +140,8 @@ def test_called_fn_inside_class_group(reset_state):
 
     state = get_state()
     # helper was called within MyClass context, so it should be in the group
-    node_id = next(nid for nid in state.nodes if "helper" in nid)
-    assert state.nodes[node_id].group == "MyClass"
+    node_id = next(nid for nid in state.loggables if "helper" in nid)
+    assert state.loggables[node_id].group == "MyClass"
 
 
 def test_dunder_methods_are_wrapped(reset_state):
@@ -162,8 +162,8 @@ def test_dunder_methods_are_wrapped(reset_state):
     result = obj(5)
 
     state = get_state()
-    assert "MyCallable.__init__" in state.nodes
-    assert state.nodes["MyCallable.__init__"].materialized
-    assert "MyCallable.__call__" in state.nodes
-    assert state.nodes["MyCallable.__call__"].materialized
+    assert "MyCallable.__init__" in state.loggables
+    assert state.loggables["MyCallable.__init__"].materialized
+    assert "MyCallable.__call__" in state.loggables
+    assert state.loggables["MyCallable.__call__"].materialized
     assert result == 10

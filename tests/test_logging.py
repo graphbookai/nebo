@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from nebo.core.state import SessionState, get_state, _current_node
+from nebo.core.state import NodeInfo, SessionState, get_state, _current_node
 from nebo.core.decorators import fn
 from nebo.logging.logger import log, log_metric, log_text, md
 from nebo.core.config import log_cfg
@@ -24,7 +24,7 @@ class TestLogging:
 
         my_step()
         state = get_state()
-        node = next(n for n in state.nodes.values() if n.func_name == "my_step")
+        node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "my_step")
         assert len(node.logs) == 1
         assert node.logs[0]["message"] == "hello world"
 
@@ -38,7 +38,7 @@ class TestLogging:
 
         train()
         state = get_state()
-        node = next(n for n in state.nodes.values() if n.func_name == "train")
+        node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "train")
         assert "loss" in node.metrics
         assert len(node.metrics["loss"]) == 3
         assert node.metrics["loss"][0] == (0, 0.5)
@@ -52,7 +52,7 @@ class TestLogging:
 
         report()
         state = get_state()
-        node = next(n for n in state.nodes.values() if n.func_name == "report")
+        node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "report")
         assert len(node.logs) == 1
         assert node.logs[0]["content"] == "## Results\nAll good!"
 
@@ -92,7 +92,7 @@ class TestLogNumpy:
 
         check_array()
         state = get_state()
-        node = next(n for n in state.nodes.values() if n.func_name == "check_array")
+        node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "check_array")
         assert len(node.logs) == 1
         msg = node.logs[0]["message"]
         assert "ndarray" in msg
@@ -110,7 +110,7 @@ class TestLogNumpy:
 
         my_step()
         state = get_state()
-        node = next(n for n in state.nodes.values() if n.func_name == "my_step")
+        node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "my_step")
         assert node.logs[0]["message"] == "plain text message"
 
 
@@ -128,7 +128,7 @@ class TestLogCfg:
 
         train()
         state = get_state()
-        node = next(n for n in state.nodes.values() if n.func_name == "train")
+        node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "train")
         assert node.params["lr"] == 0.001
         assert node.params["batch_size"] == 32
 
@@ -141,7 +141,7 @@ class TestLogCfg:
 
         train()
         state = get_state()
-        node = next(n for n in state.nodes.values() if n.func_name == "train")
+        node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "train")
         assert node.params["lr"] == 0.001
         assert node.params["batch_size"] == 32
 
@@ -154,7 +154,7 @@ class TestLogCfg:
 
         train()
         state = get_state()
-        node = next(n for n in state.nodes.values() if n.func_name == "train")
+        node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "train")
         assert node.params["lr"] == 0.01
         assert node.params["epochs"] == 10
 
@@ -166,7 +166,7 @@ class TestLogCfg:
 
         train()
         state = get_state()
-        node = next(n for n in state.nodes.values() if n.func_name == "train")
+        node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "train")
         assert "lr" in node.params
         assert "callback" not in node.params
 
@@ -223,7 +223,7 @@ class TestImageSerializer:
 
         f()
         state = get_state()
-        node = next(n for n in state.nodes.values() if n.func_name == "f")
+        node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "f")
         assert len(node.images) == 1
         assert node.images[0]["name"] == "x"
 

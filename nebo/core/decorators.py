@@ -9,7 +9,7 @@ import traceback
 import warnings
 from typing import Any, Callable, Optional, TypeVar, overload
 
-from nebo.core.state import _current_node, _current_group, get_state
+from nebo.core.state import NodeInfo, _current_node, _current_group, get_state
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -156,7 +156,8 @@ def _decorate_function(f, depends_on, pausable, group=None, ui_hints=None):
         effective_group = group or _current_group.get()
 
         # Register node on first execution (not at import time)
-        if not registered or node_id not in state.nodes:
+        existing_loggable = state.loggables.get(node_id)
+        if not registered or not isinstance(existing_loggable, NodeInfo):
             state.register_node(
                 node_id=node_id,
                 func_name=f.__name__,
@@ -178,8 +179,8 @@ def _decorate_function(f, depends_on, pausable, group=None, ui_hints=None):
                     pass
         elif effective_group:
             # Update group if this function is being called within a class context
-            node = state.nodes.get(node_id)
-            if node and node.group is None:
+            node = state.loggables.get(node_id)
+            if isinstance(node, NodeInfo) and node.group is None:
                 node.group = effective_group
 
         # Materialize the node as soon as the wrapper starts executing, so
@@ -240,7 +241,8 @@ def _decorate_function(f, depends_on, pausable, group=None, ui_hints=None):
             return result
         except Exception as exc:
             # Capture exception with context
-            node_info = state.nodes.get(node_id)
+            loggable = state.loggables.get(node_id)
+            node_info = loggable if isinstance(loggable, NodeInfo) else None
             error_info = {
                 "loggable_id": node_id,
                 "docstring": node_info.docstring if node_info else None,

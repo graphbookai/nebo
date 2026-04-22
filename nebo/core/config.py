@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from nebo.core.state import _current_node, get_state
+from nebo.core.state import NodeInfo, _current_node, get_state
 
 
 def log_cfg(cfg: dict[str, Any]) -> None:
@@ -36,9 +36,10 @@ def log_cfg(cfg: dict[str, Any]) -> None:
         if isinstance(v, (str, int, float, bool, list, dict))
     }
 
-    if node_id and node_id in state.nodes:
-        node_info = state.nodes[node_id]
-        node_info.params = {**node_info.params, **filtered}
+    if node_id:
+        node_info = state.loggables.get(node_id)
+        if isinstance(node_info, NodeInfo):
+            node_info.params = {**node_info.params, **filtered}
 
     state._send_to_client({
         "type": "config",

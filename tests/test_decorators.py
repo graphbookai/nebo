@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 import nebo as nb
-from nebo.core.state import SessionState, _current_node, get_state
+from nebo.core.state import NodeInfo, SessionState, _current_node, get_state
 from nebo.core.decorators import fn
 from nebo.core.dag import get_sources, get_topology_order, get_dag_summary
 
@@ -33,11 +33,11 @@ class TestFnDecorator:
 
         state = get_state()
         # Node should NOT be registered at decoration time
-        assert not any("my_func" in nid for nid in state.nodes)
+        assert not any("my_func" in nid for nid in state.loggables)
 
         my_func()
         # Node should be registered after first execution
-        assert any("my_func" in nid for nid in state.nodes)
+        assert any("my_func" in nid for nid in state.loggables)
 
     def test_fn_captures_docstring(self) -> None:
         """@fn should capture the function's docstring on first execution."""
@@ -48,7 +48,7 @@ class TestFnDecorator:
 
         documented_func()
         state = get_state()
-        node = next(n for n in state.nodes.values() if n.func_name == "documented_func")
+        node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "documented_func")
         assert node.docstring == "This is a documented function."
 
     def test_fn_without_parens(self) -> None:
@@ -60,7 +60,7 @@ class TestFnDecorator:
         result = bare_func()
         assert result == 1
         state = get_state()
-        node = next(n for n in state.nodes.values() if n.func_name == "bare_func")
+        node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "bare_func")
         assert node.exec_count == 1
 
     def test_fn_increments_count(self) -> None:
@@ -74,7 +74,7 @@ class TestFnDecorator:
         counter_func()
 
         state = get_state()
-        node = next(n for n in state.nodes.values() if n.func_name == "counter_func")
+        node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "counter_func")
         assert node.exec_count == 3
 
     def test_fn_preserves_return_value(self) -> None:
@@ -105,7 +105,7 @@ class TestFnDecorator:
             error_func()
 
         state = get_state()
-        node = next(n for n in state.nodes.values() if n.func_name == "error_func")
+        node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "error_func")
         assert len(node.errors) == 1
         assert node.errors[0]["type"] == "RuntimeError"
         assert "something broke" in node.errors[0]["error"]
@@ -125,7 +125,10 @@ class TestDAGInference:
 
         standalone()
         sources = get_sources()
-        node = next(n for n in get_state().nodes.values() if n.func_name == "standalone")
+        node = next(
+            l for l in get_state().loggables.values()
+            if isinstance(l, NodeInfo) and l.func_name == "standalone"
+        )
         assert node.is_source is True
 
     def test_dag_edge_inference(self) -> None:
@@ -143,8 +146,8 @@ class TestDAGInference:
         state = get_state()
         assert len(state.edges) > 0
         # Producer should be source, consumer should not
-        producer_node = next(n for n in state.nodes.values() if n.func_name == "producer")
-        consumer_node = next(n for n in state.nodes.values() if n.func_name == "consumer")
+        producer_node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "producer")
+        consumer_node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "consumer")
         assert producer_node.is_source is True
         assert consumer_node.is_source is False
 
@@ -168,7 +171,7 @@ class TestDAGInference:
         assert len(state.edges) == 2
         sources = get_sources()
         assert len(sources) == 1
-        source_node = state.nodes[sources[0]]
+        source_node = state.loggables[sources[0]]
         assert source_node.func_name == "step_a"
 
     def test_dag_summary(self) -> None:
@@ -204,7 +207,7 @@ class TestLogCfgWithFn:
 
         train()
         state = get_state()
-        node = next(n for n in state.nodes.values() if n.func_name == "train")
+        node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "train")
         assert node.params["model_name"] == "resnet18"
         assert node.params["batch_size"] == 16
 
@@ -220,7 +223,7 @@ class TestLogCfgWithFn:
 
         train()
         state = get_state()
-        node = next(n for n in state.nodes.values() if n.func_name == "train")
+        node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "train")
         assert node.params == {"model_name": "resnet18", "batch_size": 16}
 
 
@@ -236,7 +239,7 @@ class TestDataFlowEdges:
 
     def _nid(self, func_name: str) -> str:
         state = get_state()
-        return next(nid for nid, n in state.nodes.items() if n.func_name == func_name)
+        return next(lid for lid, l in state.loggables.items() if isinstance(l, NodeInfo) and l.func_name == func_name)
 
     def test_linear_data_flow(self) -> None:
         """Sequential nodes passing outputs should create data-flow edges."""
@@ -572,7 +575,7 @@ class TestDAGStrategy:
 
     def _nid(self, func_name: str) -> str:
         state = get_state()
-        return next(nid for nid, n in state.nodes.items() if n.func_name == func_name)
+        return next(lid for lid, l in state.loggables.items() if isinstance(l, NodeInfo) and l.func_name == func_name)
 
     def test_default_strategy_is_object(self) -> None:
         """Default dag_strategy should be 'object'."""
@@ -749,9 +752,9 @@ class TestNodeMaterialization:
 
         result = silent_function(5)
         state = get_state()
-        node_id = next((nid for nid in state.nodes if "silent_function" in nid), None)
+        node_id = next((nid for nid in state.loggables if "silent_function" in nid), None)
         assert node_id is not None, "Node should be registered"
-        assert state.nodes[node_id].materialized is True
+        assert state.loggables[node_id].materialized is True
         assert result == 6
 
     def test_node_materializes_on_first_log(self) -> None:
@@ -764,9 +767,9 @@ class TestNodeMaterialization:
 
         logging_function()
         state = get_state()
-        node_id = next((nid for nid in state.nodes if "logging_function" in nid), None)
+        node_id = next((nid for nid in state.loggables if "logging_function" in nid), None)
         assert node_id is not None
-        assert state.nodes[node_id].materialized is True
+        assert state.loggables[node_id].materialized is True
 
     def test_node_materializes_on_log_metric(self) -> None:
         """Node is materialized even when it only calls log_metric()."""
@@ -778,9 +781,9 @@ class TestNodeMaterialization:
 
         metric_function()
         state = get_state()
-        node_id = next((nid for nid in state.nodes if "metric_function" in nid), None)
+        node_id = next((nid for nid in state.loggables if "metric_function" in nid), None)
         assert node_id is not None
-        assert state.nodes[node_id].materialized is True
+        assert state.loggables[node_id].materialized is True
 
     def test_silent_node_preserves_return_value(self) -> None:
         """A silent decorated node should still return values correctly."""
@@ -813,9 +816,9 @@ class TestNodeMaterialization:
 
         # All three decorated functions ran, so all three should materialize.
         for name in ("run", "silent_caller", "logger_fn"):
-            node_id = next((nid for nid in state.nodes if name in nid), None)
+            node_id = next((nid for nid in state.loggables if name in nid), None)
             assert node_id is not None, f"Node {name!r} should be registered"
-            assert state.nodes[node_id].materialized is True, (
+            assert state.loggables[node_id].materialized is True, (
                 f"Node {name!r} should be materialized after execution"
             )
 
@@ -828,7 +831,7 @@ class TestNodeMaterialization:
 
         plain_function()
         state = get_state()
-        assert not any("plain_function" in nid for nid in state.nodes)
+        assert not any("plain_function" in nid for nid in state.loggables)
 
 
 class _EventCapturingClient:

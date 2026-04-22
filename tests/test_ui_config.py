@@ -49,5 +49,5 @@ def test_fn_ui_parameter(reset_state):
     my_func()
 
     state = get_state()
-    node_id = next(nid for nid in state.nodes if "my_func" in nid)
-    assert state.nodes[node_id].ui_hints == {"collapsed": True}
+    node_id = next(nid for nid in state.loggables if "my_func" in nid)
+    assert state.loggables[node_id].ui_hints == {"collapsed": True}

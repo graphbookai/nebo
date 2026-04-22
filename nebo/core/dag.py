@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from nebo.core.state import get_state
+from nebo.core.state import NodeInfo, get_state
 
 
 def add_edge(source: str, target: str) -> None:
@@ -22,8 +22,11 @@ def get_sources() -> list[str]:
 def get_topology_order() -> list[str]:
     """Return nodes in topological order using Kahn's algorithm."""
     state = get_state()
-    in_degree: dict[str, int] = {nid: 0 for nid in state.nodes}
-    adjacency: dict[str, list[str]] = {nid: [] for nid in state.nodes}
+    node_ids = [
+        lid for lid, l in state.loggables.items() if isinstance(l, NodeInfo)
+    ]
+    in_degree: dict[str, int] = {nid: 0 for nid in node_ids}
+    adjacency: dict[str, list[str]] = {nid: [] for nid in node_ids}
 
     for edge in state.edges:
         if edge.source in adjacency and edge.target in in_degree:

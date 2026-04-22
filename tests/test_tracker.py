@@ -63,7 +63,7 @@ class TestTracker:
         """track() at top level should create an implicit node."""
         items = list(track([1, 2], name="toplevel"))
         state = get_state()
-        assert any("toplevel" in nid for nid in state.nodes)
+        assert any("toplevel" in nid for nid in state.loggables)
 
 
 class _EventCapturingClient:
