@@ -15,7 +15,7 @@ then inspect the resulting state.
 import time
 
 import nebo as nb
-from nebo.core.state import get_state
+from nebo.core.state import get_state, NodeInfo
 from nebo.core.dag import get_dag_summary, get_sources, get_topology_order
 
 
@@ -86,17 +86,20 @@ def main():
     topo = get_topology_order()
     print(f"  Topological order ({len(topo)}): {topo}")
 
+    # Node-kind loggables only (graph topology excludes the global loggable).
+    nodes = {lid: l for lid, l in state.loggables.items() if isinstance(l, NodeInfo)}
+
     # Cycle detection
-    missing = set(state.nodes.keys()) - set(topo)
+    missing = set(nodes.keys()) - set(topo)
     if missing:
-        names = [state.nodes[nid].func_name for nid in missing]
+        names = [nodes[nid].func_name for nid in missing]
         print(f"  Cycle detected — nodes dropped from topo order: {names}")
 
     # --- Nodes ---
     print(f"\n{'=' * 60}")
     print("REGISTERED NODES")
     print("=" * 60)
-    for node_id, node in state.nodes.items():
+    for node_id, node in nodes.items():
         source_tag = " [SOURCE]" if node.is_source else ""
         doc_preview = ""
         if node.docstring:

@@ -258,7 +258,7 @@ def cmd_logs(args: argparse.Namespace) -> None:
     try:
         params = {"limit": args.limit}
         if args.node:
-            params["node"] = args.node
+            params["loggable_id"] = args.node
 
         if args.run:
             url = f"http://localhost:{port}/runs/{args.run}/logs"
@@ -277,7 +277,7 @@ def cmd_logs(args: argparse.Namespace) -> None:
         return
 
     for entry in logs:
-        node_tag = f"[{entry.get('node', '?')}]" if entry.get("node") else ""
+        node_tag = f"[{entry.get('loggable_id', '?')}]" if entry.get("loggable_id") else ""
         print(f"  {node_tag} {entry.get('message', '')}")
 
 

@@ -125,6 +125,26 @@ function SingleRunInfo({ runId, loggableId }: { runId: string; loggableId: strin
   const nodeInfo = run?.graph?.nodes[loggableId]
   const inspections = run?.loggableInspections[loggableId]
 
+  // The global loggable is deliberately excluded from graph.nodes; render a
+  // dedicated info view for it instead of "Node not found".
+  if (loggableId === '__global__') {
+    const workflowDescription = run?.graph?.workflow_description ?? null
+    return (
+      <div className="space-y-2 text-xs">
+        <h3 className="text-sm font-medium">Global loggable</h3>
+        <p className="text-muted-foreground">
+          Catches <code>nb.log*</code> calls emitted outside any <code>@nb.fn()</code> context.
+        </p>
+        {workflowDescription && (
+          <div className="pt-2 border-t border-border">
+            <p className="font-medium mb-1">Workflow description</p>
+            <p className="text-muted-foreground whitespace-pre-wrap">{workflowDescription}</p>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   if (!nodeInfo) return <p className="text-xs text-muted-foreground">Node not found</p>
 
   return (

@@ -215,7 +215,6 @@ interface NeboStore {
   setRunAudio: (runId: string, audio: Record<string, AudioEntry[]>) => void
   appendMetric: (runId: string, loggableId: string, name: string, step: number, value: number) => void
   updateNodeProgress: (runId: string, nodeId: string, progress: { current: number; total: number; name?: string } | null) => void
-  updateLoggableRegistration: (runId: string, data: Record<string, unknown>) => void
   incrementNodeExecCount: (runId: string, loggableId: string) => void
   addEdge: (runId: string, source: string, target: string) => void
   updateInspection: (runId: string, nodeId: string, name: string, data: unknown) => void
@@ -590,33 +589,6 @@ export const useStore = create<NeboStore>((set, get) => ({
           [nodeId]: { ...run.graph.nodes[nodeId], progress },
         },
       }
-    }
-    return { runs }
-  }),
-
-  updateLoggableRegistration: (runId, data) => set(state => {
-    const runs = new Map(state.runs)
-    const run = runs.get(runId)
-    if (run) {
-      const nodeId = (data.node_id as string) || ''
-      if (!run.graph) {
-        run.graph = { nodes: {}, edges: [], workflow_description: null, has_pausable: false, paused: false }
-      }
-      if (!run.graph.nodes[nodeId]) {
-        run.graph.nodes[nodeId] = {
-          name: nodeId,
-          func_name: (data.func_name as string) || '',
-          docstring: (data.docstring as string) || null,
-          exec_count: 0,
-          is_source: true,
-          pausable: false,
-          params: {},
-          progress: null,
-          group: (data.group as string) || null,
-          ui_hints: (data.ui_hints as Record<string, unknown>) || null,
-        }
-      }
-      run.summary.node_count = Object.keys(run.graph.nodes).length
     }
     return { runs }
   }),

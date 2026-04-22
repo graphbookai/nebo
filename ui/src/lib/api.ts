@@ -119,9 +119,9 @@ export const api = {
   listRuns: () => get<{ runs: RunSummary[]; active_run: string | null }>('/runs'),
   getRun: (id: string) => get<RunSummary>(`/runs/${id}`),
   getRunGraph: (id: string) => get<GraphData>(`/runs/${id}/graph`),
-  getRunLogs: (id: string, opts?: { node?: string; limit?: number }) => {
+  getRunLogs: (id: string, opts?: { loggable_id?: string; limit?: number }) => {
     const params = new URLSearchParams()
-    if (opts?.node) params.set('node', opts.node)
+    if (opts?.loggable_id) params.set('loggable_id', opts.loggable_id)
     if (opts?.limit) params.set('limit', String(opts.limit))
     const qs = params.toString()
     return get<{ logs: LogEntry[] }>(`/runs/${id}/logs${qs ? `?${qs}` : ''}`)
@@ -131,7 +131,6 @@ export const api = {
   getRunImages: (id: string) => get<{ images: Record<string, Array<{ node: string; media_id: string; name: string; step: number | null; timestamp: number }>> }>(`/runs/${id}/images`),
   getRunAudio: (id: string) => get<{ audio: Record<string, Array<{ node: string; media_id: string; name: string; sr: number; step: number | null; timestamp: number }>> }>(`/runs/${id}/audio`),
   getMedia: (runId: string, mediaId: string) => get<{ data: string }>(`/runs/${runId}/media/${mediaId}`),
-  getRunNode: (id: string, name: string) => get<NodeDetail>(`/runs/${id}/nodes/${encodeURIComponent(name)}`),
 
   stopRun: (id: string) => post<{ run_id: string; status: string }>(`/runs/${id}/stop`, {}),
   startRun: (scriptPath: string, args?: string[]) =>
