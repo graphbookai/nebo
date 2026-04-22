@@ -2,11 +2,11 @@ import { memo, useMemo, useState } from 'react'
 import { useStore } from '@/store'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
-import { NodeTabContainer } from '@/components/node-tabs/NodeTabContainer'
+import { LoggableTabContainer } from '@/components/node-tabs/LoggableTabContainer'
 import { topologicalSort } from '@/lib/graph'
 
 // Extracted to module level so React preserves instance identity across parent re-renders.
-// This prevents NodeTabContainer (and its active tab state) from being unmounted/remounted.
+// This prevents LoggableTabContainer (and its active tab state) from being unmounted/remounted.
 const NodeCard = memo(function NodeCard({
   runId,
   nodeId,
@@ -93,7 +93,7 @@ const NodeCard = memo(function NodeCard({
 
       {isExpanded && (
         <div className="border-t border-border" onClick={e => e.stopPropagation()}>
-          <NodeTabContainer runId={runId} nodeId={nodeId} />
+          <LoggableTabContainer runId={runId} loggableId={nodeId} />
         </div>
       )}
     </div>

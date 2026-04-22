@@ -1,10 +1,11 @@
+// Renders a single loggable's tab; works for node- and global-kind loggables.
 import { useMemo } from 'react'
 import { useStore } from '@/store'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
 interface NodeMetricsProps {
   runId: string
-  nodeId: string
+  loggableId: string
   comparisonRunIds?: string[]
 }
 
@@ -24,11 +25,11 @@ function downsample(series: { step: number; value: number }[]): { step: number; 
   return result
 }
 
-export function NodeMetrics({ runId, nodeId, comparisonRunIds }: NodeMetricsProps) {
+export function NodeMetrics({ runId, loggableId, comparisonRunIds }: NodeMetricsProps) {
   const runs = useStore(s => s.runs)
   const runColors = useStore(s => s.runColors)
   const runNames = useStore(s => s.runNames)
-  const metrics = useStore(s => s.runs.get(runId)?.loggableMetrics[nodeId])
+  const metrics = useStore(s => s.runs.get(runId)?.loggableMetrics[loggableId])
 
   // Single-run mode
   const singleMetricEntries = useMemo(() => {
@@ -47,7 +48,7 @@ export function NodeMetrics({ runId, nodeId, comparisonRunIds }: NodeMetricsProp
     // Collect all metric names across all runs
     const metricNames = new Set<string>()
     for (const rid of comparisonRunIds) {
-      const runMetrics = runs.get(rid)?.loggableMetrics[nodeId]
+      const runMetrics = runs.get(rid)?.loggableMetrics[loggableId]
       if (runMetrics) {
         for (const name of Object.keys(runMetrics)) {
           metricNames.add(name)
@@ -60,7 +61,7 @@ export function NodeMetrics({ runId, nodeId, comparisonRunIds }: NodeMetricsProp
       const stepMap = new Map<number, Record<string, number>>()
 
       for (const rid of comparisonRunIds) {
-        const series = runs.get(rid)?.loggableMetrics[nodeId]?.[metricName]
+        const series = runs.get(rid)?.loggableMetrics[loggableId]?.[metricName]
         if (!series) continue
         const downsampled = downsample(series)
         for (const point of downsampled) {
@@ -74,7 +75,7 @@ export function NodeMetrics({ runId, nodeId, comparisonRunIds }: NodeMetricsProp
       const data = Array.from(stepMap.values()).sort((a, b) => a.step - b.step)
       return { name: metricName, data }
     })
-  }, [comparisonRunIds, runs, nodeId])
+  }, [comparisonRunIds, runs, loggableId])
 
   if (comparisonRunIds) {
     if (comparisonMetricEntries.length === 0) {

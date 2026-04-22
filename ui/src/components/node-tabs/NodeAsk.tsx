@@ -1,3 +1,4 @@
+// Renders a single loggable's tab; works for node- and global-kind loggables.
 import { useState } from 'react'
 import { useStore } from '@/store'
 import { api } from '@/lib/api'
@@ -6,10 +7,10 @@ import { Send, Clock } from 'lucide-react'
 
 interface NodeAskProps {
   runId: string
-  nodeId: string
+  loggableId: string
 }
 
-export function NodeAsk({ runId, nodeId }: NodeAskProps) {
+export function NodeAsk({ runId, loggableId }: NodeAskProps) {
   const run = useStore(s => s.runs.get(runId))
   const removeAskPrompt = useStore(s => s.removeAskPrompt)
   const [customResponse, setCustomResponse] = useState('')
@@ -17,7 +18,7 @@ export function NodeAsk({ runId, nodeId }: NodeAskProps) {
 
   // Find pending asks for this node
   const pendingAsks = Array.from(run?.pendingAsks?.values() ?? [])
-    .filter(a => a.nodeName === nodeId)
+    .filter(a => a.nodeName === loggableId)
 
   if (pendingAsks.length === 0) {
     return <p className="text-xs text-muted-foreground">No pending questions</p>

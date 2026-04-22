@@ -1,3 +1,4 @@
+// Renders a single loggable's tab; works for node- and global-kind loggables.
 import { useMemo } from 'react'
 import { useStore, type AudioEntry } from '@/store'
 import { useTimelineFilter } from '@/hooks/useTimelineFilter'
@@ -7,20 +8,20 @@ import { ComparisonGrid } from '@/components/shared/ComparisonGrid'
 
 interface NodeAudioProps {
   runId: string
-  nodeId: string
+  loggableId: string
   comparisonRunIds?: string[]
 }
 
-export function NodeAudio({ runId, nodeId, comparisonRunIds }: NodeAudioProps) {
+export function NodeAudio({ runId, loggableId, comparisonRunIds }: NodeAudioProps) {
   if (comparisonRunIds) {
     return (
       <ComparisonGrid runIds={comparisonRunIds}>
-        {(cellRunId) => <ComparisonAudioCell runId={cellRunId} nodeId={nodeId} />}
+        {(cellRunId) => <ComparisonAudioCell runId={cellRunId} loggableId={loggableId} />}
       </ComparisonGrid>
     )
   }
 
-  return <SingleRunAudio runId={runId} nodeId={nodeId} />
+  return <SingleRunAudio runId={runId} loggableId={loggableId} />
 }
 
 function AudioItem({ runId, entry, showTimestamp }: { runId: string; entry: AudioEntry; showTimestamp?: boolean }) {
@@ -52,8 +53,8 @@ function AudioItem({ runId, entry, showTimestamp }: { runId: string; entry: Audi
   )
 }
 
-function ComparisonAudioCell({ runId, nodeId }: { runId: string; nodeId: string }) {
-  const allAudioEntries = useStore(s => s.runs.get(runId)?.loggableAudio[nodeId]) ?? []
+function ComparisonAudioCell({ runId, loggableId }: { runId: string; loggableId: string }) {
+  const allAudioEntries = useStore(s => s.runs.get(runId)?.loggableAudio[loggableId]) ?? []
   const timelineFilter = useTimelineFilter()
 
   const audioEntries = useMemo(() => {
@@ -74,8 +75,8 @@ function ComparisonAudioCell({ runId, nodeId }: { runId: string; nodeId: string 
   )
 }
 
-function SingleRunAudio({ runId, nodeId }: { runId: string; nodeId: string }) {
-  const allAudioEntries = useStore(s => s.runs.get(runId)?.loggableAudio[nodeId]) ?? []
+function SingleRunAudio({ runId, loggableId }: { runId: string; loggableId: string }) {
+  const allAudioEntries = useStore(s => s.runs.get(runId)?.loggableAudio[loggableId]) ?? []
   const timelineFilter = useTimelineFilter()
 
   const audioEntries = useMemo(() => {

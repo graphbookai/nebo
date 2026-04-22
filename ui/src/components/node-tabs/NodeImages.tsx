@@ -1,3 +1,4 @@
+// Renders a single loggable's tab; works for node- and global-kind loggables.
 import { useMemo } from 'react'
 import { useStore, type ImageEntry } from '@/store'
 import { useTimelineFilter } from '@/hooks/useTimelineFilter'
@@ -7,20 +8,20 @@ import { ComparisonGrid } from '@/components/shared/ComparisonGrid'
 
 interface NodeImagesProps {
   runId: string
-  nodeId: string
+  loggableId: string
   comparisonRunIds?: string[]
 }
 
-export function NodeImages({ runId, nodeId, comparisonRunIds }: NodeImagesProps) {
+export function NodeImages({ runId, loggableId, comparisonRunIds }: NodeImagesProps) {
   if (comparisonRunIds) {
     return (
       <ComparisonGrid runIds={comparisonRunIds}>
-        {(cellRunId) => <ComparisonImageCell runId={cellRunId} nodeId={nodeId} />}
+        {(cellRunId) => <ComparisonImageCell runId={cellRunId} loggableId={loggableId} />}
       </ComparisonGrid>
     )
   }
 
-  return <SingleRunImages runId={runId} nodeId={nodeId} />
+  return <SingleRunImages runId={runId} loggableId={loggableId} />
 }
 
 function ImageItem({ runId, img, showTimestamp }: { runId: string; img: ImageEntry; showTimestamp?: boolean }) {
@@ -53,8 +54,8 @@ function ImageItem({ runId, img, showTimestamp }: { runId: string; img: ImageEnt
   )
 }
 
-function ComparisonImageCell({ runId, nodeId }: { runId: string; nodeId: string }) {
-  const allImages = useStore(s => s.runs.get(runId)?.loggableImages[nodeId]) ?? []
+function ComparisonImageCell({ runId, loggableId }: { runId: string; loggableId: string }) {
+  const allImages = useStore(s => s.runs.get(runId)?.loggableImages[loggableId]) ?? []
   const timelineFilter = useTimelineFilter()
 
   const images = useMemo(() => {
@@ -75,8 +76,8 @@ function ComparisonImageCell({ runId, nodeId }: { runId: string; nodeId: string 
   )
 }
 
-function SingleRunImages({ runId, nodeId }: { runId: string; nodeId: string }) {
-  const allImages = useStore(s => s.runs.get(runId)?.loggableImages[nodeId]) ?? []
+function SingleRunImages({ runId, loggableId }: { runId: string; loggableId: string }) {
+  const allImages = useStore(s => s.runs.get(runId)?.loggableImages[loggableId]) ?? []
   const timelineFilter = useTimelineFilter()
 
   const images = useMemo(() => {

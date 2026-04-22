@@ -1,3 +1,4 @@
+// Renders a single loggable's tab; works for node- and global-kind loggables.
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useStore } from '@/store'
@@ -9,13 +10,13 @@ import { ComparisonGrid } from '@/components/shared/ComparisonGrid'
 
 interface NodeLogsProps {
   runId: string
-  nodeId: string
+  loggableId: string
   comparisonRunIds?: string[]
 }
 
 const levels = ['All', 'Info', 'Warn', 'Error'] as const
 
-export function NodeLogs({ runId, nodeId, comparisonRunIds }: NodeLogsProps) {
+export function NodeLogs({ runId, loggableId, comparisonRunIds }: NodeLogsProps) {
   const [search, setSearch] = useState('')
   const [levelFilter, setLevelFilter] = useState<string>('All')
 
@@ -54,7 +55,7 @@ export function NodeLogs({ runId, nodeId, comparisonRunIds }: NodeLogsProps) {
           {(cellRunId) => (
             <ComparisonLogCell
               runId={cellRunId}
-              nodeId={nodeId}
+              loggableId={loggableId}
               search={search}
               levelFilter={levelFilter}
             />
@@ -67,7 +68,7 @@ export function NodeLogs({ runId, nodeId, comparisonRunIds }: NodeLogsProps) {
   return (
     <SingleRunLogs
       runId={runId}
-      nodeId={nodeId}
+      loggableId={loggableId}
       search={search}
       setSearch={setSearch}
       levelFilter={levelFilter}
@@ -78,20 +79,20 @@ export function NodeLogs({ runId, nodeId, comparisonRunIds }: NodeLogsProps) {
 
 interface ComparisonLogCellProps {
   runId: string
-  nodeId: string
+  loggableId: string
   search: string
   levelFilter: string
 }
 
-function ComparisonLogCell({ runId, nodeId, search, levelFilter }: ComparisonLogCellProps) {
+function ComparisonLogCell({ runId, loggableId, search, levelFilter }: ComparisonLogCellProps) {
   const logs = useStore(s => s.runs.get(runId)?.logs ?? [])
   const errors = useStore(s => s.runs.get(runId)?.errors ?? [])
   const timelineFilter = useTimelineFilter()
 
-  const nodeErrors = useMemo(() => errors.filter(e => e.node_name === nodeId), [errors, nodeId])
+  const nodeErrors = useMemo(() => errors.filter(e => e.node_name === loggableId), [errors, loggableId])
 
   const nodeLogs = useMemo(() => {
-    let filtered = logs.filter(l => l.node === nodeId)
+    let filtered = logs.filter(l => l.node === loggableId)
     if (levelFilter !== 'All') {
       const lvl = levelFilter.toLowerCase()
       filtered = filtered.filter(l => l.level === lvl)
@@ -104,7 +105,7 @@ function ComparisonLogCell({ runId, nodeId, search, levelFilter }: ComparisonLog
       filtered = filtered.filter(l => timelineFilter.matchEntry(l))
     }
     return filtered
-  }, [logs, nodeId, levelFilter, search, timelineFilter])
+  }, [logs, loggableId, levelFilter, search, timelineFilter])
 
   if (nodeLogs.length === 0 && nodeErrors.length === 0) {
     return <p className="text-xs text-muted-foreground p-2">No logs</p>
@@ -143,24 +144,24 @@ function ComparisonLogCell({ runId, nodeId, search, levelFilter }: ComparisonLog
 
 interface SingleRunLogsProps {
   runId: string
-  nodeId: string
+  loggableId: string
   search: string
   setSearch: (v: string) => void
   levelFilter: string
   setLevelFilter: (v: string) => void
 }
 
-function SingleRunLogs({ runId, nodeId, search, setSearch, levelFilter, setLevelFilter }: SingleRunLogsProps) {
+function SingleRunLogs({ runId, loggableId, search, setSearch, levelFilter, setLevelFilter }: SingleRunLogsProps) {
   const logs = useStore(s => s.runs.get(runId)?.logs ?? [])
   const errors = useStore(s => s.runs.get(runId)?.errors ?? [])
   const scrollRef = useRef<HTMLDivElement>(null)
   const [autoScroll, setAutoScroll] = useState(true)
   const timelineFilter = useTimelineFilter()
 
-  const nodeErrors = useMemo(() => errors.filter(e => e.node_name === nodeId), [errors, nodeId])
+  const nodeErrors = useMemo(() => errors.filter(e => e.node_name === loggableId), [errors, loggableId])
 
   const nodeLogs = useMemo(() => {
-    let filtered = logs.filter(l => l.node === nodeId)
+    let filtered = logs.filter(l => l.node === loggableId)
     if (levelFilter !== 'All') {
       const lvl = levelFilter.toLowerCase()
       filtered = filtered.filter(l => l.level === lvl)
@@ -173,9 +174,9 @@ function SingleRunLogs({ runId, nodeId, search, setSearch, levelFilter, setLevel
       filtered = filtered.filter(l => timelineFilter.matchEntry(l))
     }
     return filtered
-  }, [logs, nodeId, levelFilter, search, timelineFilter])
+  }, [logs, loggableId, levelFilter, search, timelineFilter])
 
-  const allNodeLogs = useMemo(() => logs.filter(l => l.node === nodeId), [logs, nodeId])
+  const allNodeLogs = useMemo(() => logs.filter(l => l.node === loggableId), [logs, loggableId])
 
   if (allNodeLogs.length === 0 && nodeErrors.length === 0) {
     return <p className="text-xs text-muted-foreground">No logs for this node</p>

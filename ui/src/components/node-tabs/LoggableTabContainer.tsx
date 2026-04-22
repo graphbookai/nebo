@@ -3,24 +3,24 @@ import { useStore, type NodeTab } from '@/store'
 import { cn } from '@/lib/utils'
 import { Pin } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { NodeTabContent } from './NodeTabContent'
+import { LoggableTabContent } from './LoggableTabContent'
 import { useComparisonContext } from '@/hooks/useComparisonContext'
 
-interface NodeTabContainerProps {
+interface LoggableTabContainerProps {
   runId: string
-  nodeId: string
+  loggableId: string
 }
 
 const allTabs: { key: NodeTab; label: string; alwaysShow: boolean }[] = [
   { key: 'info', label: 'Info', alwaysShow: true },
-  { key: 'logs', label: 'Logs', alwaysShow: true },
+  { key: 'logs', label: 'Logs', alwaysShow: false },
   { key: 'metrics', label: 'Metrics', alwaysShow: false },
   { key: 'images', label: 'Images', alwaysShow: false },
   { key: 'audio', label: 'Audio', alwaysShow: false },
   { key: 'ask', label: 'Ask', alwaysShow: false },
 ]
 
-export function NodeTabContainer({ runId, nodeId }: NodeTabContainerProps) {
+export function LoggableTabContainer({ runId, loggableId }: LoggableTabContainerProps) {
   const [activeTab, setActiveTab] = useState<NodeTab>('info')
   const pinTab = useStore(s => s.pinTab)
   const run = useStore(s => s.runs.get(runId))
@@ -30,39 +30,56 @@ export function NodeTabContainer({ runId, nodeId }: NodeTabContainerProps) {
   const hasPendingAsk = useMemo(() => {
     const asks = run?.pendingAsks
     if (!asks || asks.size === 0) return false
-    for (const a of asks.values()) { if (a.nodeName === nodeId) return true }
+    for (const a of asks.values()) { if (a.nodeName === loggableId) return true }
     return false
-  }, [run?.pendingAsks, nodeId])
+  }, [run?.pendingAsks, loggableId])
 
   // In comparison mode, aggregate data availability across all runs
+  const hasLogs = useMemo(() => {
+    if (isComparison) {
+      return comparisonRunIds.some(rid => {
+        const r = runs.get(rid)
+        if (!r) return false
+        const logsHit = r.logs?.some(l => l.node === loggableId) ?? false
+        const errHit = r.errors?.some(e => e.node_name === loggableId) ?? false
+        return logsHit || errHit
+      })
+    }
+    if (!run) return false
+    const logsHit = run.logs?.some(l => l.node === loggableId) ?? false
+    const errHit = run.errors?.some(e => e.node_name === loggableId) ?? false
+    return logsHit || errHit
+  }, [isComparison, comparisonRunIds, runs, run, loggableId])
+
   const hasMetrics = useMemo(() => {
     if (isComparison) {
       return comparisonRunIds.some(rid => {
         const r = runs.get(rid)
-        return !!r?.loggableMetrics?.[nodeId] && Object.keys(r.loggableMetrics[nodeId]).length > 0
+        return !!r?.loggableMetrics?.[loggableId] && Object.keys(r.loggableMetrics[loggableId]).length > 0
       })
     }
-    return !!run?.loggableMetrics?.[nodeId] && Object.keys(run.loggableMetrics[nodeId]).length > 0
-  }, [isComparison, comparisonRunIds, runs, run, nodeId])
+    return !!run?.loggableMetrics?.[loggableId] && Object.keys(run.loggableMetrics[loggableId]).length > 0
+  }, [isComparison, comparisonRunIds, runs, run, loggableId])
 
   const hasImages = useMemo(() => {
     if (isComparison) {
-      return comparisonRunIds.some(rid => (runs.get(rid)?.loggableImages?.[nodeId]?.length ?? 0) > 0)
+      return comparisonRunIds.some(rid => (runs.get(rid)?.loggableImages?.[loggableId]?.length ?? 0) > 0)
     }
-    return (run?.loggableImages?.[nodeId]?.length ?? 0) > 0
-  }, [isComparison, comparisonRunIds, runs, run, nodeId])
+    return (run?.loggableImages?.[loggableId]?.length ?? 0) > 0
+  }, [isComparison, comparisonRunIds, runs, run, loggableId])
 
   const hasAudio = useMemo(() => {
     if (isComparison) {
-      return comparisonRunIds.some(rid => (runs.get(rid)?.loggableAudio?.[nodeId]?.length ?? 0) > 0)
+      return comparisonRunIds.some(rid => (runs.get(rid)?.loggableAudio?.[loggableId]?.length ?? 0) > 0)
     }
-    return (run?.loggableAudio?.[nodeId]?.length ?? 0) > 0
-  }, [isComparison, comparisonRunIds, runs, run, nodeId])
+    return (run?.loggableAudio?.[loggableId]?.length ?? 0) > 0
+  }, [isComparison, comparisonRunIds, runs, run, loggableId])
 
   const visibleTabs = useMemo(() => {
     return allTabs.filter(tab => {
       if (tab.alwaysShow) return true
       switch (tab.key) {
+        case 'logs': return hasLogs
         case 'metrics': return hasMetrics
         case 'images': return hasImages
         case 'audio': return hasAudio
@@ -70,7 +87,7 @@ export function NodeTabContainer({ runId, nodeId }: NodeTabContainerProps) {
         default: return false
       }
     })
-  }, [hasMetrics, hasImages, hasAudio, hasPendingAsk])
+  }, [hasLogs, hasMetrics, hasImages, hasAudio, hasPendingAsk])
 
   // Only reset to 'info' if the user hasn't explicitly chosen a tab yet.
   // Once the user clicks a tab, keep it even if it temporarily leaves visibleTabs
@@ -112,7 +129,7 @@ export function NodeTabContainer({ runId, nodeId }: NodeTabContainerProps) {
           className="h-7 w-7 mr-1"
           onClick={(e) => {
             e.stopPropagation()
-            pinTab(runId, nodeId, resolvedTab)
+            pinTab(runId, loggableId, resolvedTab)
           }}
           title="Pin this tab"
         >
@@ -122,7 +139,7 @@ export function NodeTabContainer({ runId, nodeId }: NodeTabContainerProps) {
 
       {/* Tab content */}
       <div className="p-3 max-h-[300px] overflow-auto" onClick={e => e.stopPropagation()}>
-        <NodeTabContent runId={runId} nodeId={nodeId} tab={resolvedTab} comparisonRunIds={isComparison ? comparisonRunIds : undefined} />
+        <LoggableTabContent runId={runId} loggableId={loggableId} tab={resolvedTab} comparisonRunIds={isComparison ? comparisonRunIds : undefined} />
       </div>
     </div>
   )

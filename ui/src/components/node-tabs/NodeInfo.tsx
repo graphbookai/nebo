@@ -1,14 +1,15 @@
+// Renders a single loggable's tab; works for node- and global-kind loggables.
 import { useMemo } from 'react'
 import { useStore } from '@/store'
 import { ComparisonGrid } from '@/components/shared/ComparisonGrid'
 
 interface NodeInfoProps {
   runId: string
-  nodeId: string
+  loggableId: string
   comparisonRunIds?: string[]
 }
 
-export function NodeInfo({ runId, nodeId, comparisonRunIds }: NodeInfoProps) {
+export function NodeInfo({ runId, loggableId, comparisonRunIds }: NodeInfoProps) {
   const runs = useStore(s => s.runs)
 
   // Compute which params differ between runs (for highlighting)
@@ -16,11 +17,11 @@ export function NodeInfo({ runId, nodeId, comparisonRunIds }: NodeInfoProps) {
     if (!comparisonRunIds || comparisonRunIds.length < 2) return new Set<string>()
     const diffSet = new Set<string>()
     const firstRun = runs.get(comparisonRunIds[0])
-    const firstParams = firstRun?.graph?.nodes[nodeId]?.params
+    const firstParams = firstRun?.graph?.nodes[loggableId]?.params
     if (!firstParams) return diffSet
 
     for (let i = 1; i < comparisonRunIds.length; i++) {
-      const otherParams = runs.get(comparisonRunIds[i])?.graph?.nodes[nodeId]?.params
+      const otherParams = runs.get(comparisonRunIds[i])?.graph?.nodes[loggableId]?.params
       if (!otherParams) {
         // If one run doesn't have this node, all params differ
         for (const k of Object.keys(firstParams)) diffSet.add(k)
@@ -38,7 +39,7 @@ export function NodeInfo({ runId, nodeId, comparisonRunIds }: NodeInfoProps) {
       }
     }
     return diffSet
-  }, [comparisonRunIds, runs, nodeId])
+  }, [comparisonRunIds, runs, loggableId])
 
   if (comparisonRunIds) {
     return (
@@ -46,7 +47,7 @@ export function NodeInfo({ runId, nodeId, comparisonRunIds }: NodeInfoProps) {
         {(cellRunId) => (
           <ComparisonInfoCell
             runId={cellRunId}
-            nodeId={nodeId}
+            loggableId={loggableId}
             differingParams={differingParams}
           />
         )}
@@ -54,18 +55,18 @@ export function NodeInfo({ runId, nodeId, comparisonRunIds }: NodeInfoProps) {
     )
   }
 
-  return <SingleRunInfo runId={runId} nodeId={nodeId} />
+  return <SingleRunInfo runId={runId} loggableId={loggableId} />
 }
 
 interface ComparisonInfoCellProps {
   runId: string
-  nodeId: string
+  loggableId: string
   differingParams: Set<string>
 }
 
-function ComparisonInfoCell({ runId, nodeId, differingParams }: ComparisonInfoCellProps) {
+function ComparisonInfoCell({ runId, loggableId, differingParams }: ComparisonInfoCellProps) {
   const run = useStore(s => s.runs.get(runId))
-  const nodeInfo = run?.graph?.nodes[nodeId]
+  const nodeInfo = run?.graph?.nodes[loggableId]
 
   if (!nodeInfo) return <p className="text-xs text-muted-foreground p-2">Node not found</p>
 
@@ -119,10 +120,10 @@ function ComparisonInfoCell({ runId, nodeId, differingParams }: ComparisonInfoCe
   )
 }
 
-function SingleRunInfo({ runId, nodeId }: { runId: string; nodeId: string }) {
+function SingleRunInfo({ runId, loggableId }: { runId: string; loggableId: string }) {
   const run = useStore(s => s.runs.get(runId))
-  const nodeInfo = run?.graph?.nodes[nodeId]
-  const inspections = run?.loggableInspections[nodeId]
+  const nodeInfo = run?.graph?.nodes[loggableId]
+  const inspections = run?.loggableInspections[loggableId]
 
   if (!nodeInfo) return <p className="text-xs text-muted-foreground">Node not found</p>
 

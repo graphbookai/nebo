@@ -3,7 +3,7 @@ import { Handle, NodeResizer, Position, useUpdateNodeInternals, type NodeProps }
 import { useStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { ChevronDown, ChevronRight, Maximize2 } from 'lucide-react'
-import { NodeTabContainer } from '@/components/node-tabs/NodeTabContainer'
+import { LoggableTabContainer } from '@/components/node-tabs/LoggableTabContainer'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useContextMenu } from '@/hooks/useContextMenu'
 import { ContextMenu } from '@/components/shared/ContextMenu'
@@ -165,7 +165,7 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
       {isExpanded && !(isDragging && hideTabsOnDrag) && (
         <div className="border-t border-border" onWheelCapture={e => e.stopPropagation()}>
           <ErrorBoundary label={`Node ${nodeId}`}>
-            <NodeTabContainer runId={runId} nodeId={nodeId} />
+            <LoggableTabContainer runId={runId} loggableId={nodeId} />
           </ErrorBoundary>
         </div>
       )}
