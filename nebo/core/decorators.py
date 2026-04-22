@@ -185,7 +185,7 @@ def _decorate_function(f, depends_on, pausable, group=None, ui_hints=None):
         # Materialize the node as soon as the wrapper starts executing, so
         # decorated functions that never call nb.log* still appear in the
         # graph and act as real links in dependency chains.
-        state.ensure_node(node_id)
+        state.ensure_loggable(node_id)
 
         state.ensure_display()
         parent = _current_node.get()

@@ -142,7 +142,7 @@ class SessionState:
     ) -> NodeInfo:
         """Register a new node locally but do NOT send node_register event.
 
-        The node stays unmaterialized until ensure_node() is called
+        The node stays unmaterialized until ensure_loggable() is called
         (triggered by the first log/metric/image/audio/text call).
         """
         with self._lock_state:
@@ -163,8 +163,8 @@ class SessionState:
                 existing.group = group
         return self.loggables[node_id]  # type: ignore[return-value]
 
-    def ensure_node(self, node_id: str) -> None:
-        """Materialize a node and emit its ``node_register`` event.
+    def ensure_loggable(self, loggable_id: str) -> None:
+        """Materialize a loggable and emit its register event if it's a node.
 
         Called by the ``@nb.fn`` wrapper as soon as a decorated function
         starts executing, so every executed node appears in the graph
@@ -172,16 +172,21 @@ class SessionState:
         defensively by the log/metric/image/audio/text paths so that
         logging from an already-executing node is a no-op on the
         already-materialized node (idempotent).
+
+        For global-kind loggables this is a no-op — the global loggable
+        is seeded at state init and has no materialize event. The emitted
+        ``type`` stays ``node_register`` for now; the wire-protocol rename
+        lands in a later task.
         """
-        node = self.loggables.get(node_id)
+        node = self.loggables.get(loggable_id)
         if node is None or not isinstance(node, NodeInfo) or node.materialized:
             return
         node.materialized = True
         self._send_to_client({
             "type": "node_register",
-            "node": node_id,
+            "node": loggable_id,
             "data": {
-                "node_id": node_id,
+                "node_id": loggable_id,
                 "func_name": node.func_name,
                 "docstring": node.docstring,
                 "pausable": node.pausable,
@@ -189,6 +194,10 @@ class SessionState:
                 "ui_hints": node.ui_hints,
             },
         })
+
+    def get_loggable(self, loggable_id: str) -> Optional[LoggableInfo]:
+        """Return the loggable with the given id, or None if not present."""
+        return self.loggables.get(loggable_id)
 
     def wait_if_paused(self) -> None:
         """Block until unpaused. Used by pausable @fn nodes.

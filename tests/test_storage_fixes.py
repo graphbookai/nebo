@@ -46,7 +46,7 @@ def test_get_graph_dict_filters_unmaterialized():
     state.register_node("hidden_node", "hidden", docstring=None, pausable=False)
     # Register and materialize another
     state.register_node("visible_node", "visible", docstring=None, pausable=False)
-    state.ensure_node("visible_node")
+    state.ensure_loggable("visible_node")
 
     graph = state.get_graph_dict()
     assert "visible_node" in graph["nodes"]
