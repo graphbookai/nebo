@@ -41,7 +41,7 @@ def line_demo() -> None:
         phase = "warmup" if step < 20 else "main"
         nb.log_metric(
             "loss",
-            math.exp(-step / 20.0) + 0.01 * jitter_scale * math.sin(step + _SEED % 7),
+            math.exp(-step / 20.0) + 0.1 * jitter_scale * math.sin(step + _SEED % 7),
             tags=[f"phase:{phase}"],
         )
         nb.log_metric(
