@@ -284,6 +284,7 @@ def test_log_image_accepts_labels_and_emits_them():
 
     class FakeClient:
         def send_event(self, event): captured.append(event)
+        def is_connected(self): return True  # consulted by the display thread
 
     nb.get_state()._client = FakeClient()
 
@@ -317,6 +318,7 @@ def test_log_image_bitmask_stored_as_media_reference():
 
     class FakeClient:
         def send_event(self, event): captured.append(event)
+        def is_connected(self): return True  # consulted by the display thread
 
     nb.get_state()._client = FakeClient()
 

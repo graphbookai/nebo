@@ -210,6 +210,7 @@ class DaemonState:
 
         if store:
             from nebo.core.fileformat import NeboFileWriter
+            self.init_storage()
             timestamp = time.strftime("%Y-%m-%d_%H%M%S")
             filepath = os.path.join(NEBO_STORAGE_DIR, f"{timestamp}_{run_id}.nebo")
             run._file_stream = open(filepath, "wb")
