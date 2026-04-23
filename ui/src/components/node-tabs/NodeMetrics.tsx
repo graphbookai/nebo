@@ -44,9 +44,8 @@ import {
   chartScatterCursor,
 } from '@/components/charts/chartStyles'
 import { PortalTooltip } from '@/components/charts/PortalTooltip'
-
-const SCATTER_SHAPES = ['circle', 'cross', 'diamond', 'square', 'star', 'triangle', 'wye'] as const
-type ScatterShape = (typeof SCATTER_SHAPES)[number]
+import { ShapeIcon } from '@/components/charts/ShapeIcon'
+import { UNTAGGED_KEY, entryTag, shapeForTag } from '@/components/charts/scatterShape'
 
 interface NodeMetricsProps {
   runId: string
@@ -83,8 +82,6 @@ function SingleRunMetrics({ runId, loggableId }: { runId: string; loggableId: st
     </div>
   )
 }
-
-const UNTAGGED_KEY = '__untagged__'
 
 function MetricBlock({
   name,
@@ -153,37 +150,63 @@ function MetricBlock({
               label={t === UNTAGGED_KEY ? '(untagged)' : t}
               active={activeTags.has(t)}
               onClick={() => toggle(t)}
+              icon={
+                series.type === 'scatter' ? (
+                  <ShapeIcon shape={shapeForTag(t, allTags)} color={color} />
+                ) : undefined
+              }
             />
           ))}
         </div>
       )}
       <div className="mt-1">
-        <SingleRunChart type={series.type} entries={filtered} color={color} />
+        <SingleRunChart type={series.type} entries={filtered} color={color} allTags={allTags} />
       </div>
     </div>
   )
 }
 
-function Chip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function Chip({
+  label,
+  active,
+  onClick,
+  icon,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+  icon?: React.ReactNode
+}) {
   return (
     <button
       onClick={onClick}
       className={
-        'text-[10px] rounded px-1.5 py-0.5 border ' +
+        'text-[10px] rounded px-1.5 py-0.5 border flex items-center gap-1 ' +
         (active
           ? 'bg-accent text-accent-foreground border-accent'
           : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted')
       }
     >
+      {icon}
       {label}
     </button>
   )
 }
 
-function SingleRunChart({ type, entries, color }: { type: string; entries: MetricEntry[]; color: string }) {
+function SingleRunChart({
+  type,
+  entries,
+  color,
+  allTags,
+}: {
+  type: string
+  entries: MetricEntry[]
+  color: string
+  allTags: string[]
+}) {
   if (type === 'line') return <LineMetric entries={entries} color={color} />
   if (type === 'histogram') return <HistogramMetric entries={entries} color={color} />
-  if (type === 'scatter') return <ScatterMetric entries={entries} color={color} />
+  if (type === 'scatter') return <ScatterMetric entries={entries} color={color} allTags={allTags} />
   // bar and pie emit one chart per emission; step label above each.
   return (
     <div className="space-y-3">
@@ -383,6 +406,12 @@ function ComparisonMetricBlock({
             label={t === UNTAGGED_KEY ? '(untagged)' : t}
             active={activeTags.has(t)}
             onClick={() => toggleTag(t)}
+            icon={
+              type === 'scatter' ? (
+                // Color-neutral on the chip; the point's color is the run's.
+                <ShapeIcon shape={shapeForTag(t, allTags)} color="var(--color-popover-foreground)" />
+              ) : undefined
+            }
           />
         ))}
       </div>
@@ -393,6 +422,7 @@ function ComparisonMetricBlock({
           loggableId={loggableId}
           runIds={runIds}
           activeTags={activeTags}
+          allTags={allTags}
         />
       </div>
     </div>
@@ -405,12 +435,14 @@ function ComparisonChart({
   loggableId,
   runIds,
   activeTags,
+  allTags,
 }: {
   type: string
   name: string
   loggableId: string
   runIds: string[]
   activeTags: Set<string>
+  allTags: string[]
 }) {
   const runs = useStore(s => s.runs)
   const runColors = useStore(s => s.runColors)
@@ -436,7 +468,7 @@ function ComparisonChart({
   if (type === 'line') return <ComparisonLine runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
   if (type === 'bar') return <ComparisonBar runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
   if (type === 'histogram') return <ComparisonHistogram runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
-  if (type === 'scatter') return <ComparisonScatter runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
+  if (type === 'scatter') return <ComparisonScatter runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} allTags={allTags} />
   // pie: one pie per run (stacked)
   return (
     <div className="space-y-2">
@@ -672,15 +704,15 @@ function ComparisonHistogram({ runIds, runColors, runNameFor, seriesFor }: {
   )
 }
 
-function ComparisonScatter({ runIds, runColors, runNameFor, seriesFor }: {
+function ComparisonScatter({ runIds, runColors, runNameFor, seriesFor, allTags }: {
   runIds: string[]
   runColors: Map<string, string>
   runNameFor: (rid: string) => string
   seriesFor: SeriesFor
+  allTags: string[]
 }) {
-  type Slot = { rid: string; step: number; shapeIdx: number; data: { x: number; y: number }[] }
+  type Slot = { rid: string; step: number; tag: string; data: { x: number; y: number }[] }
   const slots: Slot[] = []
-  let shapeIdx = 0
   for (const rid of runIds) {
     const s = seriesFor(rid)
     if (!s) continue
@@ -688,8 +720,7 @@ function ComparisonScatter({ runIds, runColors, runNameFor, seriesFor }: {
       const v = e.value as { x?: unknown; y?: unknown } | undefined
       if (!v || !Array.isArray(v.x) || !Array.isArray(v.y)) continue
       const data = (v.x as number[]).map((x, i) => ({ x, y: (v.y as number[])[i] }))
-      slots.push({ rid, step: e.step ?? 0, shapeIdx: shapeIdx % SCATTER_SHAPES.length, data })
-      shapeIdx++
+      slots.push({ rid, step: e.step ?? 0, tag: entryTag(e), data })
     }
   }
   if (slots.length === 0) {
@@ -709,7 +740,7 @@ function ComparisonScatter({ runIds, runColors, runNameFor, seriesFor }: {
         />
         {slots.map((slot, i) => {
           const color = runColors.get(slot.rid) ?? '#60a5fa'
-          const shape: ScatterShape = SCATTER_SHAPES[slot.shapeIdx]
+          const shape = shapeForTag(slot.tag, allTags)
           return (
             <Scatter
               key={`${slot.rid}-${slot.step}-${i}`}

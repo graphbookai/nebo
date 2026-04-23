@@ -7,22 +7,19 @@ import {
   chartScatterCursor,
 } from './chartStyles'
 import { PortalTooltip } from './PortalTooltip'
+import { entryTag, shapeForTag } from './scatterShape'
 
-// recharts' 7 built-in scatter shapes; recycled modulo length when more
-// steps are present. All points share the run color — shape distinguishes
-// step within a run.
-const SCATTER_SHAPES = [
-  'circle',
-  'cross',
-  'diamond',
-  'square',
-  'star',
-  'triangle',
-  'wye',
-] as const
-type ScatterShape = (typeof SCATTER_SHAPES)[number]
-
-export function ScatterMetric({ entries, color }: { entries: MetricEntry[]; color: string }) {
+// All points share the run color. Shape is keyed by the entry's
+// representative tag so the same tag uses the same shape across runs.
+export function ScatterMetric({
+  entries,
+  color,
+  allTags,
+}: {
+  entries: MetricEntry[]
+  color: string
+  allTags: string[]
+}) {
   const valid = entries
     .map((e, idx) => ({ e, idx }))
     .filter(({ e }) => {
@@ -40,10 +37,11 @@ export function ScatterMetric({ entries, color }: { entries: MetricEntry[]; colo
         {/* ZAxis range in px^2; small points keep dense clouds readable. */}
         <ZAxis range={[18, 18]} />
         <Tooltip cursor={chartScatterCursor} wrapperStyle={chartHiddenWrapper} content={<PortalTooltip />} />
-        {valid.map(({ e, idx }, j) => {
+        {valid.map(({ e, idx }) => {
           const v = e.value as { x: number[]; y: number[] }
           const data = v.x.map((x, i) => ({ x, y: v.y[i] }))
-          const shape: ScatterShape = SCATTER_SHAPES[j % SCATTER_SHAPES.length]
+          const tag = entryTag(e)
+          const shape = shapeForTag(tag, allTags)
           const step = e.step ?? idx
           return (
             <Scatter
