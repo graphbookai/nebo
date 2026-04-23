@@ -12,9 +12,10 @@
 //   - tag chips (the tags the user attached via `tags=`)
 //   - step chips (each emission's step number)
 //   - run chips (only in comparison)
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '@/store'
 import type { MetricEntry, LoggableMetricSeries } from '@/lib/api'
+import { DEFAULT_RUN_COLOR } from '@/lib/colors'
 import { LineMetric } from '@/components/charts/LineMetric'
 import { BarMetric } from '@/components/charts/BarMetric'
 import { PieMetric } from '@/components/charts/PieMetric'
@@ -45,7 +46,8 @@ import {
 } from '@/components/charts/chartStyles'
 import { PortalTooltip } from '@/components/charts/PortalTooltip'
 import { ShapeIcon } from '@/components/charts/ShapeIcon'
-import { UNTAGGED_KEY, entryTag, shapeForTag } from '@/components/charts/scatterShape'
+import { UNTAGGED_KEY, entryTag, shapeForTag, entriesMatchingTags } from '@/components/charts/scatterShape'
+import { useTagChips } from '@/components/charts/useTagChips'
 
 interface NodeMetricsProps {
   runId: string
@@ -62,7 +64,7 @@ export function NodeMetrics({ runId, loggableId, comparisonRunIds }: NodeMetrics
 
 function SingleRunMetrics({ runId, loggableId }: { runId: string; loggableId: string }) {
   const metrics = useStore(s => s.runs.get(runId)?.loggableMetrics[loggableId]) ?? {}
-  const runColor = useStore(s => s.runColors.get(runId)) ?? '#60a5fa'
+  const runColor = useStore(s => s.runColors.get(runId)) ?? DEFAULT_RUN_COLOR
   const getOrAssignRunColor = useStore(s => s.getOrAssignRunColor)
 
   // Make sure this run has an assigned color — the store lazily assigns on demand.
@@ -104,42 +106,12 @@ function MetricBlock({
     return out
   }, [series.entries])
 
-  // All chips start selected so nothing is hidden by default. Only *newly
-  // discovered* tags are auto-added to activeTags — otherwise a streaming
-  // WebSocket update that merely reaffirms existing tags would clobber a
-  // user's deselection.
-  const [activeTags, setActiveTags] = useState<Set<string>>(() => new Set(allTags))
-  const seenTags = useRef<Set<string>>(new Set(allTags))
-  useEffect(() => {
-    const fresh: string[] = []
-    for (const t of allTags) {
-      if (!seenTags.current.has(t)) {
-        seenTags.current.add(t)
-        fresh.push(t)
-      }
-    }
-    if (fresh.length === 0) return
-    setActiveTags(prev => {
-      const next = new Set(prev)
-      for (const t of fresh) next.add(t)
-      return next
-    })
-  }, [allTags])
+  const { active: activeTags, toggle } = useTagChips(allTags)
 
-  const filtered = useMemo(() => {
-    return series.entries.filter(e => {
-      if (e.tags.length === 0) return activeTags.has(UNTAGGED_KEY)
-      return e.tags.some(t => activeTags.has(t))
-    })
-  }, [series.entries, activeTags])
-
-  const toggle = (v: string) =>
-    setActiveTags(prev => {
-      const next = new Set(prev)
-      if (next.has(v)) next.delete(v)
-      else next.add(v)
-      return next
-    })
+  const filtered = useMemo(
+    () => entriesMatchingTags(series.entries, activeTags),
+    [series.entries, activeTags],
+  )
 
   return (
     <div>
@@ -350,31 +322,7 @@ function ComparisonMetricBlock({
     return out
   }, [comparisonRunIds, runs, loggableId, name])
 
-  const [activeTags, setActiveTags] = useState<Set<string>>(() => new Set(allTags))
-  const seenTags = useRef<Set<string>>(new Set(allTags))
-  useEffect(() => {
-    const fresh: string[] = []
-    for (const t of allTags) {
-      if (!seenTags.current.has(t)) {
-        seenTags.current.add(t)
-        fresh.push(t)
-      }
-    }
-    if (fresh.length === 0) return
-    setActiveTags(prev => {
-      const next = new Set(prev)
-      for (const t of fresh) next.add(t)
-      return next
-    })
-  }, [allTags])
-
-  const toggleTag = (t: string) =>
-    setActiveTags(prev => {
-      const next = new Set(prev)
-      if (next.has(t)) next.delete(t)
-      else next.add(t)
-      return next
-    })
+  const { active: activeTags, toggle: toggleTag } = useTagChips(allTags)
 
   return (
     <div>
@@ -385,7 +333,7 @@ function ComparisonMetricBlock({
       <div className="mt-1 flex flex-wrap gap-1">
         {comparisonRunIds.map(rid => {
           const active = activeRuns.has(rid)
-          const color = runColors.get(rid) ?? '#60a5fa'
+          const color = runColors.get(rid) ?? DEFAULT_RUN_COLOR
           return (
             <button
               key={rid}
@@ -462,20 +410,14 @@ function ComparisonChart({
 
   const runNameFor = (rid: string) =>
     runNames.get(rid) || runs.get(rid)?.summary.script_path.split('/').pop() || rid
-  const seriesFor = (rid: string) => {
-    const s = runs.get(rid)?.loggableMetrics[loggableId]?.[name]
-    if (!s) return undefined
-    // No tag chips selected → untagged entries only. Otherwise keep entries
-    // whose tag set intersects the selected chips.
-    // Keep untagged entries if the (untagged) chip is active, tagged entries
-    // if any of their tags are active. All chips default to selected so
-    // nothing is hidden without an explicit deselect.
-    const entries = s.entries.filter(e => {
-      if (e.tags.length === 0) return activeTags.has(UNTAGGED_KEY)
-      return e.tags.some(t => activeTags.has(t))
-    })
-    return { ...s, entries }
-  }
+  const seriesFor = useCallback(
+    (rid: string) => {
+      const s = runs.get(rid)?.loggableMetrics[loggableId]?.[name]
+      if (!s) return undefined
+      return { ...s, entries: entriesMatchingTags(s.entries, activeTags) }
+    },
+    [runs, loggableId, name, activeTags],
+  )
 
   if (type === 'line') return <ComparisonLine runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
   if (type === 'bar') return <ComparisonBar runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
@@ -545,7 +487,7 @@ function ComparisonLine({ runIds, runColors, runNameFor, seriesFor }: {
               key={rid}
               type="monotone"
               dataKey={rid}
-              stroke={runColors.get(rid) ?? '#60a5fa'}
+              stroke={runColors.get(rid) ?? DEFAULT_RUN_COLOR}
               strokeWidth={1.5}
               dot={false}
               isAnimationActive={false}
@@ -564,39 +506,52 @@ function ComparisonBar({ runIds, runColors, runNameFor, seriesFor }: {
   runNameFor: (rid: string) => string
   seriesFor: SeriesFor
 }) {
-  // Per-step chart: x = dict keys (categories), each run stacks its values.
-  // Step is taken from the union of all runs' steps.
-  const stepsSet = new Set<number>()
-  for (const rid of runIds) {
-    const s = seriesFor(rid)
-    if (!s) continue
-    for (const e of s.entries) stepsSet.add(e.step ?? 0)
-  }
-  const steps = [...stepsSet].sort((a, b) => a - b)
+  // One chart per step: x = dict keys (categories), each run's column stacks
+  // its values at that step. Entries are pre-grouped by step so the nested
+  // loop below is O(runs × steps) rather than the O(runs × steps × entries)
+  // a per-step `Array.find` walk would cost.
+  const stepViews = useMemo(() => {
+    type Grouped = Record<string, MetricEntry>
+    const byRun: Record<string, Grouped> = {}
+    const stepsSet = new Set<number>()
+    for (const rid of runIds) {
+      const series = seriesFor(rid)
+      if (!series) continue
+      const m: Grouped = {}
+      for (const e of series.entries) {
+        const step = e.step ?? 0
+        stepsSet.add(step)
+        m[step] = e
+      }
+      byRun[rid] = m
+    }
+    const steps = [...stepsSet].sort((a, b) => a - b)
+    return steps.map(step => {
+      const categories = new Set<string>()
+      const perRun: Record<string, Record<string, number>> = {}
+      for (const rid of runIds) {
+        const e = byRun[rid]?.[step]
+        if (!e) continue
+        const v = e.value as Record<string, unknown> | undefined
+        if (!v || typeof v !== 'object') continue
+        perRun[rid] = {}
+        for (const [k, vv] of Object.entries(v)) {
+          categories.add(k)
+          perRun[rid][k] = typeof vv === 'number' ? vv : Number(vv) || 0
+        }
+      }
+      const data = [...categories].map(cat => {
+        const row: Record<string, number | string> = { category: cat }
+        for (const rid of runIds) row[rid] = perRun[rid]?.[cat] ?? 0
+        return row
+      })
+      return { step, data }
+    })
+  }, [runIds, seriesFor])
+
   return (
     <div className="space-y-3">
-      {steps.map(step => {
-        const categories = new Set<string>()
-        const perRun: Record<string, Record<string, number>> = {}
-        for (const rid of runIds) {
-          const s = seriesFor(rid)
-          if (!s) continue
-          const e = s.entries.find(x => (x.step ?? 0) === step)
-          if (!e) continue
-          const v = e.value as Record<string, unknown> | undefined
-          if (!v || typeof v !== 'object') continue
-          perRun[rid] = {}
-          for (const [k, vv] of Object.entries(v)) {
-            categories.add(k)
-            perRun[rid][k] = typeof vv === 'number' ? vv : Number(vv) || 0
-          }
-        }
-        const catList = [...categories]
-        const data = catList.map(cat => {
-          const row: Record<string, number | string> = { category: cat }
-          for (const rid of runIds) row[rid] = perRun[rid]?.[cat] ?? 0
-          return row
-        })
+      {stepViews.map(({ step, data }) => {
         return (
           <div key={step}>
             <div className="text-[10px] text-muted-foreground mb-0.5">Step {step}</div>
@@ -618,7 +573,7 @@ function ComparisonBar({ runIds, runColors, runNameFor, seriesFor }: {
                     key={rid}
                     dataKey={rid}
                     stackId="stack"
-                    fill={runColors.get(rid) ?? '#60a5fa'}
+                    fill={runColors.get(rid) ?? DEFAULT_RUN_COLOR}
                   />
                 ))}
               </BarChart>
@@ -636,41 +591,56 @@ function ComparisonHistogram({ runIds, runColors, runNameFor, seriesFor }: {
   runNameFor: (rid: string) => string
   seriesFor: SeriesFor
 }) {
-  // Bin all samples across every run × every step against a shared range.
   type Slot = { rid: string; step: number; samples: number[] }
-  const slots: Slot[] = []
-  for (const rid of runIds) {
-    const s = seriesFor(rid)
-    if (!s) continue
-    for (const e of s.entries) {
-      if (Array.isArray(e.value)) {
-        slots.push({ rid, step: e.step ?? 0, samples: e.value as number[] })
+  const NUM = 30
+
+  const { slots, data } = useMemo(() => {
+    // Bin all samples across every run × every step against a shared range.
+    const s: Slot[] = []
+    for (const rid of runIds) {
+      const series = seriesFor(rid)
+      if (!series) continue
+      for (const e of series.entries) {
+        if (Array.isArray(e.value)) {
+          s.push({ rid, step: e.step ?? 0, samples: e.value as number[] })
+        }
       }
     }
-  }
-  if (slots.length === 0) {
-    return <p className="text-[10px] text-muted-foreground">No histogram samples to compare</p>
-  }
-  const flat = slots.flatMap(s => s.samples)
-  const min = Math.min(...flat)
-  const max = Math.max(...flat)
-  const NUM = 30
-  const size = (max - min) / NUM || 1
-  const data = Array.from({ length: NUM }, (_, i) => {
-    const row: Record<string, number> = { x: min + (i + 0.5) * size }
-    slots.forEach((slot, j) => {
-      const key = `${slot.rid}__${slot.step}__${j}`
-      let count = 0
+    if (s.length === 0) return { slots: s, data: [] as Record<string, number>[] }
+    // Fold-based min/max — avoids `Math.min(...arr)` stack overflow on large
+    // sample pools and is O(N) with no intermediate allocation.
+    let min = Infinity
+    let max = -Infinity
+    for (const slot of s) for (const v of slot.samples) {
+      if (v < min) min = v
+      if (v > max) max = v
+    }
+    const size = (max - min) / NUM || 1
+    // Pre-bin each slot once; avoids rescanning every slot per bin.
+    const counts = s.map(slot => {
+      const row = new Array<number>(NUM).fill(0)
       for (const v of slot.samples) {
         let idx = Math.floor((v - min) / size)
         if (idx < 0) idx = 0
         if (idx > NUM - 1) idx = NUM - 1
-        if (idx === i) count++
+        row[idx]++
       }
-      row[key] = count
+      return row
     })
-    return row
-  })
+    const rows: Record<string, number>[] = []
+    for (let i = 0; i < NUM; i++) {
+      const row: Record<string, number> = { x: min + (i + 0.5) * size }
+      s.forEach((slot, j) => {
+        row[`${slot.rid}__${slot.step}__${j}`] = counts[j][i]
+      })
+      rows.push(row)
+    }
+    return { slots: s, data: rows }
+  }, [runIds, seriesFor])
+
+  if (slots.length === 0) {
+    return <p className="text-[10px] text-muted-foreground">No histogram samples to compare</p>
+  }
   return (
     <ResponsiveContainer width="100%" height={200}>
       <AreaChart data={data}>
@@ -698,7 +668,7 @@ function ComparisonHistogram({ runIds, runColors, runNameFor, seriesFor }: {
         />
         {slots.map((slot, j) => {
           const key = `${slot.rid}__${slot.step}__${j}`
-          const color = runColors.get(slot.rid) ?? '#60a5fa'
+          const color = runColors.get(slot.rid) ?? DEFAULT_RUN_COLOR
           return (
             <Area
               key={key}
@@ -751,7 +721,7 @@ function ComparisonScatter({ runIds, runColors, runNameFor, seriesFor, allTags }
           content={<PortalTooltip />}
         />
         {slots.map((slot, i) => {
-          const color = runColors.get(slot.rid) ?? '#60a5fa'
+          const color = runColors.get(slot.rid) ?? DEFAULT_RUN_COLOR
           const shape = shapeForTag(slot.tag, allTags)
           return (
             <Scatter

@@ -23,15 +23,6 @@ export const chartTooltipLabel: React.CSSProperties = {
   fontWeight: 500,
 }
 
-// Float tooltips above nearby cards and escape their chart viewBox so they
-// remain visible when a point is near the edge of the plot area.
-export const chartTooltipWrapper: React.CSSProperties = {
-  zIndex: 50,
-  outline: 'none',
-}
-
-export const chartTooltipAllowEscape = { x: true, y: true }
-
 // Cursor shown under the pointer. For bar/histogram-style charts the cursor
 // is a filled rectangle behind the hovered datum — use a subtle muted fill so
 // it reads on both light and dark themes.

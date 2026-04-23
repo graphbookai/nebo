@@ -16,3 +16,7 @@ export const RUN_COLOR_PALETTE = [
 export function assignColor(index: number): string {
   return RUN_COLOR_PALETTE[index % RUN_COLOR_PALETTE.length]
 }
+
+// Fallback run color for subscribers that render before the store has
+// assigned a specific color. Matches the first palette entry.
+export const DEFAULT_RUN_COLOR = RUN_COLOR_PALETTE[0]

@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react'
 import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import type { MetricEntry } from '@/lib/api'
 import {
@@ -11,7 +12,7 @@ import { entryTag, shapeForTag } from './scatterShape'
 
 // All points share the run color. Shape is keyed by the entry's
 // representative tag so the same tag uses the same shape across runs.
-export function ScatterMetric({
+export const ScatterMetric = memo(function ScatterMetric({
   entries,
   color,
   allTags,
@@ -20,12 +21,16 @@ export function ScatterMetric({
   color: string
   allTags: string[]
 }) {
-  const valid = entries
-    .map((e, idx) => ({ e, idx }))
-    .filter(({ e }) => {
-      const v = e.value as { x?: unknown; y?: unknown } | undefined
-      return !!v && Array.isArray(v.x) && Array.isArray(v.y)
-    })
+  const valid = useMemo(
+    () =>
+      entries
+        .map((e, idx) => ({ e, idx }))
+        .filter(({ e }) => {
+          const v = e.value as { x?: unknown; y?: unknown } | undefined
+          return !!v && Array.isArray(v.x) && Array.isArray(v.y)
+        }),
+    [entries],
+  )
   if (valid.length === 0) return null
 
   return (
@@ -59,4 +64,4 @@ export function ScatterMetric({
       </ScatterChart>
     </ResponsiveContainer>
   )
-}
+})

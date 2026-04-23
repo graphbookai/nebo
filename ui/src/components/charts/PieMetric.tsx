@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import type { MetricEntry } from '@/lib/api'
 import { chartHiddenWrapper } from './chartStyles'
@@ -8,13 +9,16 @@ import { PortalTooltip } from './PortalTooltip'
 // for readable slice distinction — color here represents categories within a
 // snapshot, not runs. Comparing multiple pies across runs renders multiple
 // independent pies (handled by the enclosing dispatcher).
-export function PieMetric({ entry }: { entry: MetricEntry }) {
-  const value = entry.value as Record<string, number> | undefined
-  if (!value) return null
-  const data = Object.entries(value).map(([name, v]) => ({
-    name,
-    value: typeof v === 'number' ? v : Number(v) || 0,
-  }))
+export const PieMetric = memo(function PieMetric({ entry }: { entry: MetricEntry }) {
+  const data = useMemo(() => {
+    const value = entry.value as Record<string, number> | undefined
+    if (!value) return null
+    return Object.entries(value).map(([name, v]) => ({
+      name,
+      value: typeof v === 'number' ? v : Number(v) || 0,
+    }))
+  }, [entry.value])
+  if (!data) return null
   return (
     <ResponsiveContainer width="100%" height={180}>
       <PieChart>
@@ -34,4 +38,4 @@ export function PieMetric({ entry }: { entry: MetricEntry }) {
       </PieChart>
     </ResponsiveContainer>
   )
-}
+})

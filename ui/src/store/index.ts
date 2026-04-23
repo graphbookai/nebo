@@ -951,10 +951,17 @@ export const useStore = create<NeboStore>((set, get) => ({
               tags: ((event.tags as string[]) ?? (data.tags as string[]) ?? []),
               timestamp: (event.timestamp as number) ?? Date.now() / 1000,
             }
-            if (!run.loggableMetrics[lid]) run.loggableMetrics[lid] = {}
-            const existing = run.loggableMetrics[lid][mname]
-            if (!existing) run.loggableMetrics[lid][mname] = { type: mtype, entries: [entry] }
-            else existing.entries.push(entry)
+            // Immutable update so `useMemo([series.entries])` downstream fires
+            // on every append. Mutating the existing array would leave the
+            // reference unchanged and freeze derived chip lists / filters.
+            const existing = run.loggableMetrics[lid]?.[mname]
+            const nextSeries: LoggableMetricSeries = existing
+              ? { ...existing, entries: [...existing.entries, entry] }
+              : { type: mtype, entries: [entry] }
+            run.loggableMetrics = {
+              ...run.loggableMetrics,
+              [lid]: { ...(run.loggableMetrics[lid] ?? {}), [mname]: nextSeries },
+            }
             break
           }
 

@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import type { MetricEntry } from '@/lib/api'
 import { chartAxisTick, chartGridStroke, chartHiddenWrapper } from './chartStyles'
@@ -33,9 +34,15 @@ function downsample(series: LinePoint[]): LinePoint[] {
   return result
 }
 
-export function LineMetric({ entries, color }: { entries: MetricEntry[]; color: string }) {
-  if (entries.length === 0) return null
-  const data = downsample(toLinePoints(entries))
+export const LineMetric = memo(function LineMetric({
+  entries,
+  color,
+}: {
+  entries: MetricEntry[]
+  color: string
+}) {
+  const data = useMemo(() => downsample(toLinePoints(entries)), [entries])
+  if (data.length === 0) return null
   return (
     <div className="h-[120px]">
       <ResponsiveContainer width="100%" height="100%">
@@ -67,4 +74,4 @@ export function LineMetric({ entries, color }: { entries: MetricEntry[]; color: 
       </ResponsiveContainer>
     </div>
   )
-}
+})

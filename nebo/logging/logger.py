@@ -141,10 +141,17 @@ def _normalize_metric_value(value: Any, mtype: str) -> Any:
         )
     if mtype == "scatter":
         if isinstance(value, dict) and "x" in value and "y" in value:
-            return {"x": list(value["x"]), "y": list(value["y"])}
+            xs = list(value["x"])
+            ys = list(value["y"])
+            if len(xs) != len(ys):
+                raise ValueError(
+                    f"scatter metric x and y must be the same length, "
+                    f"got len(x)={len(xs)} and len(y)={len(ys)}"
+                )
+            return {"x": xs, "y": ys}
         if isinstance(value, list):
-            xs: list = []
-            ys: list = []
+            xs = []
+            ys = []
             for pair in value:
                 x, y = pair
                 xs.append(_scalar(x))

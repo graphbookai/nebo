@@ -1,12 +1,63 @@
 import { createPortal } from 'react-dom'
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useSyncExternalStore, type CSSProperties } from 'react'
 import { chartTooltipContent, chartTooltipLabel } from './chartStyles'
 
 // Recharts tooltips render inside the chart's container by default. Inside a
 // scrollable card that clips overflow, the floating tooltip contributes to the
 // parent's scroll bounds and can trigger scrollbars. Rendering via a portal to
-// `document.body` keeps the tooltip outside any scroll ancestor, so the card's
-// overflow only reflects the content the user actually wants to scroll.
+// `document.body` keeps the tooltip outside any scroll ancestor.
+
+// ───────────────────────────────────────────────────────────────────────
+// Shared mouse tracker
+//
+// A single window-level mousemove listener feeds every tooltip instance.
+// Prior implementations registered one listener per chart; with ten charts
+// on a page each pointer pixel re-rendered all of them. The singleton keeps
+// the cost O(charts visible now), and we only subscribe while `active`.
+// ───────────────────────────────────────────────────────────────────────
+
+type Point = { x: number; y: number }
+
+let latestMouse: Point | null = null
+const mouseListeners = new Set<() => void>()
+let mouseAttached = false
+
+function ensureMouseAttached() {
+  if (mouseAttached || typeof window === 'undefined') return
+  window.addEventListener(
+    'mousemove',
+    (e: MouseEvent) => {
+      latestMouse = { x: e.clientX, y: e.clientY }
+      for (const cb of mouseListeners) cb()
+    },
+    { passive: true },
+  )
+  mouseAttached = true
+}
+
+function subscribeMouse(onChange: () => void): () => void {
+  ensureMouseAttached()
+  mouseListeners.add(onChange)
+  return () => { mouseListeners.delete(onChange) }
+}
+
+function getMouse(): Point | null {
+  return latestMouse
+}
+
+function useMouse(enabled: boolean): Point | null {
+  // Subscribe only while enabled (tooltip active), so inactive charts add no
+  // re-render work for each pointer pixel.
+  return useSyncExternalStore(
+    enabled ? subscribeMouse : noopSubscribe,
+    enabled ? getMouse : getNull,
+    getNull,
+  )
+}
+const noopSubscribe = () => () => undefined
+const getNull = () => null
+
+// ───────────────────────────────────────────────────────────────────────
 
 interface Payload {
   name?: string | number
@@ -43,15 +94,7 @@ const valueText = (v: unknown): string => {
 
 export function PortalTooltip(props: Props) {
   const { active, payload, label, formatter, labelFormatter } = props
-  const [mouse, setMouse] = useState<{ x: number; y: number } | null>(null)
-
-  useEffect(() => {
-    function onMove(e: MouseEvent) {
-      setMouse({ x: e.clientX, y: e.clientY })
-    }
-    window.addEventListener('mousemove', onMove, { passive: true })
-    return () => window.removeEventListener('mousemove', onMove)
-  }, [])
+  const mouse = useMouse(Boolean(active && payload && payload.length > 0))
 
   if (!active || !payload || payload.length === 0 || !mouse) return null
 

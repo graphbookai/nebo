@@ -17,12 +17,14 @@ export function ShapeIcon({
   // default; 48 reads well at the small chip size.
   fillArea?: number
 }) {
-  const half = size / 2
+  // 1px padding on each side so star spikes / plus arms don't clip.
+  const half = size / 2 + 1
+  const box = size + 2
   return (
     <svg
       width={size}
       height={size}
-      viewBox={`${-half} ${-half} ${size} ${size}`}
+      viewBox={`${-half} ${-half} ${box} ${box}`}
       style={{ flexShrink: 0 }}
       aria-hidden="true"
     >

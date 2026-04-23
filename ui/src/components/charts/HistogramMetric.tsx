@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import type { MetricEntry } from '@/lib/api'
 import { chartAxisTick, chartBarCursor, chartHiddenWrapper } from './chartStyles'
@@ -6,8 +7,17 @@ import { PortalTooltip } from './PortalTooltip'
 const NUM_BINS = 30
 
 function extractSamples(value: unknown): number[] {
-  if (Array.isArray(value)) return value as number[]
-  return []
+  return Array.isArray(value) ? (value as number[]) : []
+}
+
+function minMax(xs: number[]): { min: number; max: number } {
+  let min = Infinity
+  let max = -Infinity
+  for (const x of xs) {
+    if (x < min) min = x
+    if (x > max) max = x
+  }
+  return { min, max }
 }
 
 function binCounts(samples: number[], min: number, size: number, bins: number): number[] {
@@ -23,25 +33,57 @@ function binCounts(samples: number[], min: number, size: number, bins: number): 
 
 // All entries combined in one area chart. Every Area gets the same color so a
 // single run's multi-step histograms read as one series; overlaps naturally
-// darken via alpha compositing. Pre-binned entries ({bins, counts}) are
-// displayed as-is as a single Area (no overlap computation).
-export function HistogramMetric({ entries, color }: { entries: MetricEntry[]; color: string }) {
-  if (entries.length === 0) return null
+// darken via alpha compositing. Pre-binned entries ({bins, counts}) render as
+// a single Area (no overlap computation).
+export const HistogramMetric = memo(function HistogramMetric({
+  entries,
+  color,
+}: {
+  entries: MetricEntry[]
+  color: string
+}) {
+  const view = useMemo(() => {
+    if (entries.length === 0) return null
+    const latest = entries[entries.length - 1].value
+    // Pre-binned: render just the latest snapshot.
+    if (
+      latest &&
+      typeof latest === 'object' &&
+      !Array.isArray(latest) &&
+      'bins' in latest &&
+      'counts' in latest
+    ) {
+      const v = latest as { bins: number[]; counts: number[] }
+      const data = v.bins.map((x, i) => ({ x, count: v.counts[i] ?? 0 }))
+      return { mode: 'prebinned' as const, data }
+    }
+    // Raw samples: bin all entries against a shared global range.
+    const perEntrySamples = entries.map(e => extractSamples(e.value))
+    const flat: number[] = []
+    for (const arr of perEntrySamples) for (const v of arr) flat.push(v)
+    if (flat.length === 0) return null
+    const { min, max } = minMax(flat)
+    const range = max - min || 1
+    const size = range / NUM_BINS
 
-  // If any entry is pre-binned, render just the latest one (single area).
-  const latest = entries[entries.length - 1].value
-  if (
-    latest &&
-    typeof latest === 'object' &&
-    !Array.isArray(latest) &&
-    'bins' in latest &&
-    'counts' in latest
-  ) {
-    const v = latest as { bins: number[]; counts: number[] }
-    const data = v.bins.map((x, i) => ({ x, count: v.counts[i] ?? 0 }))
+    const keys = entries.map((e, j) => `step${e.step ?? j}`)
+    const counts = perEntrySamples.map(s => binCounts(s, min, size, NUM_BINS))
+    const data = Array.from({ length: NUM_BINS }, (_, i) => {
+      const row: Record<string, number> = { x: min + (i + 0.5) * size }
+      keys.forEach((k, j) => {
+        row[k] = counts[j][i] ?? 0
+      })
+      return row
+    })
+    return { mode: 'overlay' as const, data, keys }
+  }, [entries])
+
+  if (!view) return null
+
+  if (view.mode === 'prebinned') {
     return (
       <ResponsiveContainer width="100%" height={180}>
-        <AreaChart data={data}>
+        <AreaChart data={view.data}>
           <XAxis dataKey="x" type="number" tick={chartAxisTick} tickLine={false} axisLine={false} tickFormatter={(v) => Number(v).toFixed(2)} />
           <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
           <Tooltip cursor={chartBarCursor} wrapperStyle={chartHiddenWrapper} content={<PortalTooltip labelFormatter={(v) => `x≈${Number(v).toFixed(2)}`} />} />
@@ -51,30 +93,9 @@ export function HistogramMetric({ entries, color }: { entries: MetricEntry[]; co
     )
   }
 
-  // Raw samples: bin all entries against a shared global range so they layer
-  // on the same axes.
-  const perEntrySamples = entries.map(e => extractSamples(e.value))
-  const flat = perEntrySamples.flat()
-  if (flat.length === 0) return null
-  const min = Math.min(...flat)
-  const max = Math.max(...flat)
-  const range = max - min || 1
-  const size = range / NUM_BINS
-
-  const keys = entries.map((e, j) => `step${e.step ?? j}`)
-  const counts = perEntrySamples.map(s => binCounts(s, min, size, NUM_BINS))
-
-  const data = Array.from({ length: NUM_BINS }, (_, i) => {
-    const row: Record<string, number> = { x: min + (i + 0.5) * size }
-    keys.forEach((k, j) => {
-      row[k] = counts[j][i] ?? 0
-    })
-    return row
-  })
-
   return (
     <ResponsiveContainer width="100%" height={200}>
-      <AreaChart data={data}>
+      <AreaChart data={view.data}>
         <XAxis
           dataKey="x"
           type="number"
@@ -89,7 +110,7 @@ export function HistogramMetric({ entries, color }: { entries: MetricEntry[]; co
           wrapperStyle={chartHiddenWrapper}
           content={<PortalTooltip labelFormatter={(v) => `x≈${Number(v).toFixed(2)}`} />}
         />
-        {keys.map(k => (
+        {view.keys.map(k => (
           <Area
             key={k}
             dataKey={k}
@@ -103,4 +124,4 @@ export function HistogramMetric({ entries, color }: { entries: MetricEntry[]; co
       </AreaChart>
     </ResponsiveContainer>
   )
-}
+})

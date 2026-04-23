@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import type { MetricEntry } from '@/lib/api'
 import { chartAxisTick, chartBarCursor, chartHiddenWrapper } from './chartStyles'
@@ -6,13 +7,22 @@ import { PortalTooltip } from './PortalTooltip'
 // Single-step bar chart. x-axis is the dict's keys (categories); every bar
 // uses the same color (typically the run's color) so a chart from one run
 // reads as one series.
-export function BarMetric({ entry, color }: { entry: MetricEntry; color: string }) {
-  const value = entry.value as Record<string, number> | undefined
-  if (!value) return null
-  const data = Object.entries(value).map(([label, v]) => ({
-    label,
-    value: typeof v === 'number' ? v : Number(v) || 0,
-  }))
+export const BarMetric = memo(function BarMetric({
+  entry,
+  color,
+}: {
+  entry: MetricEntry
+  color: string
+}) {
+  const data = useMemo(() => {
+    const value = entry.value as Record<string, number> | undefined
+    if (!value) return null
+    return Object.entries(value).map(([label, v]) => ({
+      label,
+      value: typeof v === 'number' ? v : Number(v) || 0,
+    }))
+  }, [entry.value])
+  if (!data) return null
   return (
     <ResponsiveContainer width="100%" height={140}>
       <BarChart data={data}>
@@ -23,4 +33,4 @@ export function BarMetric({ entry, color }: { entry: MetricEntry; color: string 
       </BarChart>
     </ResponsiveContainer>
   )
-}
+})
