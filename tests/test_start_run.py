@@ -520,7 +520,7 @@ class TestDaemonEventProcessing:
         state = DaemonState()
         state.create_run("test.py", [], "test-run", store=False)
         asyncio.run(state.ingest_events([
-            {"type": "run_start", "data": {"script_path": "test.py", "run_name": "experiment-1"}},
+            {"type": "run_start", "data": {"script_path": "test.py", "run_name": "experiment-1", "store": False}},
         ], run_id="test-run"))
         assert state.runs["test-run"].run_name == "experiment-1"
 
@@ -538,7 +538,7 @@ class TestDaemonEventProcessing:
 
         # Resume via run_start
         asyncio.run(state.ingest_events([
-            {"type": "run_start", "data": {"script_path": "test.py"}},
+            {"type": "run_start", "data": {"script_path": "test.py", "store": False}},
         ], run_id="test-run"))
         assert state.runs["test-run"].status == "running"
 

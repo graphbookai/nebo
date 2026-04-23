@@ -375,7 +375,7 @@ class TestRunSummary:
         state = DaemonState()
         run = state.create_run("s.py", run_id="r1")
         await state.ingest_events(
-            [{"type": "run_start", "data": {"script_path": "s.py"}}],
+            [{"type": "run_start", "data": {"script_path": "s.py", "store": False}}],
             run_id="r1",
         )
         assert "__global__" in run.loggables
@@ -387,12 +387,12 @@ class TestRunSummary:
         state = DaemonState()
         run = state.create_run("s.py", run_id="r1")
         await state.ingest_events(
-            [{"type": "run_start", "data": {"script_path": "s.py"}}],
+            [{"type": "run_start", "data": {"script_path": "s.py", "store": False}}],
             run_id="r1",
         )
         run.loggables["__global__"].logs.append({"message": "marker"})
         await state.ingest_events(
-            [{"type": "run_start", "data": {"script_path": "s.py"}}],
+            [{"type": "run_start", "data": {"script_path": "s.py", "store": False}}],
             run_id="r1",
         )
         assert any(
@@ -465,7 +465,7 @@ class TestGetNodeEndpoint:
         state.create_run("s.py", run_id="r1")
         asyncio.get_event_loop().run_until_complete(
             state.ingest_events(
-                [{"type": "run_start", "data": {"script_path": "s.py"}}], "r1"
+                [{"type": "run_start", "data": {"script_path": "s.py", "store": False}}], "r1"
             )
         )
         client = TestClient(create_daemon_app(state=state))
