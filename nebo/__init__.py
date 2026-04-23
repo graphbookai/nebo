@@ -254,7 +254,10 @@ def init(
 
     state._mode = resolved_mode
 
-    if terminal:
+    # NEBO_NO_TERMINAL is the environment escape hatch used by the test
+    # suite and headless embedders to suppress the Rich live dashboard
+    # without having to thread `terminal=False` through every entry point.
+    if terminal and not os.environ.get("NEBO_NO_TERMINAL"):
         try:
             from nebo.terminal.display import TerminalDisplay
             import atexit

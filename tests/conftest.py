@@ -1,20 +1,26 @@
 """Shared pytest configuration.
 
-Disables the daemon's on-disk `.nebo` writer during the test suite by default.
-Tests that exercise the auto-create or run_start path still instantiate a
-Run, but no file handle is opened and nothing touches the working directory.
+Two suite-wide invariants:
 
-Individual tests that need to exercise the file-format writer can monkeypatch
-the env var back off or import `NeboFileWriter` directly.
+* ``NEBO_NO_STORE=1`` — the daemon's auto-create and run_start storage paths
+  skip the on-disk ``.nebo`` writer. Tests that exercise the file-format
+  writer import ``NeboFileWriter`` directly and write to ``tmp_path``.
+* ``NEBO_NO_TERMINAL=1`` — ``nb.init()`` skips the Rich live dashboard.
+  The dashboard is a background thread that repaints the `Daemon: not
+  connected` panel into pytest's captured stdout on every state poll;
+  suppressing it keeps test output readable. Tests that specifically
+  exercise the display import ``TerminalDisplay`` directly.
+
+Both env vars are set autouse-per-test so ``monkeypatch`` rolls them back
+cleanly even after tests that call ``SessionState.reset_singleton()``.
 """
 
 from __future__ import annotations
-
-import os
 
 import pytest
 
 
 @pytest.fixture(autouse=True)
-def _disable_daemon_storage(monkeypatch: pytest.MonkeyPatch) -> None:
+def _quiet_nebo(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("NEBO_NO_STORE", "1")
+    monkeypatch.setenv("NEBO_NO_TERMINAL", "1")
