@@ -96,10 +96,10 @@ def pie_demo() -> None:
 def scatter_demo() -> None:
     """Scatter: one chart per step. Tag with the model version."""
     rng = _rng(4)
-    for step in range(4):
-        version = "v1" if step < 2 else "v2"
+    for step in range(2):
+        version = "v1" if step < 1 else "v2"
         slope = float(rng.uniform(0.1, 1.0))
-        xs = rng.normal(0, 1, size=200).tolist()
+        xs = rng.normal(0, 1, size=50).tolist()
         ys = [x * slope + float(rng.normal(0, 0.3)) for x in xs]
         nb.log_metric(
             "embed_2d",
