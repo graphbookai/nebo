@@ -12,7 +12,7 @@
 //   - tag chips (the tags the user attached via `tags=`)
 //   - step chips (each emission's step number)
 //   - run chips (only in comparison)
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '@/store'
 import type { MetricEntry, LoggableMetricSeries } from '@/lib/api'
 import { LineMetric } from '@/components/charts/LineMetric'
@@ -104,20 +104,25 @@ function MetricBlock({
     return out
   }, [series.entries])
 
-  // All chips start selected so nothing is hidden by default. As new tags
-  // stream in, they join the active set, keeping their entries visible.
+  // All chips start selected so nothing is hidden by default. Only *newly
+  // discovered* tags are auto-added to activeTags — otherwise a streaming
+  // WebSocket update that merely reaffirms existing tags would clobber a
+  // user's deselection.
   const [activeTags, setActiveTags] = useState<Set<string>>(() => new Set(allTags))
+  const seenTags = useRef<Set<string>>(new Set(allTags))
   useEffect(() => {
-    setActiveTags(prev => {
-      let changed = false
-      const next = new Set(prev)
-      for (const t of allTags) {
-        if (!next.has(t)) {
-          next.add(t)
-          changed = true
-        }
+    const fresh: string[] = []
+    for (const t of allTags) {
+      if (!seenTags.current.has(t)) {
+        seenTags.current.add(t)
+        fresh.push(t)
       }
-      return changed ? next : prev
+    }
+    if (fresh.length === 0) return
+    setActiveTags(prev => {
+      const next = new Set(prev)
+      for (const t of fresh) next.add(t)
+      return next
     })
   }, [allTags])
 
@@ -242,20 +247,24 @@ function ComparisonMetrics({
     for (const rid of comparisonRunIds) getOrAssignRunColor(rid)
   }, [comparisonRunIds, getOrAssignRunColor])
 
-  // All run chips start selected. New runs joining the comparison get
-  // auto-included so nothing is hidden without a user action.
+  // All run chips start selected. Only *newly appearing* runs get auto-added
+  // to activeRuns; reaffirming the current set from a WS update must not
+  // resurrect a run the user deselected.
   const [activeRuns, setActiveRuns] = useState<Set<string>>(() => new Set(comparisonRunIds))
+  const seenRuns = useRef<Set<string>>(new Set(comparisonRunIds))
   useEffect(() => {
-    setActiveRuns(prev => {
-      let changed = false
-      const next = new Set(prev)
-      for (const rid of comparisonRunIds) {
-        if (!next.has(rid)) {
-          next.add(rid)
-          changed = true
-        }
+    const fresh: string[] = []
+    for (const rid of comparisonRunIds) {
+      if (!seenRuns.current.has(rid)) {
+        seenRuns.current.add(rid)
+        fresh.push(rid)
       }
-      return changed ? next : prev
+    }
+    if (fresh.length === 0) return
+    setActiveRuns(prev => {
+      const next = new Set(prev)
+      for (const rid of fresh) next.add(rid)
+      return next
     })
   }, [comparisonRunIds])
 
@@ -342,17 +351,20 @@ function ComparisonMetricBlock({
   }, [comparisonRunIds, runs, loggableId, name])
 
   const [activeTags, setActiveTags] = useState<Set<string>>(() => new Set(allTags))
+  const seenTags = useRef<Set<string>>(new Set(allTags))
   useEffect(() => {
-    setActiveTags(prev => {
-      let changed = false
-      const next = new Set(prev)
-      for (const t of allTags) {
-        if (!next.has(t)) {
-          next.add(t)
-          changed = true
-        }
+    const fresh: string[] = []
+    for (const t of allTags) {
+      if (!seenTags.current.has(t)) {
+        seenTags.current.add(t)
+        fresh.push(t)
       }
-      return changed ? next : prev
+    }
+    if (fresh.length === 0) return
+    setActiveTags(prev => {
+      const next = new Set(prev)
+      for (const t of fresh) next.add(t)
+      return next
     })
   }, [allTags])
 
