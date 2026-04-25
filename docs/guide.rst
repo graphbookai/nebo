@@ -289,7 +289,18 @@ UI Configuration from Code
         theme="dark",            # or "light"
     )
 
-Per-node display hints can be set via ``@nb.fn(ui={})``:
+Per-node display hints can be set via ``@nb.fn(ui={})``. Supported keys:
+
+- ``collapsed`` (bool) — open the node's card in the grid view collapsed
+  on first render.
+- ``color`` (str) — accent color for the node's badge / border.
+- ``default_tab`` (str) — which tab opens by default when the card is
+  expanded. One of ``"info"`` (default), ``"logs"``, ``"metrics"``,
+  ``"images"``, ``"audio"``, ``"ask"``. The user's clicks always override
+  this preference.
+
+Unknown keys are forwarded verbatim for forward compatibility with
+future UI features.
 
 .. code-block:: python
 
@@ -297,6 +308,11 @@ Per-node display hints can be set via ``@nb.fn(ui={})``:
     def data_loader():
         nb.log("Loading data")
         ...
+
+    @nb.fn(ui={"default_tab": "metrics"})
+    def train(epochs=100):
+        for step in range(epochs):
+            nb.log_metric("loss", compute_loss(step))
 
 
 Execution Modes

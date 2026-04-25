@@ -426,7 +426,17 @@ These are set automatically by ``nebo run`` and read by the SDK during auto-init
     Used internally by the daemon process itself.
 
 ``NEBO_NO_STORE``
-    When set, disables ``.nebo`` file storage globally.
+    When set, disables ``.nebo`` file storage globally. The daemon's
+    auto-create and ``run_start`` paths skip opening the file writer.
+    Useful for ephemeral test daemons and embedders that don't want
+    runs persisted to disk.
+
+``NEBO_NO_TERMINAL``
+    When set, ``nb.init()`` skips the Rich live terminal dashboard even
+    if ``terminal=True`` (the default). Mirrors the per-call
+    ``terminal=False`` argument as a process-wide override and is the
+    recommended way to suppress the dashboard from headless contexts
+    (CI, notebooks, subprocess wrappers).
 
 ``NEBO_FLUSH_INTERVAL``
     Override the event flush interval (seconds).
