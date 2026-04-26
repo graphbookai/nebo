@@ -1,5 +1,4 @@
 import type { NodeTab } from '@/store'
-import { NodeInfo } from './NodeInfo'
 import { NodeLogs } from './NodeLogs'
 import { NodeMetrics } from './NodeMetrics'
 import { NodeImages } from './NodeImages'
@@ -15,8 +14,6 @@ interface LoggableTabContentProps {
 
 export function LoggableTabContent({ runId, loggableId, tab, comparisonRunIds }: LoggableTabContentProps) {
   switch (tab) {
-    case 'info':
-      return <NodeInfo runId={runId} loggableId={loggableId} comparisonRunIds={comparisonRunIds} />
     case 'logs':
       return <NodeLogs runId={runId} loggableId={loggableId} comparisonRunIds={comparisonRunIds} />
     case 'metrics':

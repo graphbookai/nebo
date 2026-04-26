@@ -119,7 +119,6 @@ export interface NodeDetail {
   recent_logs: unknown[]
   errors: unknown[]
   metrics: Record<string, LoggableMetricSeries>
-  inspections: Record<string, unknown>
   progress: { current: number; total: number; name?: string } | null
 }
 

@@ -1,4 +1,4 @@
-import { Settings, Moon, Sun, Map, Gamepad2, FoldVertical, GripHorizontal, EyeOff } from 'lucide-react'
+import { Settings, Moon, Sun, Map, Gamepad2, GripHorizontal, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -56,18 +56,6 @@ export function SettingsPanel() {
             <Switch
               checked={settings.showControls}
               onCheckedChange={v => updateSetting('showControls', v)}
-            />
-          </div>
-
-          {/* Collapse nodes by default */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm">
-              <FoldVertical className="h-3.5 w-3.5 text-muted-foreground" />
-              <span>Nodes collapsed by default</span>
-            </div>
-            <Switch
-              checked={settings.collapseNodesByDefault}
-              onCheckedChange={v => updateSetting('collapseNodesByDefault', v)}
             />
           </div>
 

@@ -13,7 +13,7 @@ from PIL import Image
 import nebo as nb
 
 
-@nb.fn()
+@nb.fn(ui={"default_tab": "images"})
 def label_demo() -> None:
     """Emit one synthetic image with all five label kinds."""
     h, w = 128, 128

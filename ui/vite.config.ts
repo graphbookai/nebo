@@ -12,15 +12,15 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/health': 'http://localhost:2048',
-      '/events': 'http://localhost:2048',
-      '/runs': 'http://localhost:2048',
-      '/graph': 'http://localhost:2048',
-      '/logs': 'http://localhost:2048',
-      '/errors': 'http://localhost:2048',
-      '/nodes': 'http://localhost:2048',
+      '/health': 'http://localhost:7861',
+      '/events': 'http://localhost:7861',
+      '/runs': 'http://localhost:7861',
+      '/graph': 'http://localhost:7861',
+      '/logs': 'http://localhost:7861',
+      '/errors': 'http://localhost:7861',
+      '/nodes': 'http://localhost:7861',
       '/stream': {
-        target: 'http://localhost:2048',
+        target: 'http://localhost:7861',
         ws: true,
         changeOrigin: true,
       },

@@ -12,7 +12,6 @@ interface LoggableTabContainerProps {
 }
 
 const allTabs: { key: NodeTab; label: string; alwaysShow: boolean }[] = [
-  { key: 'info', label: 'Info', alwaysShow: true },
   { key: 'logs', label: 'Logs', alwaysShow: false },
   { key: 'metrics', label: 'Metrics', alwaysShow: false },
   { key: 'images', label: 'Images', alwaysShow: false },
@@ -20,7 +19,7 @@ const allTabs: { key: NodeTab; label: string; alwaysShow: boolean }[] = [
   { key: 'ask', label: 'Ask', alwaysShow: false },
 ]
 
-const VALID_TABS: readonly NodeTab[] = ['info', 'logs', 'metrics', 'images', 'audio', 'ask']
+const VALID_TABS: readonly NodeTab[] = ['logs', 'metrics', 'images', 'audio', 'ask']
 
 export function LoggableTabContainer({ runId, loggableId }: LoggableTabContainerProps) {
   const pinTab = useStore(s => s.pinTab)
@@ -34,7 +33,7 @@ export function LoggableTabContainer({ runId, loggableId }: LoggableTabContainer
     const hint = run?.graph?.nodes?.[loggableId]?.ui_hints?.default_tab
     return typeof hint === 'string' && (VALID_TABS as readonly string[]).includes(hint)
       ? (hint as NodeTab)
-      : 'info'
+      : 'logs'
   }, [run?.graph?.nodes, loggableId])
 
   const userChoseTab = useRef(false)
@@ -106,11 +105,24 @@ export function LoggableTabContainer({ runId, loggableId }: LoggableTabContainer
     })
   }, [hasLogs, hasMetrics, hasImages, hasAudio, hasPendingAsk])
 
+  // Nothing to show — let parents collapse the surrounding chrome (no
+  // empty bordered tab strip on nodes that haven't logged anything).
+  if (visibleTabs.length === 0) return null
+
   // Only reset to the default if the user hasn't explicitly chosen a tab.
   // Once the user clicks a tab, keep it even if it temporarily leaves
   // visibleTabs (e.g., while data is still loading via WebSocket).
+  // When the default tab isn't itself visible (e.g. a node has images
+  // but no logs), snap to the highest-priority visible tab instead so
+  // the card opens on actual content.
   const isActiveVisible = visibleTabs.some(t => t.key === activeTab)
-  const resolvedTab = isActiveVisible ? activeTab : (userChoseTab.current ? activeTab : defaultTab)
+  const fallbackTab =
+    visibleTabs.find(t => t.key === defaultTab)?.key ?? visibleTabs[0].key
+  const resolvedTab = isActiveVisible
+    ? activeTab
+    : userChoseTab.current
+      ? activeTab
+      : fallbackTab
 
   return (
     <div>

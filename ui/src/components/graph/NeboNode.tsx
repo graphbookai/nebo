@@ -2,12 +2,15 @@ import { memo, useCallback, useContext, useEffect, type CSSProperties } from 're
 import { Handle, NodeResizer, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react'
 import { useStore } from '@/store'
 import { cn } from '@/lib/utils'
-import { ChevronDown, ChevronRight, Maximize2 } from 'lucide-react'
+import { Maximize2 } from 'lucide-react'
 import { LoggableTabContainer } from '@/components/node-tabs/LoggableTabContainer'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useContextMenu } from '@/hooks/useContextMenu'
 import { ContextMenu } from '@/components/shared/ContextMenu'
 import { ContextMenuItem } from '@/components/shared/ContextMenuItem'
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
+import { ConfigChips } from '@/components/shared/ConfigChips'
+import { useLoggableHasContent } from '@/hooks/useLoggableHasContent'
 import { DragContext } from './DagGraph'
 
 interface NeboNodeData {
@@ -29,8 +32,6 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
     for (const a of asks.values()) { if (a.nodeName === nodeId) return true }
     return false
   })
-  const isCollapsed = useStore(s => s.collapsedGraphNodes.has(id))
-  const toggleGraphNode = useStore(s => s.toggleGraphNode)
   const dagDirection = useStore(s => s.dagDirection)
   const updateNodeInternals = useUpdateNodeInternals()
   useEffect(() => { updateNodeInternals(id) }, [dagDirection, id, updateNodeInternals])
@@ -40,10 +41,10 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
   const hideTabsOnDrag = useStore(s => s.settings.hideTabsOnDrag)
   const draggingNodeId = useContext(DragContext)
   const isDragging = draggingNodeId === id
-  const isExpanded = !isCollapsed
   const isResizing = resizingNodeId === id
   const storedSize = useStore(s => s.nodeSizes.get(runId)?.get(nodeId))
   const contextMenu = useContextMenu()
+  const hasContent = useLoggableHasContent(runId, nodeId)
 
   const onResize = useCallback((_event: unknown, params: { width: number; height: number }) => {
     updateNodeSize(runId, nodeId, { width: params.width, height: params.height })
@@ -104,16 +105,8 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
       )}
 
       {/* Node header */}
-      <div
-        className="px-3 py-2 cursor-pointer select-none"
-        onClick={() => toggleGraphNode(id)}
-      >
+      <div className="px-3 py-2 select-none">
         <div className="flex items-center gap-1.5">
-          {isExpanded ? (
-            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          ) : (
-            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          )}
           <span className="text-sm font-medium truncate flex-1">{nodeInfo.func_name}</span>
           {nodeInfo.exec_count > 0 && (
             <span className="text-xs text-muted-foreground shrink-0">
@@ -122,26 +115,24 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
           )}
         </div>
         {nodeInfo.docstring && (
-          <p className="text-xs text-muted-foreground mt-0.5 ml-5 line-clamp-1">{nodeInfo.docstring.split('\n')[0]}</p>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1 cursor-help">
+                {nodeInfo.docstring.split('\n')[0]}
+              </p>
+            </TooltipTrigger>
+            <TooltipContent side="top" align="start">
+              {nodeInfo.docstring}
+            </TooltipContent>
+          </Tooltip>
         )}
 
         {/* Config params */}
-        {Object.keys(nodeInfo.params).length > 0 && (
-          <div className="mt-1.5 ml-5 flex flex-wrap gap-1">
-            {Object.entries(nodeInfo.params).slice(0, 3).map(([k, v]) => (
-              <span key={k} className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
-                {k}: {String(v)}
-              </span>
-            ))}
-            {Object.keys(nodeInfo.params).length > 3 && (
-              <span className="text-[10px] text-muted-foreground">+{Object.keys(nodeInfo.params).length - 3}</span>
-            )}
-          </div>
-        )}
+        <ConfigChips params={nodeInfo.params} />
 
         {/* Progress bar */}
         {progress && (
-          <div className="mt-2 ml-5">
+          <div className="mt-2">
             <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-0.5">
               <span>{progress.name ?? 'Progress'}</span>
               <span>{Math.round((progress.current / progress.total) * 100)}%</span>
@@ -157,19 +148,20 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
 
         {/* Non-DAG indicator */}
         {!inDag && (
-          <span className="text-[10px] text-muted-foreground mt-1 ml-5 block">Not in DAG</span>
+          <span className="text-[10px] text-muted-foreground mt-1 block">Not in DAG</span>
         )}
       </div>
 
-      {/* Expanded tab content — optionally hidden during drag for performance */}
-      {isExpanded && !(isDragging && hideTabsOnDrag) && (
+      {/* Tab content — rendered only when this node has data to show, and
+          temporarily hidden during drag for performance. */}
+      {hasContent && !(isDragging && hideTabsOnDrag) && (
         <div className="border-t border-border" onWheelCapture={e => e.stopPropagation()}>
           <ErrorBoundary label={`Node ${nodeId}`}>
             <LoggableTabContainer runId={runId} loggableId={nodeId} />
           </ErrorBoundary>
         </div>
       )}
-      {isExpanded && isDragging && hideTabsOnDrag && (
+      {hasContent && isDragging && hideTabsOnDrag && (
         <div className="border-t border-border h-[40px]" />
       )}
 

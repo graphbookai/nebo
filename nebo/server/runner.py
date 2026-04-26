@@ -44,7 +44,7 @@ class PipelineRunner:
         script_path: str,
         args: list[str] | None = None,
         env: dict[str, str] | None = None,
-        port: int = 2048,
+        port: int = 7861,
     ) -> subprocess.Popen:
         """Start a pipeline script as a managed subprocess.
 

@@ -26,7 +26,7 @@ Decorators
     :param func: The function or class to decorate (when used without parentheses).
     :param depends_on: Optional list of decorated functions or node ID strings that this node depends on.
     :param pausable: If True, the function blocks before execution when paused via the web UI.
-    :param ui: Optional dict of per-node UI display hints (e.g., ``{"collapsed": True}``).
+    :param ui: Optional dict of per-node UI display hints (e.g., ``{"color": "#34d399", "default_tab": "metrics"}``).
     :returns: The decorated function or class (unchanged behavior, with observability added).
 
     Usage forms:
@@ -36,7 +36,7 @@ Decorators
         @nb.fn                          # bare decorator
         @nb.fn()                        # with empty parentheses
         @nb.fn(depends_on=[setup])      # with explicit dependencies
-        @nb.fn(ui={"collapsed": True})  # with per-node UI hints
+        @nb.fn(ui={"color": "#34d399"}) # with per-node UI hints
 
     **On functions:** The node ID is derived from the function's ``__qualname__``. The function's docstring becomes the node's description. The node materializes (becomes visible) on the first call to the decorated function, so even silent functions that never log appear in the DAG and act as real links in dependency chains.
 
@@ -156,13 +156,12 @@ Workflow Description
 UI Configuration
 -----------------
 
-.. function:: nb.ui(layout: str | None = None, view: str | None = None, collapsed: bool | None = None, minimap: bool | None = None, theme: str | None = None) -> None
+.. function:: nb.ui(layout: str | None = None, view: str | None = None, minimap: bool | None = None, theme: str | None = None) -> None
 
     Set run-level UI defaults. These are sent to the daemon and web UI as defaults that the user can override.
 
     :param layout: DAG layout direction: ``"horizontal"`` or ``"vertical"``.
     :param view: Default view mode: ``"dag"`` or ``"grid"``.
-    :param collapsed: Default node collapse state.
     :param minimap: Whether to show the minimap.
     :param theme: Color theme: ``"dark"`` or ``"light"``.
 
@@ -172,15 +171,15 @@ UI Configuration
 Initialization
 --------------
 
-.. function:: nb.init(port: int = 2048, host: str = "localhost", mode: str = "auto", terminal: bool = True, dag_strategy: str = "object", flush_interval: float = 0.1, store: bool = True) -> None
+.. function:: nb.init(port: int = 7861, host: str = "localhost", mode: str = "auto", terminal: bool = True, dag_strategy: str = "object", flush_interval: float = 0.1, store: bool = True) -> None
 
     Explicitly initialize nebo.
 
-    :param port: Daemon server port (default: 2048).
+    :param port: Daemon server port (default: 7861).
     :param host: Daemon server host (default: ``"localhost"``).
     :param mode: ``"auto"``, ``"server"``, or ``"local"``.
     :param terminal: Whether to show the Rich terminal display in local mode.
-    :param dag_strategy: How DAG edges are inferred: ``"object"`` (default), ``"stack"``, ``"both"``, or ``"none"``.
+    :param dag_strategy: How DAG edges are inferred: ``"object"`` (default), ``"stack"``, ``"both"``, ``"linear"``, or ``"none"``. ``"linear"`` chains nodes in first-execution order.
     :param flush_interval: Seconds between event flushes (default: 0.1).
     :param store: Whether the daemon should persist this run to a ``.nebo`` file (default: True).
 
@@ -239,7 +238,7 @@ Commands
         Host to bind (default: ``localhost``).
 
     ``--port``
-        Port to bind (default: ``2048``).
+        Port to bind (default: ``7861``).
 
     ``-d``, ``--daemon``
         Run in background (daemon mode).

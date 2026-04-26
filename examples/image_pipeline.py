@@ -34,7 +34,7 @@ def _make_synthetic_image(index: int, size: int = 128) -> Image.Image:
     return Image.fromarray(arr)
 
 
-@nb.fn()
+@nb.fn(ui={"default_tab": "images"})
 def generate_images(num_images: int = 10, size: int = 128) -> list[Image.Image]:
     """Generate a batch of synthetic test images."""
     nb.log_cfg({"num_images": num_images, "size": size})
@@ -47,7 +47,7 @@ def generate_images(num_images: int = 10, size: int = 128) -> list[Image.Image]:
     return images
 
 
-@nb.fn()
+@nb.fn(ui={"default_tab": "images"})
 def to_grayscale(images: list[Image.Image]) -> list[Image.Image]:
     """Convert all images to grayscale."""
     nb.log_cfg({"mode": "L"})
@@ -60,7 +60,7 @@ def to_grayscale(images: list[Image.Image]) -> list[Image.Image]:
     return result
 
 
-@nb.fn()
+@nb.fn(ui={"default_tab": "images"})
 def apply_blur(images: list[Image.Image], radius: float = 2.0) -> list[Image.Image]:
     """Apply Gaussian blur to each image."""
     nb.log_cfg({"blur_radius": radius})
@@ -73,7 +73,7 @@ def apply_blur(images: list[Image.Image], radius: float = 2.0) -> list[Image.Ima
     return result
 
 
-@nb.fn()
+@nb.fn(ui={"default_tab": "images"})
 def enhance_contrast(images: list[Image.Image], factor: float = 1.8) -> list[Image.Image]:
     """Enhance contrast of each image."""
     nb.log_cfg({"contrast_factor": factor})
@@ -86,7 +86,7 @@ def enhance_contrast(images: list[Image.Image], factor: float = 1.8) -> list[Ima
     return result
 
 
-@nb.fn()
+@nb.fn(ui={"default_tab": "images"})
 def detect_edges(images: list[Image.Image]) -> list[Image.Image]:
     """Detect edges in each image using a Laplacian filter."""
     nb.log_cfg({"method": "FIND_EDGES"})
@@ -113,7 +113,7 @@ def detect_edges(images: list[Image.Image]) -> list[Image.Image]:
     return result
 
 
-@nb.fn()
+@nb.fn(ui={"default_tab": "metrics"})
 def compute_stats(images: list[Image.Image]) -> dict:
     """Compute per-image brightness statistics."""
     stats = []
@@ -127,7 +127,6 @@ def compute_stats(images: list[Image.Image]) -> dict:
     return {"per_image": stats, "average_brightness": avg}
 
 
-@nb.fn()
 def run_pipeline() -> dict:
     """Run the full image processing pipeline."""
     images = generate_images()
@@ -140,6 +139,7 @@ def run_pipeline() -> dict:
 
 
 def main():
+    nb.ui(tracker="step")
     result = run_pipeline()
     print(f"\nProcessed {len(result['per_image'])} images")
     print(f"Average edge brightness: {result['average_brightness']:.1f}")

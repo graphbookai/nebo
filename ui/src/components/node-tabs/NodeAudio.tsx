@@ -24,7 +24,7 @@ export function NodeAudio({ runId, loggableId, comparisonRunIds }: NodeAudioProp
   return <SingleRunAudio runId={runId} loggableId={loggableId} />
 }
 
-function AudioItem({ runId, entry, showTimestamp }: { runId: string; entry: AudioEntry; showTimestamp?: boolean }) {
+export function AudioItem({ runId, entry, showTimestamp }: { runId: string; entry: AudioEntry; showTimestamp?: boolean }) {
   const { data, loading } = useMedia(runId, entry.mediaId)
 
   return (

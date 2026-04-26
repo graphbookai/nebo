@@ -30,7 +30,7 @@ class DaemonClient:
     def __init__(
         self,
         host: str = "localhost",
-        port: int = 2048,
+        port: int = 7861,
         run_id: Optional[str] = None,
         flush_interval: float = 0.1,
         base_url: Optional[str] = None,

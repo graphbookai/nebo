@@ -16,7 +16,7 @@ uv run pytest tests/ -v         # full test suite (CI matrix: 3.10, 3.11, 3.12)
 uv run pytest tests/test_decorators.py -v         # single file
 uv run pytest tests/test_decorators.py::test_bare_decorator -v   # single test
 uv run nebo --help              # CLI entry point (defined in nebo/cli.py: main)
-uv run nebo serve               # start daemon (port 2048)
+uv run nebo serve               # start daemon (port 7861)
 uv run nebo run examples/basic_pipeline.py
 ```
 
@@ -25,12 +25,12 @@ uv run nebo run examples/basic_pipeline.py
 ```bash
 cd ui
 npm install
-npm run dev      # Vite dev server, proxies /health /events /runs /graph /logs /errors /nodes /stream → localhost:2048
+npm run dev      # Vite dev server, proxies /health /events /runs /graph /logs /errors /nodes /stream → localhost:7861
 npm run build    # tsc -b && vite build
 npm run lint     # eslint
 ```
 
-The dev UI only works when `nebo serve` is running on port 2048.
+The dev UI only works when `nebo serve` is running on port 7861.
 
 ## Architecture
 
@@ -39,7 +39,7 @@ The dev UI only works when `nebo serve` is running on port 2048.
 Two execution modes coexist and share the same SDK surface:
 
 - **Local mode** (default): in-process. The SDK renders a Rich terminal dashboard directly; no daemon involved.
-- **Server mode**: the SDK sends events over HTTP to a long-lived FastAPI daemon (`nebo serve`, port 2048). The daemon persists runs as `.nebo` files (MessagePack, append-only) and fans events out to the web UI (WebSocket at `/stream`) and MCP tools.
+- **Server mode**: the SDK sends events over HTTP to a long-lived FastAPI daemon (`nebo serve`, port 7861). The daemon persists runs as `.nebo` files (MessagePack, append-only) and fans events out to the web UI (WebSocket at `/stream`) and MCP tools.
 
 Mode is resolved in `nebo/__init__.py::init()`. `mode="auto"` probes the daemon; env vars set by `nebo run` (`NEBO_MODE`, `NEBO_SERVER_PORT`, `NEBO_RUN_ID`, `NEBO_FLUSH_INTERVAL`) override user args. `_ensure_init()` lazily auto-initializes on first `nb.*` call, so pipelines never need an explicit `nb.init()`.
 
@@ -49,7 +49,7 @@ Two process-wide escape hatches let headless contexts (CI, embedders, tests) sup
 
 ### DAG inference
 
-Edges are inferred at runtime, not declared. `nebo/core/decorators.py` wraps every `@nb.fn()` call; `nebo/core/dag.py` and `nebo/core/state.py` track which node produced each return value (`return_origins`) and which node is currently on the call stack. When a wrapped callee receives an argument that was produced by another node, a data-flow edge is added; otherwise the edge falls back to the calling parent. `depends_on=[...]` declares edges that can't be inferred (shared state, globals, class attrs). `dag_strategy` switches between `object` (data-flow, default), `stack` (caller→callee only), `both`, or `none`.
+Edges are inferred at runtime, not declared. `nebo/core/decorators.py` wraps every `@nb.fn()` call; `nebo/core/dag.py` and `nebo/core/state.py` track which node produced each return value (`return_origins`) and which node is currently on the call stack. When a wrapped callee receives an argument that was produced by another node, a data-flow edge is added; otherwise the edge falls back to the calling parent. `depends_on=[...]` declares edges that can't be inferred (shared state, globals, class attrs). `dag_strategy` switches between `object` (data-flow, default), `stack` (caller→callee only), `both`, `linear` (chain nodes in first-execution order), or `none`.
 
 ### Global state singleton
 
@@ -81,4 +81,4 @@ Plain `pytest` + `pytest-asyncio`. Tests are self-contained and exercise the pub
 - **Run lifecycle flows through events.** The daemon only opens a `.nebo` writer after receiving a `run_start` event — so any code path that connects a client in non-local mode must also emit `run_start` (see the comment block in `init()` around `script_name`).
 - **`MessageType` is the source of truth for protocol events.** Add new event kinds to `nebo/server/protocol.py` and handle them in the daemon, not ad-hoc strings.
 - **The Global loggable is always present.** `SessionState.loggables["__global__"]` is seeded on init/reset/clear. `nb.log*` calls outside any `@nb.fn()` context route there. Any code that iterates loggables and assumes node-only fields (`func_name`, `exec_count`, etc.) must filter by `isinstance(l, NodeInfo)` or `kind == "node"`.
-- **`@nb.fn(ui={})` keys.** Production code reads `collapsed`, `color`, and `default_tab`. Unknown keys are forwarded to the UI verbatim so adding a new hint requires only a UI consumer, no SDK change.
+- **`@nb.fn(ui={})` keys.** Production code reads `color` and `default_tab`. Unknown keys are forwarded to the UI verbatim so adding a new hint requires only a UI consumer, no SDK change.

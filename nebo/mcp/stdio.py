@@ -84,7 +84,7 @@ async def _handle_request(request: dict, server_url: str) -> dict:
         }
 
 
-def run_stdio_bridge(port: int = 2048) -> None:
+def run_stdio_bridge(port: int = 7861) -> None:
     """Run the MCP stdio bridge.
 
     Reads JSON-RPC messages from stdin line by line,

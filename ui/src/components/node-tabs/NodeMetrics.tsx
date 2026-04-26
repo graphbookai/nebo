@@ -85,7 +85,7 @@ function SingleRunMetrics({ runId, loggableId }: { runId: string; loggableId: st
   )
 }
 
-function MetricBlock({
+export function MetricBlock({
   name,
   series,
   color,
@@ -102,15 +102,20 @@ function MetricBlock({
       for (const t of e.tags) tags.add(t)
     }
     const out = [...tags].sort()
-    if (hasUntagged) out.unshift(UNTAGGED_KEY)
+    // Only surface the (untagged) chip when tags ARE used elsewhere on this
+    // metric — otherwise every entry is untagged and the chip is noise.
+    if (hasUntagged && tags.size > 0) out.unshift(UNTAGGED_KEY)
     return out
   }, [series.entries])
 
   const { active: activeTags, toggle } = useTagChips(allTags)
 
   const filtered = useMemo(
-    () => entriesMatchingTags(series.entries, activeTags),
-    [series.entries, activeTags],
+    // When no tag chips exist (e.g. nothing was ever tagged on this metric),
+    // skip filtering — otherwise every entry, having neither tags nor an
+    // active (untagged) chip to satisfy, gets excluded.
+    () => allTags.length === 0 ? series.entries : entriesMatchingTags(series.entries, activeTags),
+    [series.entries, activeTags, allTags],
   )
 
   return (
@@ -318,7 +323,7 @@ function ComparisonMetricBlock({
       }
     }
     const out = [...tags].sort()
-    if (hasUntagged) out.unshift(UNTAGGED_KEY)
+    if (hasUntagged && tags.size > 0) out.unshift(UNTAGGED_KEY)
     return out
   }, [comparisonRunIds, runs, loggableId, name])
 

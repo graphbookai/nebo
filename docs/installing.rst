@@ -37,7 +37,7 @@ Or use the daemon for persistent observability with a web UI:
     nebo serve -d
     nebo run my_pipeline.py
 
-Then visit http://localhost:2048 to see the UI.
+Then visit http://localhost:7861 to see the UI.
 
 
 Install from Source

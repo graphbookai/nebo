@@ -40,7 +40,7 @@ The decorator can be used in several forms:
     @nb.fn                       # bare (no parentheses)
     @nb.fn()                     # empty parentheses
     @nb.fn(depends_on=[setup])   # with explicit dependencies
-    @nb.fn(ui={"collapsed": True})  # with per-node UI hints
+    @nb.fn(ui={"color": "#34d399"})  # with per-node UI hints
 
 
 Explicit Dependencies with ``depends_on``
@@ -284,27 +284,23 @@ UI Configuration from Code
     nb.ui(
         layout="horizontal",     # or "vertical"
         view="dag",              # or "grid"
-        collapsed=False,         # default node collapse state
         minimap=True,            # show minimap
         theme="dark",            # or "light"
     )
 
 Per-node display hints can be set via ``@nb.fn(ui={})``. Supported keys:
 
-- ``collapsed`` (bool) — open the node's card in the grid view collapsed
-  on first render.
 - ``color`` (str) — accent color for the node's badge / border.
-- ``default_tab`` (str) — which tab opens by default when the card is
-  expanded. One of ``"info"`` (default), ``"logs"``, ``"metrics"``,
-  ``"images"``, ``"audio"``, ``"ask"``. The user's clicks always override
-  this preference.
+- ``default_tab`` (str) — which tab opens by default for the node. One of
+  ``"logs"``, ``"metrics"``, ``"images"``, ``"audio"``, ``"ask"``. The
+  user's clicks always override this preference.
 
 Unknown keys are forwarded verbatim for forward compatibility with
 future UI features.
 
 .. code-block:: python
 
-    @nb.fn(ui={"collapsed": True})
+    @nb.fn(ui={"color": "#fb923c"})
     def data_loader():
         nb.log("Loading data")
         ...
@@ -333,7 +329,7 @@ You can also trigger server mode manually:
 .. code-block:: python
 
     import nebo as nb
-    nb.init(mode="server", port=2048)
+    nb.init(mode="server", port=7861)
 
 Auto Mode
 ---------

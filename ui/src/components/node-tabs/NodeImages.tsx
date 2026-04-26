@@ -25,7 +25,7 @@ export function NodeImages({ runId, loggableId, comparisonRunIds }: NodeImagesPr
   return <SingleRunImages runId={runId} loggableId={loggableId} />
 }
 
-function ImageItem({ runId, loggableId, img, showTimestamp }: { runId: string; loggableId: string; img: ImageEntry; showTimestamp?: boolean }) {
+export function ImageItem({ runId, loggableId, img, showTimestamp }: { runId: string; loggableId: string; img: ImageEntry; showTimestamp?: boolean }) {
   const { data, loading } = useMedia(runId, img.mediaId)
 
   return (

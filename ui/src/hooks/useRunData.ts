@@ -6,7 +6,22 @@ function fetchSingleRun(runId: string, store: ReturnType<typeof useStore.getStat
   const { setRunGraph, setRunLogs, setRunErrors, setRunMetrics, setRunImages, setRunAudio, addAskPrompt } = store
   return Promise.all([
     api.getRunGraph(runId).then(g => setRunGraph(runId, g)),
-    api.getRunLogs(runId, { limit: 500 }).then(d => setRunLogs(runId, d.logs)),
+    // Daemon returns logs with `loggable_id` while the UI's LogEntry stores
+    // it as `node` (mirroring the WS path). Normalize here so REST-loaded
+    // logs match the WS shape.
+    api.getRunLogs(runId, { limit: 500 }).then(d => {
+      const normalized = d.logs.map((l: unknown) => {
+        const e = l as Record<string, unknown>
+        return {
+          timestamp: e.timestamp as number,
+          node: (e.node ?? e.loggable_id ?? null) as string | null,
+          message: (e.message ?? '') as string,
+          level: (e.level ?? 'info') as string,
+          step: (e.step ?? null) as number | null,
+        }
+      })
+      setRunLogs(runId, normalized)
+    }),
     api.getRunErrors(runId).then(d => setRunErrors(runId, d.errors)),
     api.getRunMetrics(runId).then(d => setRunMetrics(runId, d.metrics)),
     api.getRunImages(runId).then(d => {

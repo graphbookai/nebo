@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 
-_DEFAULT_URL = "http://localhost:2048"
+_DEFAULT_URL = "http://localhost:7861"
 
 
 def _get(url: str, timeout: float = 5.0) -> Any:

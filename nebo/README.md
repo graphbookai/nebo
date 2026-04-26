@@ -305,7 +305,7 @@ Runs are persisted as `.nebo` binary files using MessagePack serialization. Each
 +----------------+     +------------------+     +------------------+
 |  Your Python   |---->|    Nebo SDK      |---->|  Daemon Server   |
 |   Pipeline     |     |  (@fn, log,      |     |  (FastAPI,       |
-|                |     |   track, ...)    |     |   port 2048)     |
+|                |     |   track, ...)    |     |   port 7861)     |
 +----------------+     +--------+---------+     +--------+---------+
                                 |                        |
                         +-------v-------+ +--------------+---------------+

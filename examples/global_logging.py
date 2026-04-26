@@ -7,20 +7,10 @@ main-function scope so you can see each tab populated under the Global card.
 """
 
 import math
-import time
-
 import numpy as np
 from PIL import Image
 
 import nebo as nb
-
-
-@nb.fn()
-def summarize(values: list[float]) -> dict:
-    """One real DAG node so the Global card is visible alongside a node."""
-    mean = sum(values) / len(values)
-    nb.log(f"mean over {len(values)} values = {mean:.4f}")
-    return {"count": len(values), "mean": mean}
 
 
 def main() -> None:
@@ -29,7 +19,7 @@ def main() -> None:
         "This run emits logs, metrics, text, and an image from outside any "
         "`@nb.fn()` function. They all land on the Global loggable."
     )
-
+    nb.ui(view="grid")
     # ── Plain text logs at the Global level ───────────────────────────────────
     nb.log("pipeline starting")
     nb.log("loading config from env")
@@ -56,13 +46,9 @@ def main() -> None:
     )
     nb.log_image(Image.fromarray(rgb), name="warmup_heatmap")
 
-    # ── Then do some real DAG work so Global and node cards render together ──
     values = [float(i) * 0.1 for i in range(32)]
-    result = summarize(values)
-    nb.log(f"pipeline finished: {result}")
-
-    # Give the event queue a moment to flush to the daemon / UI.
-    time.sleep(0.3)
+    for i,v in enumerate(values):
+        nb.log_metric("random values", v, step=i)
 
 
 if __name__ == "__main__":

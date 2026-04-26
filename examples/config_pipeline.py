@@ -1,13 +1,21 @@
-"""Example 3: Data Processing Pipeline with Config Logging
+"""Example 3: Data Processing Pipeline with Run-level + Per-step Config
 
-Demonstrates:
-- nb.log_cfg() for logging step configuration to the info tab
-- @nb.fn() to register pipeline steps
-- nb.log() for text and tensor-like object logging
-- nb.log_text() for rich markdown logging
+Demonstrates two complementary ways to surface configuration:
+
+- A single ``CONFIG`` dict at the top of the file is threaded into every
+  step so the run is parameterized from one place. The dict is also
+  passed to ``nb.start_run(config=CONFIG)`` so the entire config is
+  visible in the run header (top-left ``config`` tab) before any node
+  fires.
+- Inside each step, ``nb.log_cfg(...)`` records the slice of config the
+  step actually used, which lands as chips on that node's card.
+
+Also shown:
+- ``@nb.fn()`` to register pipeline steps
+- ``nb.log()`` for text and tensor-like object logging
+- ``nb.log_text()`` for rich markdown logging
 - Multiple source nodes and branching DAG
 - Error capture with enriched tracebacks
-- Full graph inspection via get_graph_dict()
 """
 
 import time
@@ -15,17 +23,40 @@ import numpy as np
 import nebo as nb
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Run-wide config. Every parameter every step takes lives here, so the run is
+# fully described by this single dict. The same values get passed into
+# ``nb.start_run(config=CONFIG)`` and threaded into the step functions below.
+# ─────────────────────────────────────────────────────────────────────────────
+CONFIG = {
+    "num_samples": 100,
+    "noise_level": 0.2,
+    "seed": 0,
+    "normalize": {
+        "method": "standard",
+        "clip_min": -5.0,
+        "clip_max": 5.0,
+    },
+    "filter_label": "A",
+    "stats": {
+        "top_k": 10,
+        "threshold": 0.0,
+    },
+}
+
+
 nb.md("""
 # Data Processing Pipeline
 
 This pipeline generates synthetic data, processes it through normalization
-and filtering, then runs statistical analysis. Configuration is logged
-via `nb.log_cfg()` — each step declares what it was configured with.
+and filtering, then runs statistical analysis. The whole run is parameterized
+by a single ``CONFIG`` dict passed to ``nb.start_run(config=...)``; each step
+also calls ``nb.log_cfg()`` to record the slice it actually used.
 """)
 
 
 @nb.fn()
-def generate_data(num_samples: int = 100, noise_level: float = 0.2, seed: int = 0) -> np.ndarray:
+def generate_data(num_samples: int, noise_level: float, seed: int) -> np.ndarray:
     """Generate synthetic time-series data with configurable noise level."""
     nb.log_cfg({"num_samples": num_samples, "noise_level": noise_level, "seed": seed})
     np.random.seed(seed)
@@ -38,7 +69,7 @@ def generate_data(num_samples: int = 100, noise_level: float = 0.2, seed: int = 
 
 
 @nb.fn()
-def generate_metadata(num_samples: int = 100, seed: int = 0) -> dict:
+def generate_metadata(num_samples: int, seed: int) -> dict:
     """Generate metadata labels for each data sample."""
     nb.log_cfg({"num_samples": num_samples, "seed": seed})
     np.random.seed(seed + 1)
@@ -54,9 +85,9 @@ def generate_metadata(num_samples: int = 100, seed: int = 0) -> dict:
 @nb.fn()
 def normalize_data(
     data: np.ndarray,
-    method: str = "standard",
-    clip_min: float = -5.0,
-    clip_max: float = 5.0,
+    method: str,
+    clip_min: float,
+    clip_max: float,
 ) -> np.ndarray:
     """Normalize data using the configured method and clip to range."""
     nb.log_cfg({"method": method, "clip_min": clip_min, "clip_max": clip_max})
@@ -80,8 +111,9 @@ def normalize_data(
 
 
 @nb.fn()
-def filter_by_label(data: np.ndarray, metadata: dict, label: str = "A") -> np.ndarray:
+def filter_by_label(data: np.ndarray, metadata: dict, label: str) -> np.ndarray:
     """Filter data points to only include those matching a specific label."""
+    nb.log_cfg({"label": label})
     mask = metadata["labels"] == label
     filtered = data[mask]
     nb.log(f"Filtered to label='{label}': {mask.sum()}/{len(data)} samples")
@@ -93,8 +125,8 @@ def filter_by_label(data: np.ndarray, metadata: dict, label: str = "A") -> np.nd
 @nb.fn()
 def compute_statistics(
     data: np.ndarray,
-    top_k: int = 10,
-    threshold: float = 0.0,
+    top_k: int,
+    threshold: float,
 ) -> dict:
     """Compute descriptive statistics and find top-K values above threshold."""
     nb.log_cfg({"top_k": top_k, "threshold": threshold})
@@ -153,25 +185,32 @@ def generate_report(all_stats: dict, filtered_stats: dict) -> str:
 
 
 @nb.fn()
-def run_analysis() -> str:
+def run_analysis(config: dict) -> str:
     """Top-level analysis runner that orchestrates data generation, processing, and reporting.
 
     This is the source node. Calling other @fn functions from here creates
     DAG edges automatically: run_analysis -> generate_data, run_analysis -> normalize_data, etc.
     """
     # Data generation
-    data = generate_data()
-    metadata = generate_metadata()
+    data = generate_data(
+        num_samples=config["num_samples"],
+        noise_level=config["noise_level"],
+        seed=config["seed"],
+    )
+    metadata = generate_metadata(
+        num_samples=config["num_samples"],
+        seed=config["seed"],
+    )
 
     # Processing
-    normalized = normalize_data(data)
+    normalized = normalize_data(data, **config["normalize"])
 
     # Filtering
-    filtered = filter_by_label(normalized, metadata, label="A")
+    filtered = filter_by_label(normalized, metadata, label=config["filter_label"])
 
     # Analysis — two calls to compute_statistics
-    all_stats = compute_statistics(normalized)
-    filtered_stats = compute_statistics(filtered)
+    all_stats = compute_statistics(normalized, **config["stats"])
+    filtered_stats = compute_statistics(filtered, **config["stats"])
 
     # Final report
     return generate_report(all_stats, filtered_stats)
@@ -179,8 +218,12 @@ def run_analysis() -> str:
 
 def main():
     """Run the data processing pipeline."""
-    report = run_analysis()
-    print(report)
+    # Pass the run-wide config to nb.start_run so it shows up in the UI's
+    # config tab alongside the workflow description.
+    with nb.start_run(config=CONFIG):
+        report = run_analysis(CONFIG)
+        print(report)
+
 
 if __name__ == "__main__":
     main()

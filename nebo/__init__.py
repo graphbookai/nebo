@@ -23,6 +23,8 @@ from nebo.core.decorators import fn
 from nebo.core.tracker import track
 from nebo.core.config import log_cfg
 from nebo.core.state import _current_node, get_state
+from nebo.alerts import AlertLevel, alert
+from nebo.notebook import show
 from nebo.logging.logger import (
     log,
     log_metric,
@@ -83,15 +85,17 @@ def _ensure_init() -> None:
 
 
 def init(
-    port: int = 2048,
+    port: int = 7861,
     host: str = "localhost",
     mode: Literal["auto", "server", "local"] = "auto",
     terminal: bool = True,
-    dag_strategy: Literal["object", "stack", "both", "none"] = "object",
+    dag_strategy: Literal["object", "stack", "both", "linear", "none"] = "object",
     flush_interval: float = 0.1,
     store: bool = True,
     cloud_url: Optional[str] = None,
     api_token: Optional[str] = None,
+    webhook_url: Optional[str] = None,
+    webhook_min_level: Optional[int] = None,
     _internal: bool = False,
 ) -> None:
     """Initialize nebo.
@@ -110,20 +114,27 @@ def init(
     mode without code changes.
 
     Args:
-        port: Daemon server port (default 2048).
+        port: Daemon server port (default 7861).
         host: Daemon server host (default localhost).
         mode: 'auto', 'server', or 'local'.
         terminal: Whether to show Rich terminal display in local mode.
         dag_strategy: How DAG edges are inferred between steps.
             'object' (default) uses sibling data-flow edges with parent
             fallback. 'stack' uses caller-to-callee edges only. 'both'
-            is the union of object and stack edges.
+            is the union of object and stack edges. 'linear' chains nodes
+            in first-execution order (each newly-encountered node gets a
+            single edge from the previously-encountered one). 'none'
+            disables automatic edge inference.
         flush_interval: Seconds between event flushes (default 0.1).
         store: Whether to persist events to .nebo files (default True).
         cloud_url: Full URL of a hosted nebo router. Overrides host+port.
             Defaults to env var NEBO_CLOUD_URL.
         api_token: Bearer token for the cloud router. Required with
             cloud_url. Defaults to env var NEBO_API_TOKEN.
+        webhook_url: Slack-compatible webhook URL for `nb.alert()`. When
+            unset, `nb.alert()` is a no-op.
+        webhook_min_level: Minimum `AlertLevel` that fires the webhook.
+            Defaults to ``AlertLevel.INFO``.
     """
     global _auto_init_done
 
@@ -142,6 +153,10 @@ def init(
     state = get_state()
     state.port = port
     state.dag_strategy = dag_strategy
+    if webhook_url is not None:
+        state.webhook_url = webhook_url
+    if webhook_min_level is not None:
+        state.webhook_min_level = int(webhook_min_level)
 
     # Check environment overrides (set by `nebo run`)
     env_mode = os.environ.get("NEBO_MODE")
@@ -350,7 +365,6 @@ def ask(
 def ui(
     layout: Optional[Literal["horizontal", "vertical"]] = None,
     view: Optional[Literal["dag", "grid"]] = None,
-    collapsed: Optional[bool] = None,
     minimap: Optional[bool] = None,
     theme: Optional[Literal["dark", "light"]] = None,
     tracker: Optional[Literal["time", "step"]] = None,
@@ -363,7 +377,6 @@ def ui(
     Args:
         layout: DAG layout direction ("horizontal" or "vertical").
         view: Default view mode ("dag" or "grid").
-        collapsed: Default node collapse state.
         minimap: Show minimap.
         theme: Color theme ("dark" or "light").
         tracker: Default timeline scrubber mode ("time" or "step").
@@ -375,8 +388,6 @@ def ui(
         config["layout"] = layout
     if view is not None:
         config["view"] = view
-    if collapsed is not None:
-        config["collapsed"] = collapsed
     if minimap is not None:
         config["minimap"] = minimap
     if theme is not None:

@@ -736,6 +736,56 @@ class TestDAGStrategy:
         state.reset()
         assert state.dag_strategy == "object"
 
+    def test_linear_strategy_chains_in_first_execution_order(self) -> None:
+        """Linear strategy should add an edge from each previously-encountered
+        node to the next, regardless of actual data flow or call relationships."""
+        state = get_state()
+        state.dag_strategy = "linear"
+
+        @fn()
+        def a():
+            return 1
+
+        @fn()
+        def b():
+            return 2
+
+        @fn()
+        def c():
+            return 3
+
+        # Independent calls — no data flow, no caller chain.
+        a()
+        b()
+        c()
+
+        edges = self._edge_set()
+        assert (self._nid("a"), self._nid("b")) in edges
+        assert (self._nid("b"), self._nid("c")) in edges
+        assert len(state.edges) == 2
+
+    def test_linear_strategy_adds_edge_only_on_first_run(self) -> None:
+        """Re-running an already-seen node must NOT add a duplicate or new
+        edge under the linear strategy."""
+        state = get_state()
+        state.dag_strategy = "linear"
+
+        @fn()
+        def a():
+            return 1
+
+        @fn()
+        def b():
+            return 2
+
+        a()
+        b()
+        a()  # second run — should not relink anything
+        b()  # second run
+
+        edges = self._edge_set()
+        assert edges == {(self._nid("a"), self._nid("b"))}
+
 
 class TestNodeMaterialization:
     """Tests for node materialization on execution."""

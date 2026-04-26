@@ -7,6 +7,9 @@ import { MobileNav } from '@/components/layout/MobileNav'
 import { RunDetailView } from '@/components/layout/RunDetailView'
 import { RightPanel } from '@/components/layout/RightPanel'
 import { RunList } from '@/components/runs/RunList'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { useEmbeddedView } from '@/hooks/useEmbeddedView'
+import { EmbeddedView } from '@/components/embedded/EmbeddedView'
 
 export default function App() {
   useWebSocket()
@@ -15,8 +18,20 @@ export default function App() {
   const reconnecting = useStore(s => s.reconnecting)
   const connected = useStore(s => s.connected)
   const rightPanelOpen = useStore(s => s.rightPanelOpen)
+  const embedded = useEmbeddedView()
+
+  if (embedded) {
+    return (
+      <TooltipProvider delayDuration={200}>
+        <ErrorBoundary label="EmbeddedView">
+          <EmbeddedView spec={embedded} />
+        </ErrorBoundary>
+      </TooltipProvider>
+    )
+  }
 
   return (
+    <TooltipProvider delayDuration={200}>
     <div className="h-screen flex flex-col overflow-hidden">
       {/* Reconnection banner */}
       {!connected && reconnecting && (
@@ -67,5 +82,6 @@ export default function App() {
         </>
       )}
     </div>
+    </TooltipProvider>
   )
 }

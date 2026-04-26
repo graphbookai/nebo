@@ -16,7 +16,7 @@ class TestDaemonClient:
         """Should initialize with default host/port."""
         client = DaemonClient()
         assert client._host == "localhost"
-        assert client._port == 2048
+        assert client._port == 7861
         assert client._connected is False
 
     def test_connect_fails_when_no_server(self) -> None:
@@ -284,7 +284,7 @@ class TestUiConfigEmission:
 
         import nebo as nb
         nb.init(mode="server", terminal=False)
-        nb.ui(layout="horizontal", view="dag", collapsed=True, minimap=True, theme="dark")
+        nb.ui(layout="horizontal", view="dag", minimap=True, theme="dark")
 
         assert len(self._captured) == 1
         client = self._captured[0]
@@ -295,7 +295,6 @@ class TestUiConfigEmission:
         data = ui_events[0]["data"]
         assert data["layout"] == "horizontal"
         assert data["view"] == "dag"
-        assert data["collapsed"] is True
         assert data["minimap"] is True
         assert data["theme"] == "dark"
 

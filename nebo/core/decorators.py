@@ -238,6 +238,19 @@ def _decorate_function(f, depends_on, pausable, group=None, ui_hints=None):
                 producers = state.find_producers(args, kwargs, parent)
                 for producer in producers:
                     state.add_edge(producer, node_id)
+            elif strategy == "linear":
+                # Chain nodes in first-execution order. Each unique node gets
+                # exactly one incoming edge — from whichever node ran first
+                # immediately before it. Subsequent calls to the same node
+                # add no new edges.
+                node_info = state.loggables.get(node_id)
+                is_first_run = (
+                    isinstance(node_info, NodeInfo) and node_info.exec_count == 0
+                )
+                if is_first_run:
+                    if state._linear_last is not None and state._linear_last != node_id:
+                        state.add_edge(state._linear_last, node_id)
+                    state._linear_last = node_id
             else:  # "object" (default)
                 producers = state.find_producers(args, kwargs, parent)
                 if producers:

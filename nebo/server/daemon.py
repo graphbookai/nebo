@@ -555,7 +555,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
     Args:
         state: Optional pre-existing DaemonState. Creates new if None.
         port: Daemon port for injecting into pipeline subprocess env.
-              Falls back to NEBO_DAEMON_PORT env var, then 2048.
+              Falls back to NEBO_DAEMON_PORT env var, then 7861.
 
     Returns:
         FastAPI application instance.
@@ -566,7 +566,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
     from nebo.server.runner import PipelineRunner
 
     if port is None:
-        port = int(os.environ.get("NEBO_DAEMON_PORT", "2048"))
+        port = int(os.environ.get("NEBO_DAEMON_PORT", "7861"))
 
     if state is None:
         state = DaemonState()

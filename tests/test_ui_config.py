@@ -18,7 +18,7 @@ def test_ui_sends_config_event(reset_state):
     """nb.ui() should store config and send ui_config event."""
     from nebo.core.state import get_state
 
-    nb.ui(layout="horizontal", view="dag", collapsed=False, minimap=True, theme="dark")
+    nb.ui(layout="horizontal", view="dag", minimap=True, theme="dark")
 
     state = get_state()
     assert state.ui_config is not None
@@ -42,7 +42,7 @@ def test_fn_ui_parameter(reset_state):
     """@nb.fn(ui={...}) stores per-node UI hints."""
     from nebo.core.state import get_state
 
-    @nb.fn(ui={"collapsed": True})
+    @nb.fn(ui={"color": "#34d399"})
     def my_func():
         nb.log("hello")
 
@@ -50,4 +50,4 @@ def test_fn_ui_parameter(reset_state):
 
     state = get_state()
     node_id = next(nid for nid in state.loggables if "my_func" in nid)
-    assert state.loggables[node_id].ui_hints == {"collapsed": True}
+    assert state.loggables[node_id].ui_hints == {"color": "#34d399"}

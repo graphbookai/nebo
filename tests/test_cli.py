@@ -20,7 +20,7 @@ class TestCLI:
 
     def test_mcp_outputs_valid_json(self, capsys: pytest.CaptureFixture) -> None:
         """nebo mcp should output valid JSON config."""
-        args = argparse.Namespace(port=2048)
+        args = argparse.Namespace(port=7861)
         cmd_mcp(args)
         config = self._parse_mcp_config(capsys.readouterr().out)
         assert "mcpServers" in config
@@ -30,7 +30,7 @@ class TestCLI:
 
     def test_mcp_default_port_omits_port_flag(self, capsys: pytest.CaptureFixture) -> None:
         """At the default port, --port should NOT appear in args (keeps output minimal)."""
-        args = argparse.Namespace(port=2048)
+        args = argparse.Namespace(port=7861)
         cmd_mcp(args)
         config = self._parse_mcp_config(capsys.readouterr().out)
         nebo_args = config["mcpServers"]["nebo"]["args"]

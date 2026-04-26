@@ -225,7 +225,7 @@ MCP_TOOLS = [
 ]
 
 
-async def handle_tool_call(name: str, arguments: dict[str, Any], server_url: str = "http://localhost:2048") -> Any:
+async def handle_tool_call(name: str, arguments: dict[str, Any], server_url: str = "http://localhost:7861") -> Any:
     """Dispatch an MCP tool call to the appropriate handler."""
     handlers = {
         # Observation
@@ -254,7 +254,7 @@ async def handle_tool_call(name: str, arguments: dict[str, Any], server_url: str
     return await handler(arguments)
 
 
-def run_mcp_server(port: int = 2048) -> None:
+def run_mcp_server(port: int = 7861) -> None:
     """Run the MCP server in stdio mode (JSON-RPC over stdin/stdout)."""
     from nebo.mcp.stdio import run_stdio_bridge
     run_stdio_bridge(port=port)

@@ -27,7 +27,7 @@ def _make_gradient(index: int, size: int = 128) -> Image.Image:
     return Image.fromarray(arr)
 
 
-@nb.fn()
+@nb.fn(ui={"default_tab": "images"})
 def create_images(num_images: int = 500, size: int = 128) -> list[Image.Image]:
     """Generate base gradient images."""
     images = []
@@ -39,7 +39,7 @@ def create_images(num_images: int = 500, size: int = 128) -> list[Image.Image]:
     return images
 
 
-@nb.fn()
+@nb.fn(ui={"default_tab": "images"})
 def warm_tint(images: list[Image.Image]) -> list[Image.Image]:
     """Apply a warm tint: boost reds, reduce blues."""
     result = []
@@ -54,7 +54,7 @@ def warm_tint(images: list[Image.Image]) -> list[Image.Image]:
     return result
 
 
-@nb.fn()
+@nb.fn(ui={"default_tab": "images"})
 def sharpen(images: list[Image.Image]) -> list[Image.Image]:
     """Sharpen and boost contrast."""
     result = []
@@ -67,13 +67,11 @@ def sharpen(images: list[Image.Image]) -> list[Image.Image]:
     return result
 
 
-@nb.fn()
 def run_pipeline() -> list[Image.Image]:
     """Run all 3 stages across multiple images."""
     images = create_images()
     images = warm_tint(images)
     images = sharpen(images)
-    nb.log("Pipeline complete")
     return images
 
 

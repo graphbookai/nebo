@@ -319,9 +319,9 @@ def cmd_errors(args: argparse.Namespace) -> None:
 
 def cmd_mcp(args: argparse.Namespace) -> None:
     """Print MCP connection config for Claude Code."""
-    port = getattr(args, "port", 2048)
+    port = getattr(args, "port", 7861)
     nebo_args = ["mcp-stdio"]
-    if port != 2048:
+    if port != 7861:
         nebo_args += ["--port", str(port)]
     config = {
         "mcpServers": {
@@ -371,13 +371,13 @@ def main() -> None:
         prog="nebo",
         description="Nebo - Function-level logging for Python",
     )
-    parser.add_argument("--port", type=int, default=2048, help="Daemon port (default: 2048)")
+    parser.add_argument("--port", type=int, default=7861, help="Daemon port (default: 7861)")
     subparsers = parser.add_subparsers(dest="command")
 
     # serve
     p_serve = subparsers.add_parser("serve", help="Start the persistent daemon server")
     p_serve.add_argument("--host", default="localhost", help="Host to bind (default: localhost)")
-    p_serve.add_argument("--port", type=int, default=2048, help="Port (default: 2048)")
+    p_serve.add_argument("--port", type=int, default=7861, help="Port (default: 7861)")
     p_serve.add_argument("--daemon", "-d", action="store_true", help="Run in background")
     p_serve.add_argument("--no-store", action="store_true", help="Disable .nebo file storage")
 
@@ -385,42 +385,42 @@ def main() -> None:
     p_run = subparsers.add_parser("run", help="Run a pipeline managed by the daemon")
     p_run.add_argument("script", help="Path to the Python script")
     p_run.add_argument("--name", help="Run name/ID")
-    p_run.add_argument("--port", type=int, default=2048)
+    p_run.add_argument("--port", type=int, default=7861)
     p_run.add_argument("--flush-interval", type=float, default=0.1, help="Seconds between event flushes (default: 0.1)")
     p_run.add_argument("script_args", nargs="*", help="Arguments for the script")
 
     # status
     p_status = subparsers.add_parser("status", help="Show daemon status")
-    p_status.add_argument("--port", type=int, default=2048)
+    p_status.add_argument("--port", type=int, default=7861)
 
     # stop
     p_stop = subparsers.add_parser("stop", help="Stop the daemon")
-    p_stop.add_argument("--port", type=int, default=2048)
+    p_stop.add_argument("--port", type=int, default=7861)
 
     # logs
     p_logs = subparsers.add_parser("logs", help="View logs")
     p_logs.add_argument("--run", help="Run ID")
     p_logs.add_argument("--node", help="Filter by node")
     p_logs.add_argument("--limit", type=int, default=100)
-    p_logs.add_argument("--port", type=int, default=2048)
+    p_logs.add_argument("--port", type=int, default=7861)
 
     # errors
     p_errors = subparsers.add_parser("errors", help="View errors")
     p_errors.add_argument("--run", help="Run ID")
-    p_errors.add_argument("--port", type=int, default=2048)
+    p_errors.add_argument("--port", type=int, default=7861)
 
     # load
     p_load = subparsers.add_parser("load", help="Load a .nebo file into the daemon")
     p_load.add_argument("file", help="Path to .nebo file")
-    p_load.add_argument("--port", type=int, default=2048)
+    p_load.add_argument("--port", type=int, default=7861)
 
     # mcp
     p_mcp = subparsers.add_parser("mcp", help="Print MCP config for Claude Code")
-    p_mcp.add_argument("--port", type=int, default=2048, help="Daemon port to embed in the MCP config")
+    p_mcp.add_argument("--port", type=int, default=7861, help="Daemon port to embed in the MCP config")
 
     # mcp-stdio (internal)
     p_mcp_stdio = subparsers.add_parser("mcp-stdio", help="Run MCP stdio transport")
-    p_mcp_stdio.add_argument("--port", type=int, default=2048)
+    p_mcp_stdio.add_argument("--port", type=int, default=7861)
 
     args = parser.parse_args()
 

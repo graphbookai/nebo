@@ -33,7 +33,6 @@ export interface Settings {
   theme: 'dark' | 'light'
   showMinimap: boolean
   showControls: boolean
-  collapseNodesByDefault: boolean
   hideTabsOnDrag: boolean
   hideUncalledFunctions: boolean
 }
@@ -44,7 +43,6 @@ const DEFAULT_SETTINGS: Settings = {
   theme: 'dark',
   showMinimap: true,
   showControls: true,
-  collapseNodesByDefault: false,
   hideTabsOnDrag: false,
   hideUncalledFunctions: true,
 }
@@ -71,7 +69,7 @@ const initialSettings = loadSettings()
 // Apply persisted theme on load
 document.documentElement.classList.toggle('dark', initialSettings.theme === 'dark')
 
-export type NodeTab = 'info' | 'logs' | 'metrics' | 'images' | 'audio' | 'ask'
+export type NodeTab = 'logs' | 'metrics' | 'images' | 'audio' | 'ask'
 
 export type RightPanelTab = 'trace' | 'chat' | 'settings'
 
@@ -152,7 +150,6 @@ export interface RunState {
   loggableMetrics: Record<string, Record<string, LoggableMetricSeries>>
   loggableImages: Record<string, ImageEntry[]>
   loggableAudio: Record<string, AudioEntry[]>
-  loggableInspections: Record<string, Record<string, unknown>>
   pendingAsks: Map<string, AskPrompt>
   chatMessages: ChatMessage[]
   paused: boolean
@@ -187,7 +184,6 @@ interface NeboStore {
   removeComparisonGroup: (groupId: string) => void
 
   // Node interaction (graph view)
-  collapsedGraphNodes: Set<string>
   layoutTrigger: number
   dagDirection: 'TB' | 'LR'
   toggleDagDirection: () => void
@@ -247,7 +243,6 @@ interface NeboStore {
   updateNodeProgress: (runId: string, nodeId: string, progress: { current: number; total: number; name?: string } | null) => void
   incrementNodeExecCount: (runId: string, loggableId: string) => void
   addEdge: (runId: string, source: string, target: string) => void
-  updateInspection: (runId: string, nodeId: string, name: string, data: unknown) => void
   setWorkflowDescription: (runId: string, description: string) => void
 
   // Media cache (mediaId -> base64 data)
@@ -255,9 +250,6 @@ interface NeboStore {
   cacheMedia: (mediaId: string, data: string) => void
 
   selectRun: (runId: string | null) => void
-  toggleGraphNode: (nodeId: string) => void
-  collapseAllGraphNodes: () => void
-  expandAllGraphNodes: () => void
   requestLayout: () => void
   pinTab: (runId: string, nodeId: string, tab: NodeTab) => void
   unpinPanel: (panelId: string) => void
@@ -301,7 +293,6 @@ function ensureRun(state: NeboStore, runId: string): RunState {
       loggableMetrics: {},
       loggableImages: {},
       loggableAudio: {},
-      loggableInspections: {},
       pendingAsks: new Map(),
       chatMessages: [],
       paused: false,
@@ -385,7 +376,6 @@ export const useStore = create<NeboStore>((set, get) => ({
     return updates
   }),
 
-  collapsedGraphNodes: new Set<string>(),
   layoutTrigger: 0,
   dagDirection: 'TB',
   toggleDagDirection: () => set(state => ({
@@ -468,7 +458,6 @@ export const useStore = create<NeboStore>((set, get) => ({
           loggableMetrics: {},
           loggableImages: {},
           loggableAudio: {},
-          loggableInspections: {},
           pendingAsks: new Map(),
           chatMessages: [],
           paused: false,
@@ -524,12 +513,6 @@ export const useStore = create<NeboStore>((set, get) => ({
         patch.viewMode = 'graph'
       } else if (ui.view === 'grid') {
         patch.viewMode = 'grid'
-      }
-
-      if (ui.collapsed === true) {
-        const collapsed = new Set<string>()
-        for (const nid of Object.keys(graph.nodes)) collapsed.add(nid)
-        patch.collapsedGraphNodes = collapsed
       }
 
       if (ui.theme === 'dark' || ui.theme === 'light') {
@@ -694,16 +677,6 @@ export const useStore = create<NeboStore>((set, get) => ({
     return { runs }
   }),
 
-  updateInspection: (runId, nodeId, name, data) => set(state => {
-    const runs = new Map(state.runs)
-    const run = runs.get(runId)
-    if (run) {
-      if (!run.loggableInspections[nodeId]) run.loggableInspections[nodeId] = {}
-      run.loggableInspections[nodeId] = { ...run.loggableInspections[nodeId], [name]: data }
-    }
-    return { runs }
-  }),
-
   setWorkflowDescription: (runId, description) => set(state => {
     const runs = new Map(state.runs)
     const run = runs.get(runId)
@@ -722,21 +695,6 @@ export const useStore = create<NeboStore>((set, get) => ({
   }),
 
   selectRun: (runId) => set({ selectedRunId: runId }),
-  toggleGraphNode: (nodeId) => set(state => {
-    const next = new Set(state.collapsedGraphNodes)
-    if (next.has(nodeId)) {
-      next.delete(nodeId)
-    } else {
-      next.add(nodeId)
-    }
-    return { collapsedGraphNodes: next, layoutTrigger: state.layoutTrigger + 1 }
-  }),
-  collapseAllGraphNodes: () => set(state => {
-    const selectedRun = state.selectedRunId ? state.runs.get(state.selectedRunId) : null
-    const allIds = selectedRun?.graph ? Object.keys(selectedRun.graph.nodes) : []
-    return { collapsedGraphNodes: new Set(allIds), layoutTrigger: state.layoutTrigger + 1 }
-  }),
-  expandAllGraphNodes: () => set(state => ({ collapsedGraphNodes: new Set<string>(), layoutTrigger: state.layoutTrigger + 1 })),
   requestLayout: () => set(state => ({ layoutTrigger: state.layoutTrigger + 1 })),
   pinTab: (runId, nodeId, tab) => set(state => {
     const run = state.runs.get(runId)
@@ -907,7 +865,6 @@ export const useStore = create<NeboStore>((set, get) => ({
           loggableMetrics: {},
           loggableImages: {},
           loggableAudio: {},
-          loggableInspections: {},
           pendingAsks: new Map(),
           chatMessages: [],
           paused: false,
@@ -919,10 +876,9 @@ export const useStore = create<NeboStore>((set, get) => ({
       run = { ...run } as RunState
       runs.set(runId, run)
 
-      // Accumulate new logs/errors/collapsed so we can spread once at the end
+      // Accumulate new logs/errors so we can spread once at the end
       const newLogs: LogEntry[] = []
       const newErrors: ErrorEntry[] = []
-      const newCollapsedIds: string[] = []
 
       for (const event of events) {
         const etype = event.type
@@ -1024,9 +980,6 @@ export const useStore = create<NeboStore>((set, get) => ({
                   },
                 }
                 run.summary.node_count = Object.keys(run.graph.nodes).length
-                if (state.settings.collapseNodesByDefault) {
-                  newCollapsedIds.push(lid)
-                }
               }
             }
             break
@@ -1199,13 +1152,6 @@ export const useStore = create<NeboStore>((set, get) => ({
       }
       if (newErrors.length > 0) {
         run.errors = [...run.errors, ...newErrors]
-      }
-
-      // Collapse newly registered nodes if setting is enabled
-      if (newCollapsedIds.length > 0) {
-        const next = new Set(state.collapsedGraphNodes)
-        for (const id of newCollapsedIds) next.add(id)
-        return { runs, collapsedGraphNodes: next }
       }
 
       return { runs }

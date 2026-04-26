@@ -1,9 +1,10 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { CheckSquare, Square, GitCompare, Palette } from 'lucide-react'
 import { useStore } from '@/store'
 import { ContextMenu } from '@/components/shared/ContextMenu'
 import { ContextMenuItem } from '@/components/shared/ContextMenuItem'
 import { ColorPicker } from '@/components/shared/ColorPicker'
+import { DEFAULT_RUN_COLOR } from '@/lib/colors'
 
 interface RunContextMenuProps {
   runId: string
@@ -16,6 +17,7 @@ export function RunContextMenu({ runId, isOpen, position, onClose }: RunContextM
   const selectedForCompare = useStore(s => s.selectedForCompare)
   const toggleSelectForCompare = useStore(s => s.toggleSelectForCompare)
   const createComparisonGroup = useStore(s => s.createComparisonGroup)
+  const selectRun = useStore(s => s.selectRun)
   const runColor = useStore(s => s.runColors.get(runId))
   const getOrAssignRunColor = useStore(s => s.getOrAssignRunColor)
   const setRunColor = useStore(s => s.setRunColor)
@@ -38,9 +40,10 @@ export function RunContextMenu({ runId, isOpen, position, onClose }: RunContextM
     if (!ids.has(runId)) {
       ids.add(runId)
     }
-    createComparisonGroup([...ids])
+    const groupId = createComparisonGroup([...ids])
+    selectRun(groupId)
     onClose()
-  }, [runId, selectedForCompare, createComparisonGroup, onClose])
+  }, [runId, selectedForCompare, createComparisonGroup, selectRun, onClose])
 
   const handleColorChange = useCallback((color: string) => {
     setRunColor(runId, color)
@@ -52,7 +55,14 @@ export function RunContextMenu({ runId, isOpen, position, onClose }: RunContextM
     requestAnimationFrame(() => setColorPickerOpen(true))
   }, [onClose])
 
-  const currentColor = runColor ?? getOrAssignRunColor(runId)
+  // Lazily assign a color the first time this menu mounts for a run that
+  // has none. Calling getOrAssignRunColor during render synchronously
+  // mutates the store, which React 19 flags as "setState in render".
+  useEffect(() => {
+    if (!runColor) getOrAssignRunColor(runId)
+  }, [runId, runColor, getOrAssignRunColor])
+
+  const currentColor = runColor ?? DEFAULT_RUN_COLOR
 
   return (
     <>

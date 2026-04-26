@@ -62,6 +62,7 @@ class _RunSnapshot:
     workflow_description: Optional[str]
     ui_config: Optional[dict]
     has_pausable: bool
+    linear_last: Optional[str]
 
 
 class SessionState:
@@ -90,7 +91,7 @@ class SessionState:
         self.edges: list[DAGEdge] = []
         self._edge_set: set[tuple[str, str]] = set()
         self.workflow_description: Optional[str] = None
-        self.port: int = 2048
+        self.port: int = 7861
         self.server_process: Any = None
         self._display: Any = None
         self._initialized_display: bool = False
@@ -99,6 +100,9 @@ class SessionState:
         self._mode: str = "local"  # "local" or "server"
         self._return_origins: dict[int, tuple[str, Any]] = {}  # id(value) -> (producing node_id, value ref)
         self._node_parents: dict[str, Optional[str]] = {}  # node_id -> parent node_id
+        # For dag_strategy="linear": id of the most recent first-execution node,
+        # used to chain newly-encountered nodes regardless of actual data flow.
+        self._linear_last: Optional[str] = None
         self.dag_strategy: str = "object"
         self._lock_state = threading.Lock()
         # Pause support: Event is set (unblocked) by default; cleared when paused
@@ -109,6 +113,9 @@ class SessionState:
         # Multi-run support
         self._run_snapshots: dict[str, _RunSnapshot] = {}
         self._active_run_id: Optional[str] = None
+        # Webhook alerts (configured via nb.init)
+        self.webhook_url: Optional[str] = None
+        self.webhook_min_level: int = 20  # AlertLevel.INFO
 
     def ensure_display(self) -> None:
         """Ensure the terminal display is created and started."""
@@ -337,6 +344,7 @@ class SessionState:
                 workflow_description=self.workflow_description,
                 ui_config=self.ui_config,
                 has_pausable=self._has_pausable,
+                linear_last=self._linear_last,
             )
 
     def restore_run_state(self, run_id: str) -> None:
@@ -354,6 +362,7 @@ class SessionState:
             self.workflow_description = snap.workflow_description
             self.ui_config = snap.ui_config
             self._has_pausable = snap.has_pausable
+            self._linear_last = snap.linear_last
 
     def clear_run_state(self) -> None:
         """Reset per-run fields to empty (for new runs)."""
@@ -369,6 +378,7 @@ class SessionState:
             self.workflow_description = None
             self.ui_config = None
             self._has_pausable = False
+            self._linear_last = None
 
     def reset(self) -> None:
         """Reset all state. Primarily for testing."""
@@ -381,6 +391,7 @@ class SessionState:
             self._edge_set.clear()
             self._return_origins.clear()
             self._node_parents.clear()
+            self._linear_last = None
             self.dag_strategy = "object"
             self.workflow_description = None
             self._initialized_server = False

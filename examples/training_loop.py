@@ -59,7 +59,7 @@ def train_step(model: dict, batch_X: np.ndarray, batch_y: np.ndarray, lr: float 
     return float(loss), float(accuracy)
 
 
-@nb.fn()
+@nb.fn(ui={"default_tab": "images"})
 def generate_sample_image(epoch: int) -> np.ndarray:
     """Generate a sample visualization image showing training progress."""
     # Create a simple gradient image that changes with epoch
@@ -69,7 +69,9 @@ def generate_sample_image(epoch: int) -> np.ndarray:
             img[i, j, 0] = int((i / 64) * 255)                    # Red gradient
             img[i, j, 1] = int((j / 64) * 255)                    # Green gradient
             img[i, j, 2] = int(((epoch * 25) % 255))              # Blue varies by epoch
-    return img
+    pil_img = Image.fromarray(img)
+    nb.log_image(pil_img, name=f"sample_epoch_{epoch}", step=epoch)
+    nb.log(f"Logged sample image for epoch {epoch}")
 
 
 @nb.fn()
@@ -107,15 +109,11 @@ def train(dataset: dict, model: dict, epochs: int = 10, batch_size: int = 16) ->
 
         # Log a sample image every 3 epochs
         if epoch % 3 == 0:
-            sample_img = generate_sample_image(epoch)
-            pil_img = Image.fromarray(sample_img)
-            nb.log_image(pil_img, name=f"sample_epoch_{epoch}", step=epoch)
-            nb.log(f"Logged sample image for epoch {epoch}")
+            generate_sample_image(epoch)
 
     return history
 
 
-@nb.fn()
 def run_experiment() -> dict:
     """Top-level experiment runner that orchestrates dataset creation, model init, and training.
 

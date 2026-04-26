@@ -12,7 +12,7 @@ def test_build_claude_command():
         cmd = build_claude_command(
             question="How did my training go?",
             run_id="run-123",
-            server_url="http://localhost:2048",
+            server_url="http://localhost:7861",
         )
 
     assert "claude" in cmd[0]
@@ -23,5 +23,5 @@ def test_chat_formats_mcp_config():
     """MCP config should point back to the daemon."""
     from nebo.server.chat import build_mcp_config
 
-    config = build_mcp_config("http://localhost:2048")
+    config = build_mcp_config("http://localhost:7861")
     assert "nebo" in str(config).lower()

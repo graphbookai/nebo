@@ -319,7 +319,7 @@ Runs are persisted as `.nebo` binary files using MessagePack serialization. Each
 ```mermaid
 graph LR
     A[Your Python Pipeline] --> B[Nebo SDK<br>@fn, log, track, ...]
-    B --> C[Daemon Server<br>FastAPI, port 2048]
+    B --> C[Daemon Server<br>FastAPI, port 7861]
     B --> D[Terminal Dashboard<br>Rich]
     C --> E[CLI<br>nebo]
     C --> F[MCP Tools<br>Claude]

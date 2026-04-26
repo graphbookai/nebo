@@ -356,6 +356,10 @@ def md(description: str) -> None:
         description: Markdown description of the workflow.
     """
     _ensure_initialized()
+    # Strip leading/trailing whitespace; otherwise an inline triple-quoted
+    # block that begins on the next line drops its first line in the rendered
+    # markdown.
+    description = description.strip()
     state = get_state()
     if state.workflow_description is None:
         state.workflow_description = description
