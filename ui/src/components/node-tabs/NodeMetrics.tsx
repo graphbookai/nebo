@@ -20,25 +20,12 @@ import { LineMetric } from '@/components/charts/LineMetric'
 import { ComparisonLine } from '@/components/charts/comparison/ComparisonLine'
 import { ComparisonBar } from '@/components/charts/comparison/ComparisonBar'
 import { ComparisonScatter } from '@/components/charts/comparison/ComparisonScatter'
+import { ComparisonHistogram } from '@/components/charts/comparison/ComparisonHistogram'
 import type { SeriesFor } from '@/components/charts/seriesFor'
 import { BarMetric } from '@/components/charts/BarMetric'
 import { PieMetric } from '@/components/charts/PieMetric'
 import { ScatterMetric } from '@/components/charts/ScatterMetric'
 import { HistogramMetric } from '@/components/charts/HistogramMetric'
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts'
-import {
-  chartAxisTick,
-  chartBarCursor,
-  chartHiddenWrapper,
-} from '@/components/charts/chartStyles'
-import { PortalTooltip } from '@/components/charts/PortalTooltip'
 import { ShapeIcon } from '@/components/charts/ShapeIcon'
 import {
   UNTAGGED_KEY,
@@ -589,109 +576,4 @@ function ComparisonChart({
   )
 }
 
-function ComparisonHistogram({ runIds, runColors, runNameFor, seriesFor }: {
-  runIds: string[]
-  runColors: Map<string, string>
-  runNameFor: (rid: string) => string
-  seriesFor: SeriesFor
-}) {
-  // Each run's series carries one snapshot of `{label: list[number]}`.
-  // Slots are (run, label) pairs — the comparison view stacks every
-  // labeled distribution from every run against a shared min/max so
-  // overlaps line up. Color is the run color; the per-emission
-  // `colors=True` flag is intentionally ignored here because the
-  // palette belongs to runs in this view.
-  type Slot = { rid: string; label: string; samples: number[] }
-  const NUM = 30
-
-  const { slots, data } = useMemo(() => {
-    const s: Slot[] = []
-    for (const rid of runIds) {
-      const series = seriesFor(rid)
-      if (!series || series.entries.length === 0) continue
-      const latest = series.entries[series.entries.length - 1]
-      const v = latest.value
-      if (!v || typeof v !== 'object' || Array.isArray(v)) continue
-      for (const [label, raw] of Object.entries(v as Record<string, unknown>)) {
-        if (Array.isArray(raw)) {
-          s.push({ rid, label, samples: raw as number[] })
-        }
-      }
-    }
-    if (s.length === 0) return { slots: s, data: [] as Record<string, number>[] }
-    let min = Infinity
-    let max = -Infinity
-    for (const slot of s) for (const v of slot.samples) {
-      if (v < min) min = v
-      if (v > max) max = v
-    }
-    const size = (max - min) / NUM || 1
-    const counts = s.map(slot => {
-      const row = new Array<number>(NUM).fill(0)
-      for (const v of slot.samples) {
-        let idx = Math.floor((v - min) / size)
-        if (idx < 0) idx = 0
-        if (idx > NUM - 1) idx = NUM - 1
-        row[idx]++
-      }
-      return row
-    })
-    const rows: Record<string, number>[] = []
-    for (let i = 0; i < NUM; i++) {
-      const row: Record<string, number> = { x: min + (i + 0.5) * size }
-      s.forEach((slot, j) => {
-        row[`${slot.rid}__${slot.label}__${j}`] = counts[j][i]
-      })
-      rows.push(row)
-    }
-    return { slots: s, data: rows }
-  }, [runIds, seriesFor])
-
-  if (slots.length === 0) {
-    return <p className="text-[10px] text-muted-foreground">No histogram samples to compare</p>
-  }
-  return (
-    <ResponsiveContainer width="100%" height={200}>
-      <AreaChart data={data}>
-        <XAxis
-          dataKey="x"
-          type="number"
-          tick={chartAxisTick}
-          tickLine={false}
-          axisLine={false}
-          tickFormatter={v => Number(v).toFixed(2)}
-        />
-        <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
-        <Tooltip
-          cursor={chartBarCursor}
-          wrapperStyle={chartHiddenWrapper}
-          content={
-            <PortalTooltip
-              labelFormatter={v => `x≈${Number(v).toFixed(2)}`}
-              formatter={(value, dataKey) => {
-                const [rid, label] = String(dataKey ?? '').split('__')
-                return [value, `${runNameFor(rid)} · ${label}`]
-              }}
-            />
-          }
-        />
-        {slots.map((slot, j) => {
-          const key = `${slot.rid}__${slot.label}__${j}`
-          const color = runColors.get(slot.rid) ?? DEFAULT_RUN_COLOR
-          return (
-            <Area
-              key={key}
-              dataKey={key}
-              type="monotone"
-              stroke={color}
-              fill={color}
-              fillOpacity={0.22}
-              isAnimationActive={false}
-            />
-          )
-        })}
-      </AreaChart>
-    </ResponsiveContainer>
-  )
-}
 
