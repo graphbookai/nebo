@@ -18,14 +18,13 @@ import type { MetricEntry, LoggableMetricSeries } from '@/lib/api'
 import { DEFAULT_RUN_COLOR, RUN_COLOR_PALETTE } from '@/lib/colors'
 import { LineMetric } from '@/components/charts/LineMetric'
 import { ComparisonLine } from '@/components/charts/comparison/ComparisonLine'
-import type { SeriesFor } from '@/components/node-tabs/seriesFor'
+import { ComparisonBar } from '@/components/charts/comparison/ComparisonBar'
+import type { SeriesFor } from '@/components/charts/seriesFor'
 import { BarMetric } from '@/components/charts/BarMetric'
 import { PieMetric } from '@/components/charts/PieMetric'
 import { ScatterMetric } from '@/components/charts/ScatterMetric'
 import { HistogramMetric } from '@/components/charts/HistogramMetric'
 import {
-  BarChart,
-  Bar,
   AreaChart,
   Area,
   ScatterChart,
@@ -592,68 +591,6 @@ function ComparisonChart({
         )
       })}
     </div>
-  )
-}
-
-function ComparisonBar({ runIds, runColors, runNameFor, seriesFor }: {
-  runIds: string[]
-  runColors: Map<string, string>
-  runNameFor: (rid: string) => string
-  seriesFor: SeriesFor
-}) {
-  // Bar is now a snapshot per loggable, so each run carries at most one
-  // entry. Lay out the union of category keys on the x axis with one
-  // stacked bar per run — the cross-run comparison is the whole point
-  // of this view, and there's no longer any step axis to multiplex over.
-  const data = useMemo(() => {
-    const categories = new Set<string>()
-    const perRun: Record<string, Record<string, number>> = {}
-    for (const rid of runIds) {
-      const series = seriesFor(rid)
-      if (!series || series.entries.length === 0) continue
-      const latest = series.entries[series.entries.length - 1]
-      const v = latest.value as Record<string, unknown> | undefined
-      if (!v || typeof v !== 'object') continue
-      perRun[rid] = {}
-      for (const [k, vv] of Object.entries(v)) {
-        categories.add(k)
-        perRun[rid][k] = typeof vv === 'number' ? vv : Number(vv) || 0
-      }
-    }
-    return [...categories].map(cat => {
-      const row: Record<string, number | string> = { category: cat }
-      for (const rid of runIds) row[rid] = perRun[rid]?.[cat] ?? 0
-      return row
-    })
-  }, [runIds, seriesFor])
-
-  if (data.length === 0) {
-    return <p className="text-[10px] text-muted-foreground">No bar data to compare</p>
-  }
-  return (
-    <ResponsiveContainer width="100%" height={200}>
-      <BarChart data={data}>
-        <XAxis dataKey="category" tick={chartAxisTick} tickLine={false} axisLine={false} />
-        <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
-        <Tooltip
-          cursor={chartBarCursor}
-          wrapperStyle={chartHiddenWrapper}
-          content={
-            <PortalTooltip
-              formatter={(value, dataKey) => [value, runNameFor(String(dataKey ?? ''))]}
-            />
-          }
-        />
-        {runIds.map(rid => (
-          <Bar
-            key={rid}
-            dataKey={rid}
-            stackId="stack"
-            fill={runColors.get(rid) ?? DEFAULT_RUN_COLOR}
-          />
-        ))}
-      </BarChart>
-    </ResponsiveContainer>
   )
 }
 
