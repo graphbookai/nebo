@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client'
 import '@/styles/globals.css'
 import App from './App'
 import { useStore } from '@/store'
+import { registerChartJs } from './components/charts/registerChartJs'
+
+registerChartJs()
 
 // Allow callers to deep-link to a specific run via `?run=<id>`. Used by
 // the nebo-cloud router to embed the daemon UI in an iframe scoped to
