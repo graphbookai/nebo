@@ -55,7 +55,9 @@ Logging Functions
 
 .. function:: nb.log_line(name, value, *, step=None, tags=None)
 
-   Log a scalar line-chart datapoint. ``step`` auto-increments per
+   Log a scalar line-chart datapoint. Line is the only chart type
+   that **accumulates** — repeated calls with the same name append
+   another point to the series. ``step`` auto-increments per
    ``(loggable, name)`` when omitted.
 
    :param name: Metric name.
@@ -63,36 +65,52 @@ Logging Functions
    :param step: Optional step counter.
    :param tags: List of strings attached to this emission for UI filtering.
 
-.. function:: nb.log_bar(name, value, *, step=None, tags=None)
+.. function:: nb.log_bar(name, value)
 
-   Log a bar-chart snapshot. Each emission renders as one chart.
+   Log a bar-chart snapshot. ``value`` is a dict ``{label: number}``.
+   Repeated calls with the same name **overwrite** the prior value.
 
-   :param value: Dict ``{label: number}``.
+.. function:: nb.log_pie(name, value)
 
-.. function:: nb.log_pie(name, value, *, step=None, tags=None)
+   Log a pie-chart snapshot. ``value`` is a dict ``{label: number}``.
+   Repeated calls with the same name **overwrite** the prior value.
 
-   Log a pie-chart snapshot. Each emission renders as one chart.
+.. function:: nb.log_scatter(name, value, *, colors=False)
 
-   :param value: Dict ``{label: number}``.
+   Log a labeled scatter snapshot. ``value`` is a dict
+   ``{label: list[(x, y)]}`` — every label becomes its own series on
+   the same chart and is toggleable via the UI chip row. Repeated
+   calls with the same name **overwrite** the prior value.
 
-.. function:: nb.log_scatter(name, value, *, step=None, tags=None)
+   :param colors: When ``True``, distinguish labels by palette color
+       (in addition to the per-label shape). Default ``False``
+       (every label uses the run color, distinguished by shape only).
+       **Not recommended in comparison views** where color is reserved
+       for run identity.
 
-   Log a labeled scatter snapshot. Every label becomes its own series
-   on the same chart, distinguishable by shape and toggleable via the
-   per-label chip row in the UI.
+.. function:: nb.log_histogram(name, value, *, colors=False)
 
-   :param value: Dict ``{label: list[(x, y)]}``.
+   Log a labeled histogram snapshot. ``value`` is a dict
+   ``{label: list[number]}`` — every label is a distribution; the UI
+   bins all labels against a shared range so overlapping
+   distributions line up. Repeated calls with the same name
+   **overwrite** the prior value. To log a single histogram, wrap in
+   a single-key dict, e.g. ``{"all": samples}``.
 
-.. function:: nb.log_histogram(name, value, *, step=None, tags=None)
-
-   Log a histogram emission.
-
-   :param value: Either ``list[number]`` (raw samples; the UI bins them)
-       or pre-binned ``{"bins": [...], "counts": [...]}``.
+   :param colors: When ``True``, give each label a distinct palette
+       color so overlapping distributions can be picked apart.
+       Default ``False`` (every label uses the run color; the overlap
+       reads as a single mass via alpha compositing). **Not
+       recommended in comparison views** where color is reserved for
+       run identity.
 
 The chart type locks on first emission per ``(loggable, name)`` pair —
 mixing ``log_line`` and ``log_bar`` for the same metric name raises
 ``ValueError``.
+
+Steps and tags only apply to ``log_line``. The four snapshot helpers
+ignore them; passing ``step=`` or ``tags=`` to ``log_bar`` /
+``log_pie`` / ``log_scatter`` / ``log_histogram`` is a ``TypeError``.
 
 Example::
 
@@ -100,6 +118,11 @@ Example::
     nb.log_bar("counts", {"cat": 3, "dog": 5})
     nb.log_scatter("embed_2d", {"inliers": [(0.1, 0.2), (0.3, 0.4)],
                                  "outliers": [(2.0, -1.0)]})
+    nb.log_histogram(
+        "latencies",
+        {"p50": [...], "p95": [...], "p99": [...]},
+        colors=True,
+    )
     nb.log_line("lr", 3e-4, tags=["main"])
 
 .. function:: nb.log_image(image, *, name=None, step=None, points=None, boxes=None, circles=None, polygons=None, bitmask=None)

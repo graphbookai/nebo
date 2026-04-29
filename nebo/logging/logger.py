@@ -181,30 +181,52 @@ def _normalize_scatter(value: Any) -> dict:
     return out
 
 
-def _normalize_histogram(value: Any) -> Any:
+def _normalize_histogram(value: Any) -> dict:
+    """Histogram accepts ``{label: list[number]}`` only.
+
+    Each label is one distribution. The UI bins all labels against a
+    shared range so overlapping histograms are directly comparable.
+    For a single distribution, wrap the samples in a single-key dict
+    (e.g. ``{"all": samples}``).
+    """
     if hasattr(value, "tolist"):
         value = value.tolist()
-    if isinstance(value, dict) and "bins" in value and "counts" in value:
-        return {"bins": list(value["bins"]), "counts": list(value["counts"])}
-    if isinstance(value, list):
-        return [_scalar(v) for v in value]
-    raise TypeError(
-        "log_histogram requires list[number] or {bins, counts}, "
-        f"got {type(value).__name__}"
-    )
+    if not isinstance(value, dict) or not value:
+        raise TypeError(
+            "log_histogram requires a non-empty dict {label: list[number]}, "
+            f"got {type(value).__name__}"
+        )
+    out: dict[str, list] = {}
+    for label, samples in value.items():
+        if hasattr(samples, "tolist"):
+            samples = samples.tolist()
+        if not isinstance(samples, list):
+            raise TypeError(
+                f"log_histogram label {label!r} must map to list[number], "
+                f"got {type(samples).__name__}"
+            )
+        out[str(label)] = [_scalar(v) for v in samples]
+    return out
 
 
 def _emit_metric(
     name: str,
     normalized: Any,
     mtype: str,
-    step: Optional[int],
-    tags: Optional[list[str]],
+    *,
+    step: Optional[int] = None,
+    tags: Optional[list[str]] = None,
+    colors: Optional[bool] = None,
 ) -> None:
     """Shared write path for the typed log_* functions.
 
     Maintains the per-`(loggable, name)` type lock and the auto-step
     behavior for line metrics.
+
+    ``step`` and ``tags`` only apply to line metrics — every other
+    chart type is a snapshot that overwrites prior emissions
+    daemon-side. ``colors`` is forwarded for scatter/histogram so the
+    UI can choose between shape-only and color-coded label rendering.
     """
     _ensure_initialized()
     state = get_state()
@@ -230,8 +252,14 @@ def _emit_metric(
         # so an explicit step=N followed by an auto-step jumps to N+1
         # rather than reverting to the cursor's previous count.
         cur.next_step = max(cur.next_step, step + 1)
+    else:
+        # Snapshot types ignore step/tags entirely — those concepts only
+        # make sense for line metrics. Send `None` so old replay paths
+        # don't accidentally honor stale values.
+        step = None
+        tags = None
 
-    state._send_to_client({
+    payload: dict[str, Any] = {
         "type": "metric",
         "loggable_id": node_id,
         "name": name,
@@ -240,7 +268,10 @@ def _emit_metric(
         "step": step,
         "tags": list(tags) if tags else [],
         "timestamp": timestamp,
-    })
+    }
+    if colors is not None:
+        payload["colors"] = bool(colors)
+    state._send_to_client(payload)
 
 
 def log_line(
@@ -252,65 +283,82 @@ def log_line(
 ) -> None:
     """Log a scalar line-chart datapoint.
 
-    `step` auto-increments per `(loggable, name)` when omitted. `tags`
-    attach to the emission for UI chip filtering.
+    ``step`` auto-increments per ``(loggable, name)`` when omitted.
+    ``tags`` attach to the emission for UI chip filtering. Line is the
+    only chart type that accumulates over time; calling ``log_line``
+    repeatedly with the same name appends to the series.
     """
-    _emit_metric(name, _normalize_line(value), "line", step, tags)
+    _emit_metric(name, _normalize_line(value), "line", step=step, tags=tags)
 
 
-def log_bar(
-    name: str,
-    value: dict,
-    *,
-    step: Optional[int] = None,
-    tags: Optional[list[str]] = None,
-) -> None:
-    """Log a bar-chart snapshot. `value` is a dict ``{label: number}``;
-    each emission renders as one chart in the UI."""
-    _emit_metric(name, _normalize_categorical(value, "log_bar"), "bar", step, tags)
+def log_bar(name: str, value: dict) -> None:
+    """Log a bar-chart snapshot. ``value`` is a dict ``{label: number}``.
+
+    Bar emissions are snapshots — calling ``log_bar`` again with the
+    same name overwrites the prior value. There is no concept of step
+    or tags for bar charts.
+    """
+    _emit_metric(name, _normalize_categorical(value, "log_bar"), "bar")
 
 
-def log_pie(
-    name: str,
-    value: dict,
-    *,
-    step: Optional[int] = None,
-    tags: Optional[list[str]] = None,
-) -> None:
-    """Log a pie-chart snapshot. `value` is a dict ``{label: number}``;
-    each emission renders as one chart in the UI."""
-    _emit_metric(name, _normalize_categorical(value, "log_pie"), "pie", step, tags)
+def log_pie(name: str, value: dict) -> None:
+    """Log a pie-chart snapshot. ``value`` is a dict ``{label: number}``.
+
+    Pie emissions are snapshots — calling ``log_pie`` again with the
+    same name overwrites the prior value. There is no concept of step
+    or tags for pie charts.
+    """
+    _emit_metric(name, _normalize_categorical(value, "log_pie"), "pie")
 
 
-def log_scatter(
-    name: str,
-    value: dict,
-    *,
-    step: Optional[int] = None,
-    tags: Optional[list[str]] = None,
-) -> None:
+def log_scatter(name: str, value: dict, *, colors: bool = False) -> None:
     """Log a labeled scatter snapshot.
 
-    `value` is a dict ``{label: list[(x, y)]}`` — every label becomes a
-    separate series on the same chart, distinguishable by shape and
-    toggleable via the UI chip row.
+    ``value`` is a dict ``{label: list[(x, y)]}`` — every label
+    becomes its own series on the same chart and is toggleable via
+    the UI chip row. Scatter emissions are snapshots; calling
+    ``log_scatter`` again with the same name overwrites the prior
+    value.
+
+    ``colors`` (default ``False``) controls how the UI distinguishes
+    labels:
+
+    * ``False`` — every label uses the run's color and is
+      distinguished by shape only.
+    * ``True`` — every label uses a distinct palette color (and a
+      shape). This is **not recommended in comparison views**, where
+      color is reserved for run identity; turning ``colors=True`` on
+      while comparing two runs makes it ambiguous whether a
+      differently-colored point belongs to a different run or a
+      different label within the same run.
     """
-    _emit_metric(name, _normalize_scatter(value), "scatter", step, tags)
+    _emit_metric(name, _normalize_scatter(value), "scatter", colors=colors)
 
 
-def log_histogram(
-    name: str,
-    value: Any,
-    *,
-    step: Optional[int] = None,
-    tags: Optional[list[str]] = None,
-) -> None:
-    """Log a histogram emission.
+def log_histogram(name: str, value: dict, *, colors: bool = False) -> None:
+    """Log a labeled histogram emission.
 
-    `value` is either ``list[number]`` (raw samples; the UI bins them)
-    or a pre-binned ``{"bins": [...], "counts": [...]}`` dict.
+    ``value`` is a dict ``{label: list[number]}`` — every label is a
+    distribution; the UI bins all labels against a shared range so
+    overlaps line up. To log a single histogram, wrap the samples in
+    a single-key dict, e.g. ``{"all": samples}``. Histogram emissions
+    are snapshots; calling ``log_histogram`` again with the same name
+    overwrites the prior value.
+
+    ``colors`` (default ``False``) controls how the UI distinguishes
+    labels:
+
+    * ``False`` — every label area uses the run's color, so the
+      overlap reads as a single mass.
+    * ``True`` — every label area uses a distinct palette color, so
+      individual distributions can be picked out. This is **not
+      recommended in comparison views**, where color is reserved for
+      run identity; turning ``colors=True`` on while comparing two
+      runs makes it ambiguous whether a differently-colored area
+      belongs to a different run or a different label within the
+      same run.
     """
-    _emit_metric(name, _normalize_histogram(value), "histogram", step, tags)
+    _emit_metric(name, _normalize_histogram(value), "histogram", colors=colors)
 
 
 def log_image(

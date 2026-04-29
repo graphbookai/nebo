@@ -89,7 +89,11 @@ def run_experiment():
 ```
 
 **Key APIs for ML:**
-- `nb.log_line(name, value, step=)` — loss, accuracy, lr curves
+- `nb.log_line(name, value, step=, tags=)` — loss, accuracy, lr curves; **the only chart type that accumulates over time**.
+- `nb.log_bar(name, {label: number})` / `nb.log_pie(name, {label: number})` — snapshot of category counts / distribution; re-emitting overwrites.
+- `nb.log_scatter(name, {label: [(x, y), ...]}, colors=False)` — labeled point clouds (e.g. embedding visualizations).
+- `nb.log_histogram(name, {label: [...]}, colors=False)` — labeled distributions (e.g. weight histograms, percentile latencies).
+- `colors=True` distinguishes labels by palette color (single-run); avoid in comparison views where color is reserved for run identity.
 - `nb.log_image(img, step=)` — sample outputs, weight visualizations
 - `nb.log_cfg(dict)` — hyperparameters shown in info tab
 - `nb.track(range(epochs))` — epoch progress bar
@@ -231,7 +235,11 @@ def main():
 | `@nb.fn(pausable=True)` | Allow pausing from web UI |
 | `@nb.fn(ui={"collapsed": True})` | Per-node UI hints |
 | `nb.log(message)` | Text log to current node |
-| `nb.log_line(name, value, step=)` | Scalar metric with optional step |
+| `nb.log_line(name, value, step=, tags=)` | Scalar metric — accumulates over steps |
+| `nb.log_bar(name, {label: number})` | Bar-chart snapshot — overwrites on re-emit |
+| `nb.log_pie(name, {label: number})` | Pie-chart snapshot — overwrites on re-emit |
+| `nb.log_scatter(name, {label: [(x, y), ...]}, colors=)` | Labeled scatter snapshot — overwrites |
+| `nb.log_histogram(name, {label: [...]}, colors=)` | Labeled histogram snapshot — overwrites |
 | `nb.log_cfg(dict)` | Configuration dict for info tab |
 | `nb.log_image(img, name=, step=)` | PIL/numpy/torch image |
 | `nb.log_audio(audio, sr=, name=, step=)` | Audio data |

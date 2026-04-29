@@ -9,7 +9,14 @@ import { PortalTooltip } from './PortalTooltip'
 // for readable slice distinction — color here represents categories within a
 // snapshot, not runs. Comparing multiple pies across runs renders multiple
 // independent pies (handled by the enclosing dispatcher).
-export const PieMetric = memo(function PieMetric({ entry }: { entry: MetricEntry }) {
+export const PieMetric = memo(function PieMetric({
+  entry,
+  fill,
+}: {
+  entry: MetricEntry
+  // Fill the parent's height instead of the default 180 px (grid card mode).
+  fill?: boolean
+}) {
   const data = useMemo(() => {
     const value = entry.value as Record<string, number> | undefined
     if (!value) return null
@@ -19,8 +26,11 @@ export const PieMetric = memo(function PieMetric({ entry }: { entry: MetricEntry
     }))
   }, [entry.value])
   if (!data) return null
+  const containerProps = fill
+    ? { width: '100%' as const, height: '100%' as const }
+    : { width: '100%' as const, height: 180 }
   return (
-    <ResponsiveContainer width="100%" height={180}>
+    <ResponsiveContainer {...containerProps}>
       <PieChart>
         <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60} label={false}>
           {data.map((_, i) => (

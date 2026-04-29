@@ -1,16 +1,22 @@
-"""Example: All typed log_* metric functions + tag/label filtering.
+"""Example: All typed log_* metric functions.
 
 Demonstrates ``nb.log_line``, ``nb.log_bar``, ``nb.log_pie``,
-``nb.log_scatter``, and ``nb.log_histogram``. Every demo attaches
-``tags`` to each emission so you can use the chip row above each chart
-in the UI to filter which emissions are shown. ``log_scatter`` also
-exposes a per-label chip row — labels are the dict keys of the
-``{label: list[(x, y)]}`` value.
+``nb.log_scatter``, and ``nb.log_histogram``.
 
-Line series plot step on the x-axis (one chart per metric name). For
-every other type, *each* emission produces its own chart in the UI —
-so bar, pie, and histogram emissions emitted across multiple ``step``
-values render as a stack of per-step charts.
+* ``log_line`` is the only chart type that accumulates over time —
+  every call appends another step to the series, and the ``tags`` /
+  ``step`` kwargs partition the emissions for chip-based UI filtering.
+
+* ``log_bar``, ``log_pie``, ``log_scatter``, and ``log_histogram`` are
+  **snapshots**: re-emitting the same metric name overwrites the
+  prior value. They have no concept of step or tags.
+
+* ``log_scatter`` and ``log_histogram`` accept a ``colors`` kwarg
+  (default ``False``). When ``True`` the UI colors labels using the
+  shared palette instead of distinguishing them by shape (scatter) or
+  alpha-overlap only (histogram). ``colors=True`` is best in
+  single-run views — comparison views reserve the palette for run
+  identity, so colored labels become ambiguous.
 """
 
 import math
@@ -55,98 +61,85 @@ def line_demo() -> None:
 
 @nb.fn(ui={"default_tab": "metrics"})
 def bar_demo() -> None:
-    """Bar: one chart per step. Tag each step with an A/B split label."""
+    """Bar: a single snapshot of category counts."""
     rng = _rng(2)
-    for step in range(4):
-        split = "a" if step % 2 == 0 else "b"
-        counts = {
+    nb.log_bar(
+        "class_counts",
+        {
             "cat":  int(rng.integers(10, 50)),
             "dog":  int(rng.integers(10, 50)),
             "bird": int(rng.integers(5, 25)),
             "fish": int(rng.integers(0, 15)),
-        }
-        nb.log_bar(
-            "class_counts",
-            counts,
-            step=step,
-            tags=[f"split:{split}"],
-        )
+        },
+    )
 
 
 @nb.fn(ui={"default_tab": "metrics"})
 def pie_demo() -> None:
-    """Pie: one chart per step. Tag with the run phase."""
+    """Pie: a single snapshot of a budget breakdown."""
     rng = _rng(3)
-    phases = ["warmup", "warmup", "steady", "cooldown"]
-    for step, phase in enumerate(phases):
-        snapshot = {
+    nb.log_pie(
+        "token_budget",
+        {
             "prompt":     int(rng.integers(100, 1000)),
             "completion": int(rng.integers(100, 1000)),
             "scratch":    int(rng.integers(40, 200)),
-        }
-        nb.log_pie(
-            "token_budget",
-            snapshot,
-            step=step,
-            tags=[f"phase:{phase}"],
-        )
+        },
+    )
 
 
 @nb.fn(ui={"default_tab": "metrics"})
 def scatter_demo() -> None:
-    """Scatter: one chart per emission, with multiple labeled clusters.
+    """Scatter: one labeled-cluster snapshot.
 
-    Each emission's value is ``{label: list[(x, y)]}`` — every label
-    becomes its own series on the same chart, distinguished by shape,
-    and the per-label chip row in the UI lets you toggle clusters on
-    and off independently of the tag chips.
+    The value is ``{label: list[(x, y)]}`` — every label becomes its
+    own series on the same chart, distinguished by shape, and
+    toggleable via the UI chip row.
     """
     rng = _rng(4)
-    for step in range(2):
-        version = "v1" if step < 1 else "v2"
-        # Two clusters per emission so the per-label chip row has
-        # something to toggle. Each cluster picks its own slope.
-        clusters = {}
-        for label in ("inliers", "outliers"):
-            slope = float(rng.uniform(0.1, 1.0))
-            xs = rng.normal(0, 1, size=40).tolist()
-            ys = [x * slope + float(rng.normal(0, 0.3)) for x in xs]
-            clusters[label] = list(zip(xs, ys))
-        nb.log_scatter(
-            "embed_2d",
-            clusters,
-            step=step,
-            tags=[f"model:{version}"],
-        )
+    clusters = {}
+    for label in ("inliers", "outliers"):
+        slope = float(rng.uniform(0.1, 1.0))
+        xs = rng.normal(0, 1, size=40).tolist()
+        ys = [x * slope + float(rng.normal(0, 0.3)) for x in xs]
+        clusters[label] = list(zip(xs, ys))
+    nb.log_scatter("embed_2d", clusters, colors=True)
 
 
 @nb.fn(ui={"default_tab": "metrics"})
 def histogram_demo() -> None:
-    """Histogram: one chart per step. Tag every other step as outlier-suspect."""
+    """Histogram: a single snapshot with multiple labeled distributions.
+
+    The value is ``{label: list[number]}``; the UI bins every label
+    against a shared range so overlapping distributions line up. The
+    ``colors=True`` flag asks the UI to color each label distinctly
+    from the shared palette — useful in this single-run example where
+    color isn't already encoding run identity.
+    """
     rng = _rng(5)
-    for step in range(10):
-        shape = float(rng.uniform(1.0, 4.0)) + step / 4.0
-        samples = rng.gamma(shape=shape, scale=2.0, size=500).tolist()
-        bucket = "suspect" if step % 3 == 0 else "normal"
-        nb.log_histogram(
-            "latencies_ms",
-            samples,
-            step=step,
-            tags=[f"bucket:{bucket}"],
-        )
+    nb.log_histogram(
+        "latencies_ms",
+        {
+            "p50": rng.gamma(shape=2.0, scale=2.0, size=500).tolist(),
+            "p95": rng.gamma(shape=4.0, scale=2.5, size=500).tolist(),
+            "p99": rng.gamma(shape=6.0, scale=3.0, size=500).tolist(),
+        },
+        colors=True,
+    )
 
 
 def main() -> None:
     nb.md(
         "# Metrics gallery\n\n"
-        "Each demo attaches `tags` to every emission so the chip row above "
-        "each chart can filter what's rendered. `log_line` plots a whole "
-        "series on step; `log_bar` and `log_pie` emit **one chart per step**; "
-        "`log_histogram` combines all steps into one chart (overlapping "
-        "areas); `log_scatter` lays each emission's labeled clusters onto "
-        "one chart, distinguishable by shape and toggleable via the per-"
-        "label chip row. Colors indicate the **run** — single-run views "
-        "use the run's color for every series."
+        "`log_line` is the only chart type that accumulates over "
+        "steps; the four snapshot helpers (`log_bar`, `log_pie`, "
+        "`log_scatter`, `log_histogram`) overwrite on re-emission and "
+        "have no concept of step or tags.\n\n"
+        "`log_scatter` / `log_histogram` accept `colors=True` to "
+        "distinguish labels using the shared palette. The histogram "
+        "demo uses `colors=True` to make the three percentiles legible; "
+        "scatter sticks with `colors=False` (the default) so shape "
+        "alone carries the label distinction."
     )
     nb.ui(tracker="step")
     line_demo()

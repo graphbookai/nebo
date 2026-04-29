@@ -337,12 +337,21 @@ class DaemonState:
                 mname, {"type": mtype, "entries": []}
             )
             # Server is tolerant of type mismatches: first-writer-wins.
-            series["entries"].append({
+            new_entry: dict[str, Any] = {
                 "step": event.get("step"),
                 "value": event.get("value"),
                 "tags": list(event.get("tags") or []),
                 "timestamp": event.get("timestamp"),
-            })
+            }
+            if "colors" in event:
+                new_entry["colors"] = bool(event["colors"])
+            # Line metrics accumulate over time; every other chart type
+            # is a snapshot — re-emitting the same name overwrites the
+            # prior value rather than stacking another entry.
+            if mtype == "line":
+                series["entries"].append(new_entry)
+            else:
+                series["entries"] = [new_entry]
 
         elif etype == "progress":
             if loggable_id and loggable_id in run.loggables:

@@ -10,9 +10,12 @@ import { PortalTooltip } from './PortalTooltip'
 export const BarMetric = memo(function BarMetric({
   entry,
   color,
+  fill,
 }: {
   entry: MetricEntry
   color: string
+  // Fill the parent's height instead of the default 140 px (grid card mode).
+  fill?: boolean
 }) {
   const data = useMemo(() => {
     const value = entry.value as Record<string, number> | undefined
@@ -23,8 +26,11 @@ export const BarMetric = memo(function BarMetric({
     }))
   }, [entry.value])
   if (!data) return null
+  const containerProps = fill
+    ? { width: '100%' as const, height: '100%' as const }
+    : { width: '100%' as const, height: 140 }
   return (
-    <ResponsiveContainer width="100%" height={140}>
+    <ResponsiveContainer {...containerProps}>
       <BarChart data={data}>
         <XAxis dataKey="label" tick={chartAxisTick} tickLine={false} axisLine={false} />
         <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />

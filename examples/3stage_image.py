@@ -31,7 +31,7 @@ def _make_gradient(index: int, size: int = 128) -> Image.Image:
 def create_images(num_images: int = 500, size: int = 128) -> list[Image.Image]:
     """Generate base gradient images."""
     images = []
-    for i in range(num_images):
+    for i in nb.track(range(num_images)):
         img = _make_gradient(i, size)
         nb.log(f"Created gradient image {i}", step=i)
         nb.log_image(img, name="created", step=i)

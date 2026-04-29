@@ -140,7 +140,9 @@ def train(data):
 
 ### Typed metric helpers — `nb.log_line` / `log_bar` / `log_pie` / `log_scatter` / `log_histogram`
 
-One function per chart type. Each takes `(name, value, *, step=None, tags=None)`. The chart type locks on first emission per `(loggable, name)` pair — reusing a name with a different `log_*` function raises `ValueError`.
+One function per chart type. The chart type locks on first emission per `(loggable, name)` pair — reusing a name with a different `log_*` function raises `ValueError`.
+
+`log_line` is the only chart type that **accumulates** (every call appends another step). The other four are **snapshots** — re-emitting the same name overwrites the prior value, and they don't take `step` or `tags`.
 
 ```python
 @nb.fn()
@@ -148,16 +150,21 @@ def train(model, data):
     for epoch in range(100):
         loss = train_one_epoch(model, data)
         nb.log_line("loss", loss)                                  # scalar
-        nb.log_bar("counts", {"cat": 3, "dog": 5})                 # {label: number}
         nb.log_line("lr", 3e-4, tags=["main"])                     # tagged for UI filter
-        nb.log_scatter("embed_2d", {                               # {label: list[(x, y)]}
-            "inliers":  [(0.1, 0.2), (0.3, 0.4)],
-            "outliers": [(2.0, -1.0)],
-        })
-        nb.log_histogram("latencies", samples)                     # list[number]
+
+    nb.log_bar("counts", {"cat": 3, "dog": 5})                     # {label: number}
+    nb.log_scatter("embed_2d", {                                   # {label: list[(x, y)]}
+        "inliers":  [(0.1, 0.2), (0.3, 0.4)],
+        "outliers": [(2.0, -1.0)],
+    })
+    nb.log_histogram(                                              # {label: list[number]}
+        "latencies",
+        {"p50": [...], "p95": [...], "p99": [...]},
+        colors=True,                                               # palette per label
+    )
 ```
 
-Value shapes: `log_line` scalar; `log_bar` / `log_pie` `{label: number}`; `log_scatter` `{label: list[(x, y)]}` (each label renders as its own toggleable series); `log_histogram` list of samples or `{"bins": [...], "counts": [...]}`.
+`log_scatter` and `log_histogram` accept `colors: bool = False`. With `colors=True` the UI distinguishes labels using the shared palette; not recommended in comparison views, where color is reserved for run identity.
 
 ### `nb.log_cfg(cfg)` -- Configuration logging
 
@@ -335,10 +342,10 @@ Two execution modes:
 | `fn` | `@fn()`, `@fn(depends_on=[...])`, `@fn(ui={...})` | Register a function/class as a DAG node |
 | `log` | `log(message: str)` | Log a text message |
 | `log_line` | `log_line(name, value, *, step=None, tags=None)` | Log a scalar line-chart datapoint |
-| `log_bar` | `log_bar(name, value, *, step=None, tags=None)` | Log a bar-chart snapshot (`{label: number}`) |
-| `log_pie` | `log_pie(name, value, *, step=None, tags=None)` | Log a pie-chart snapshot (`{label: number}`) |
-| `log_scatter` | `log_scatter(name, value, *, step=None, tags=None)` | Log labeled scatter points (`{label: list[(x, y)]}`) |
-| `log_histogram` | `log_histogram(name, value, *, step=None, tags=None)` | Log a histogram (`list[number]` or `{bins, counts}`) |
+| `log_bar` | `log_bar(name, value)` | Bar-chart snapshot (`{label: number}`); overwrites |
+| `log_pie` | `log_pie(name, value)` | Pie-chart snapshot (`{label: number}`); overwrites |
+| `log_scatter` | `log_scatter(name, value, *, colors=False)` | Labeled scatter snapshot (`{label: list[(x, y)]}`); overwrites |
+| `log_histogram` | `log_histogram(name, value, *, colors=False)` | Labeled histogram snapshot (`{label: list[number]}`); overwrites |
 | `log_cfg` | `log_cfg(cfg: dict)` | Log node configuration |
 | `log_image` | `log_image(image, *, name=None, step=None, points=None, boxes=None, circles=None, polygons=None, bitmask=None)` | Log an image (optionally with geometric labels) |
 | `log_audio` | `log_audio(audio, sr=16000, name=None, step=None)` | Log audio data |

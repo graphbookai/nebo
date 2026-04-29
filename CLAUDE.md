@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Nebo is a modern logging SDK for multi-modal data. Users decorate functions with `@nb.fn()` and emit events with `nb.log()` / `nb.log_metric()` / `nb.track()` / etc.; nebo infers a DAG from the call graph and surfaces everything through a Rich terminal, a FastAPI daemon, a React web UI, and MCP tools. The repo contains the Python package (`nebo/`), the web UI (`ui/`), tests (`tests/`), docs (`docs/`), and runnable examples (`examples/`).
+Nebo is a modern logging SDK for multi-modal data. Users decorate functions with `@nb.fn()` and emit events with `nb.log()` (text), `nb.log_line` / `log_bar` / `log_pie` / `log_scatter` / `log_histogram` (one helper per chart type), `nb.log_image`, `nb.log_audio`, `nb.log_cfg`, and `nb.track()`. Nebo infers a DAG from the call graph and surfaces everything through a Rich terminal, a FastAPI daemon, a React web UI, and MCP tools. The repo contains the Python package (`nebo/`), the web UI (`ui/`), tests (`tests/`), docs (`docs/`), and runnable examples (`examples/`).
 
 ## Commands
 
@@ -50,6 +50,22 @@ Two process-wide escape hatches let headless contexts (CI, embedders, tests) sup
 ### DAG inference
 
 Edges are inferred at runtime, not declared. `nebo/core/decorators.py` wraps every `@nb.fn()` call; `nebo/core/dag.py` and `nebo/core/state.py` track which node produced each return value (`return_origins`) and which node is currently on the call stack. When a wrapped callee receives an argument that was produced by another node, a data-flow edge is added; otherwise the edge falls back to the calling parent. `depends_on=[...]` declares edges that can't be inferred (shared state, globals, class attrs). `dag_strategy` switches between `object` (data-flow, default), `stack` (caller→callee only), `both`, `linear` (chain nodes in first-execution order), or `none`.
+
+### Metrics model (line accumulates, everything else snapshots)
+
+There is exactly one accumulating chart type — `log_line`. Every other helper (`log_bar`, `log_pie`, `log_scatter`, `log_histogram`) is a snapshot: the SDK still sends an event over the wire on each call, but the daemon (`nebo/server/daemon.py` metric handler) and the UI store (`ui/src/store/index.ts:appendMetric`) **overwrite** the prior entry instead of appending. The chart type locks on first emission per `(loggable, name)` pair via `SessionState._metric_cursors[loggable][name]` (a `MetricCursor(type, next_step)` — that's the only metric metadata the SDK keeps in process, by design).
+
+Per chart type:
+
+- `log_line(name, value, *, step=None, tags=None)` — accumulating; `step` auto-increments via the cursor; `tags` partition emissions for the UI tag-chip filter.
+- `log_bar(name, value)`, `log_pie(name, value)` — `value` is `{label: number}`; no step, no tags. Re-emitting overwrites.
+- `log_scatter(name, value, *, colors=False)` — `value` is `{label: list[(x, y)]}`. Stored on the wire as `{label: {"x": [...], "y": [...]}}`. UI varies labels by shape (`shapeForLabel`).
+- `log_histogram(name, value, *, colors=False)` — `value` is `{label: list[number]}`. UI bins all labels against a shared min/max so overlapping distributions line up.
+- `colors=False` (default) draws labels in the run color; `colors=True` switches to `RUN_COLOR_PALETTE`. Document warning: not recommended in comparison views, where the palette is reserved for run identity.
+
+Step/tags only flow on the wire for line. `_emit_metric` in `nebo/logging/logger.py` strips them to `None`/`[]` for non-line types so stale values can't leak.
+
+UI invariant: chart components index palette colors by `allLabels.indexOf(label)` (the full vocabulary), never by the iteration index over the filtered list — otherwise toggling a label off via the chip row reshuffles the remaining colors. `ScatterMetric` and `HistogramMetric` both follow this rule.
 
 ### Global state singleton
 

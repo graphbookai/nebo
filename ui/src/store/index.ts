@@ -615,8 +615,13 @@ export const useStore = create<NeboStore>((set, get) => ({
       const existing = run.loggableMetrics[loggableId][name]
       if (!existing) {
         run.loggableMetrics[loggableId][name] = { type, entries: [entry] }
-      } else {
+      } else if (type === 'line') {
         existing.entries = [...existing.entries, entry]
+      } else {
+        // Bar / pie / scatter / histogram are snapshots — re-emitting
+        // the same name replaces the prior value rather than stacking
+        // another entry, mirroring the daemon's persistence model.
+        existing.entries = [entry]
       }
     }
     return { runs }
@@ -907,13 +912,21 @@ export const useStore = create<NeboStore>((set, get) => ({
               tags: ((event.tags as string[]) ?? (data.tags as string[]) ?? []),
               timestamp: (event.timestamp as number) ?? Date.now() / 1000,
             }
+            const colorsFlag = (event.colors as boolean | undefined) ?? (data.colors as boolean | undefined)
+            if (colorsFlag !== undefined) entry.colors = colorsFlag
             // Immutable update so `useMemo([series.entries])` downstream fires
-            // on every append. Mutating the existing array would leave the
-            // reference unchanged and freeze derived chip lists / filters.
+            // on every change. Line metrics accumulate; every other type is
+            // a snapshot that overwrites prior emissions.
             const existing = run.loggableMetrics[lid]?.[mname]
+            const nextEntries =
+              !existing
+                ? [entry]
+                : mtype === 'line'
+                  ? [...existing.entries, entry]
+                  : [entry]
             const nextSeries: LoggableMetricSeries = existing
-              ? { ...existing, entries: [...existing.entries, entry] }
-              : { type: mtype, entries: [entry] }
+              ? { ...existing, entries: nextEntries }
+              : { type: mtype, entries: nextEntries }
             run.loggableMetrics = {
               ...run.loggableMetrics,
               [lid]: { ...(run.loggableMetrics[lid] ?? {}), [mname]: nextSeries },

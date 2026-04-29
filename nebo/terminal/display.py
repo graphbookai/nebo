@@ -173,7 +173,11 @@ class TerminalDisplay:
                 if l.kind == "node"
                 else "Global"
             )
-            for entry in l.logs[-5:]:
+            # `l.logs` is a bounded deque after the v3 SDK redesign;
+            # deque doesn't support slice indexing, so materialize the
+            # tail through itertools.islice instead.
+            tail = list(l.logs)[-5:]
+            for entry in tail:
                 logs.append({
                     "timestamp": entry.get("timestamp", 0),
                     "node": tag,
@@ -299,7 +303,7 @@ class TerminalDisplay:
             table = Table(show_header=False, box=None, padding=(0, 1))
             table.add_column("Node", style="bold", width=22)
             table.add_column("Status", width=10)
-            table.add_column("Progress", width=30)
+            table.add_column("Progress", width=40)
 
             for nid, node in displayable_nodes.items():
                 progress = node.get("progress")
@@ -310,7 +314,7 @@ class TerminalDisplay:
                     bar_width = 20
                     filled = int(pct * bar_width)
                     bar = "█" * filled + "░" * (bar_width - filled)
-                    progress_text = f"[{bar}] {pct * 100:3.0f}%"
+                    progress_text = f"[{bar}] {current}/{total} ({pct * 100:3.0f}%)"
                     status = "↻" if pct < 1.0 else "✓"
                 else:
                     progress_text = ""

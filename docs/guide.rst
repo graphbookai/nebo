@@ -151,13 +151,14 @@ Metric charts
 
 Nebo has one logging function per chart type — ``nb.log_line`` for
 scalars over time, ``nb.log_bar`` and ``nb.log_pie`` for snapshot
-distributions, ``nb.log_histogram`` for sample arrays, and
+distributions, ``nb.log_histogram`` for labeled distributions, and
 ``nb.log_scatter`` for labeled 2-D point clouds. The chart type locks
 on first emission per ``(loggable, name)`` pair, so reusing a name
 with a different ``log_*`` function raises ``ValueError``.
 
-``nb.log_line(name, value, step=None)`` logs a scalar; steps
-auto-increment if omitted:
+``log_line`` is the only chart type that accumulates over time.
+Re-emitting it with the same name appends another step; ``step``
+auto-increments if omitted:
 
 .. code-block:: python
 
@@ -169,8 +170,11 @@ auto-increment if omitted:
             nb.log_line("loss", loss)
             nb.log_line("accuracy", accuracy)
 
-``nb.log_scatter`` takes a labeled point dict and lets the UI toggle
-each label on or off:
+``log_bar``, ``log_pie``, ``log_scatter``, and ``log_histogram`` are
+**snapshots** — every re-emission overwrites the prior value. They
+don't accept ``step`` or ``tags`` (those concepts only make sense for
+line). ``log_scatter`` takes a labeled point dict and lets the UI
+toggle each label on or off:
 
 .. code-block:: python
 
@@ -178,6 +182,14 @@ each label on or off:
         "inliers":  [(0.1, 0.2), (0.3, 0.4)],
         "outliers": [(2.0, -1.0)],
     })
+
+``log_histogram`` accepts ``{label: list[number]}`` — every label is
+its own distribution, all binned against a shared range so overlaps
+line up. ``log_scatter`` and ``log_histogram`` also accept
+``colors: bool = False``; setting ``colors=True`` distinguishes labels
+by palette color (in addition to per-label shapes for scatter), but
+is not recommended in comparison views where the palette is reserved
+for run identity.
 
 Images
 ------

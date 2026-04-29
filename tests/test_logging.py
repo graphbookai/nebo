@@ -347,6 +347,14 @@ def test_log_line_tags_attached_to_emission(capturing_client):
     assert events[1]["tags"] == ["schedule:main"]
 
 
+def test_log_bar_does_not_accept_tags():
+    """Tags are line-only; bar/pie/scatter/histogram reject them."""
+    import nebo as nb
+    nb.get_state().reset()
+    with pytest.raises(TypeError):
+        nb.log_bar("counts", {"a": 1}, tags=["x"])  # type: ignore[call-arg]
+
+
 def test_metric_type_locks_after_first_emission(capturing_client):
     import nebo as nb
     nb.log_line("m", 1.0)
@@ -354,15 +362,93 @@ def test_metric_type_locks_after_first_emission(capturing_client):
         nb.log_bar("m", {"a": 1})
 
 
-def test_log_histogram_emits_raw_samples(capturing_client):
+def test_log_histogram_emits_labeled_samples(capturing_client):
     import nebo as nb
     import numpy as np
-    samples = np.random.default_rng(0).normal(size=100).tolist()
-    nb.log_histogram("latencies", samples)
+    rng = np.random.default_rng(0)
+    nb.log_histogram(
+        "latencies",
+        {"p50": rng.normal(size=100).tolist(), "p99": rng.normal(size=50).tolist()},
+    )
     events = capturing_client.metrics_named("latencies")
     assert events[-1]["metric_type"] == "histogram"
-    assert isinstance(events[-1]["value"], list)
-    assert len(events[-1]["value"]) == 100
+    value = events[-1]["value"]
+    assert set(value.keys()) == {"p50", "p99"}
+    assert len(value["p50"]) == 100 and len(value["p99"]) == 50
+
+
+def test_log_histogram_rejects_legacy_flat_list():
+    """Bare list samples are no longer accepted — histogram requires a
+    labeled dict."""
+    import nebo as nb
+    nb.get_state().reset()
+    with pytest.raises(TypeError):
+        nb.log_histogram("latencies", [1.0, 2.0, 3.0])
+
+
+def test_log_bar_rejects_step_kwarg():
+    """Step is line-only; bar/pie/scatter/histogram don't accept it."""
+    import nebo as nb
+    nb.get_state().reset()
+    with pytest.raises(TypeError):
+        nb.log_bar("counts", {"a": 1}, step=2)  # type: ignore[call-arg]
+
+
+def test_non_line_metrics_strip_step_and_tags_on_wire(capturing_client):
+    """log_bar / log_pie / log_scatter / log_histogram never carry step
+    or tags on the wire — those concepts only apply to line."""
+    import nebo as nb
+    nb.log_bar("b", {"a": 1})
+    nb.log_pie("p", {"a": 1})
+    nb.log_scatter("s", {"c": [(0.0, 0.0)]})
+    nb.log_histogram("h", {"d": [1.0, 2.0]})
+    for mname in ("b", "p", "s", "h"):
+        ev = capturing_client.metrics_named(mname)[-1]
+        assert ev["step"] is None
+        assert ev["tags"] == []
+
+
+def test_repeated_non_line_emission_overwrites_prior_value(capturing_client):
+    """Re-emitting a snapshot metric must replace the prior entry, not
+    accumulate. The wire payload still goes out twice; the daemon /
+    UI store collapses them."""
+    import nebo as nb
+    nb.log_bar("counts", {"a": 1})
+    nb.log_bar("counts", {"a": 2, "b": 3})
+    events = capturing_client.metrics_named("counts")
+    # Two events on the wire — the SDK doesn't dedupe.
+    assert len(events) == 2
+    assert events[0]["value"] == {"a": 1}
+    assert events[1]["value"] == {"a": 2, "b": 3}
+
+
+def test_log_scatter_colors_flag_on_wire(capturing_client):
+    import nebo as nb
+    nb.log_scatter("e", {"c1": [(0.0, 0.0)]})           # default
+    nb.log_scatter("e2", {"c1": [(0.0, 0.0)]}, colors=True)
+    default_event = capturing_client.metrics_named("e")[-1]
+    colored_event = capturing_client.metrics_named("e2")[-1]
+    assert default_event.get("colors") is False
+    assert colored_event["colors"] is True
+
+
+def test_log_histogram_colors_flag_on_wire(capturing_client):
+    import nebo as nb
+    nb.log_histogram("h1", {"a": [1.0, 2.0]})
+    nb.log_histogram("h2", {"a": [1.0, 2.0]}, colors=True)
+    assert capturing_client.metrics_named("h1")[-1].get("colors") is False
+    assert capturing_client.metrics_named("h2")[-1]["colors"] is True
+
+
+def test_log_bar_does_not_emit_colors_flag(capturing_client):
+    """Bar / pie don't take a colors kwarg — the wire payload omits it."""
+    import nebo as nb
+    nb.log_bar("counts", {"a": 1})
+    nb.log_pie("budget", {"a": 1})
+    bar = capturing_client.metrics_named("counts")[-1]
+    pie = capturing_client.metrics_named("budget")[-1]
+    assert "colors" not in bar
+    assert "colors" not in pie
 
 
 def test_log_scatter_emits_labeled_points(capturing_client):

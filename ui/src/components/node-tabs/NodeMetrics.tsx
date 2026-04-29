@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '@/store'
 import type { MetricEntry, LoggableMetricSeries } from '@/lib/api'
-import { DEFAULT_RUN_COLOR } from '@/lib/colors'
+import { DEFAULT_RUN_COLOR, RUN_COLOR_PALETTE } from '@/lib/colors'
 import { LineMetric } from '@/components/charts/LineMetric'
 import { BarMetric } from '@/components/charts/BarMetric'
 import { PieMetric } from '@/components/charts/PieMetric'
@@ -94,12 +94,23 @@ export function MetricBlock({
   name,
   series,
   color,
+  fill,
 }: {
   name: string
   series: LoggableMetricSeries
   color: string
+  // When true, the block claims its parent's height so the chart can
+  // grow to fill remaining space (grid-view card mode). The header,
+  // tag chips, and label chips stay at their natural size; the chart
+  // wrapper takes flex-1.
+  fill?: boolean
 }) {
+  // Tags only apply to line metrics — every other type is a snapshot
+  // and the v3 SDK strips tags off non-line emissions before they go on
+  // the wire. Skip the chip computation when we know the metric isn't
+  // line-typed so the empty chip row doesn't render.
   const allTags = useMemo(() => {
+    if (series.type !== 'line') return [] as string[]
     const tags = new Set<string>()
     let hasUntagged = false
     for (const e of series.entries) {
@@ -111,15 +122,18 @@ export function MetricBlock({
     // metric — otherwise every entry is untagged and the chip is noise.
     if (hasUntagged && tags.size > 0) out.unshift(UNTAGGED_KEY)
     return out
-  }, [series.entries])
+  }, [series.type, series.entries])
 
   const { active: activeTags, toggle } = useTagChips(allTags)
 
-  // Scatter dict keys (the per-emission `{label: {x,y}}` keys) drive a
-  // second chip row that turns whole sub-series on or off — this is the
-  // analogue of toggling slices in a pie or columns in a bar chart.
+  // Label chips drive scatter (sub-series toggling) and histogram
+  // (overlapping distributions). Both store value as `{label: ...}`,
+  // so the same `scatterLabels` helper extracts both.
   const allLabels = useMemo(
-    () => series.type === 'scatter' ? scatterLabels(series.entries) : [],
+    () =>
+      series.type === 'scatter' || series.type === 'histogram'
+        ? scatterLabels(series.entries)
+        : [],
     [series.type, series.entries],
   )
   const { active: activeLabels, toggle: toggleLabel } = useTagChips(allLabels)
@@ -132,9 +146,9 @@ export function MetricBlock({
     [series.entries, activeTags, allTags],
   )
 
-  // Drop labels that the user has toggled off. Done here, not inside
-  // ScatterMetric, so the per-label shape index in `allLabels` stays
-  // stable while only the rendered slots change.
+  // Drop scatter labels the user has toggled off. Histogram has its own
+  // path that filters the labeled value dict at render time (so the
+  // shared min/max recalculates without us mutating the entry here).
   const filtered = useMemo(() => {
     if (series.type !== 'scatter' || allLabels.length === 0) return tagFiltered
     return tagFiltered
@@ -150,8 +164,16 @@ export function MetricBlock({
       .filter(e => Object.keys(e.value as Record<string, unknown>).length > 0)
   }, [series.type, tagFiltered, activeLabels, allLabels.length])
 
+  // Whether label chips should preview the rendered color (when the
+  // emission was made with `colors=True`) or stay color-neutral with
+  // a shape preview (the default). Read from the latest entry — for
+  // scatter and histogram, that's the only entry once overwrites land.
+  const latestColorsFlag = series.entries.length > 0
+    ? series.entries[series.entries.length - 1].colors === true
+    : false
+
   return (
-    <div>
+    <div className={fill ? 'h-full flex flex-col min-h-0' : undefined}>
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-foreground">{name}</span>
         <span className="text-[10px] text-muted-foreground">{series.type}</span>
@@ -170,23 +192,37 @@ export function MetricBlock({
       )}
       {allLabels.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
-          {allLabels.map(l => (
-            <Chip
-              key={`label:${l}`}
-              label={l}
-              active={activeLabels.has(l)}
-              onClick={() => toggleLabel(l)}
-              icon={<ShapeIcon shape={shapeForLabel(l, allLabels)} color={color} />}
-            />
-          ))}
+          {allLabels.map((l, i) => {
+            const chipColor = latestColorsFlag
+              ? RUN_COLOR_PALETTE[i % RUN_COLOR_PALETTE.length]
+              : color
+            // Scatter varies points by shape, so the chip previews the
+            // matching glyph. Histogram only varies by color (areas
+            // overlap as filled regions, not glyphs), so its chip is
+            // always a colored dot.
+            const chipShape = series.type === 'scatter'
+              ? shapeForLabel(l, allLabels)
+              : 'circle'
+            return (
+              <Chip
+                key={`label:${l}`}
+                label={l}
+                active={activeLabels.has(l)}
+                onClick={() => toggleLabel(l)}
+                icon={<ShapeIcon shape={chipShape} color={chipColor} />}
+              />
+            )
+          })}
         </div>
       )}
-      <div className="mt-1">
+      <div className={fill ? 'mt-1 flex-1 min-h-0' : 'mt-1'}>
         <SingleRunChart
           type={series.type}
           entries={filtered}
           color={color}
           allLabels={allLabels}
+          activeLabels={series.type === 'histogram' ? activeLabels : undefined}
+          fill={fill}
         />
       </div>
     </div>
@@ -225,28 +261,47 @@ function SingleRunChart({
   entries,
   color,
   allLabels,
+  activeLabels,
+  fill,
 }: {
   type: string
   entries: MetricEntry[]
   color: string
   allLabels: string[]
+  // Forwarded to HistogramMetric so it can re-bin against only the
+  // user-selected labels' samples (the others are folded out of the
+  // shared min/max as well as the per-label Areas).
+  activeLabels?: Set<string>
+  fill?: boolean
 }) {
-  if (type === 'line') return <LineMetric entries={entries} color={color} />
-  if (type === 'histogram') return <HistogramMetric entries={entries} color={color} />
-  if (type === 'scatter') return <ScatterMetric entries={entries} color={color} allLabels={allLabels} />
-  // bar and pie emit one chart per emission; step label above each.
+  if (type === 'line') return <LineMetric entries={entries} color={color} fill={fill} />
+  if (type === 'histogram')
+    return (
+      <HistogramMetric
+        entries={entries}
+        color={color}
+        fill={fill}
+        activeLabels={activeLabels}
+        allLabels={allLabels}
+      />
+    )
+  if (type === 'scatter') return <ScatterMetric entries={entries} color={color} allLabels={allLabels} fill={fill} />
+  // Bar/pie are now snapshots: only ever one entry. Render that single
+  // chart full-bleed inside the card body — no step label, no stack.
+  const latest = entries.length > 0 ? entries[entries.length - 1] : null
+  if (!latest) return null
+  if (fill) {
+    return (
+      <div className="h-full min-h-0">
+        {type === 'bar' && <BarMetric entry={latest} color={color} fill />}
+        {type === 'pie' && <PieMetric entry={latest} fill />}
+      </div>
+    )
+  }
   return (
-    <div className="space-y-3">
-      {entries.map((e, i) => {
-        const stepLabel = e.step != null ? `Step ${e.step}` : `#${i}`
-        return (
-          <div key={`${e.timestamp}-${i}`}>
-            <div className="text-[10px] text-muted-foreground mb-0.5">{stepLabel}</div>
-            {type === 'bar' && <BarMetric entry={e} color={color} />}
-            {type === 'pie' && <PieMetric entry={e} />}
-          </div>
-        )
-      })}
+    <div>
+      {type === 'bar' && <BarMetric entry={latest} color={color} />}
+      {type === 'pie' && <PieMetric entry={latest} />}
     </div>
   )
 }
@@ -604,82 +659,59 @@ function ComparisonBar({ runIds, runColors, runNameFor, seriesFor }: {
   runNameFor: (rid: string) => string
   seriesFor: SeriesFor
 }) {
-  // One chart per step: x = dict keys (categories), each run's column stacks
-  // its values at that step. Entries are pre-grouped by step so the nested
-  // loop below is O(runs × steps) rather than the O(runs × steps × entries)
-  // a per-step `Array.find` walk would cost.
-  const stepViews = useMemo(() => {
-    type Grouped = Record<string, MetricEntry>
-    const byRun: Record<string, Grouped> = {}
-    const stepsSet = new Set<number>()
+  // Bar is now a snapshot per loggable, so each run carries at most one
+  // entry. Lay out the union of category keys on the x axis with one
+  // stacked bar per run — the cross-run comparison is the whole point
+  // of this view, and there's no longer any step axis to multiplex over.
+  const data = useMemo(() => {
+    const categories = new Set<string>()
+    const perRun: Record<string, Record<string, number>> = {}
     for (const rid of runIds) {
       const series = seriesFor(rid)
-      if (!series) continue
-      const m: Grouped = {}
-      for (const e of series.entries) {
-        const step = e.step ?? 0
-        stepsSet.add(step)
-        m[step] = e
+      if (!series || series.entries.length === 0) continue
+      const latest = series.entries[series.entries.length - 1]
+      const v = latest.value as Record<string, unknown> | undefined
+      if (!v || typeof v !== 'object') continue
+      perRun[rid] = {}
+      for (const [k, vv] of Object.entries(v)) {
+        categories.add(k)
+        perRun[rid][k] = typeof vv === 'number' ? vv : Number(vv) || 0
       }
-      byRun[rid] = m
     }
-    const steps = [...stepsSet].sort((a, b) => a - b)
-    return steps.map(step => {
-      const categories = new Set<string>()
-      const perRun: Record<string, Record<string, number>> = {}
-      for (const rid of runIds) {
-        const e = byRun[rid]?.[step]
-        if (!e) continue
-        const v = e.value as Record<string, unknown> | undefined
-        if (!v || typeof v !== 'object') continue
-        perRun[rid] = {}
-        for (const [k, vv] of Object.entries(v)) {
-          categories.add(k)
-          perRun[rid][k] = typeof vv === 'number' ? vv : Number(vv) || 0
-        }
-      }
-      const data = [...categories].map(cat => {
-        const row: Record<string, number | string> = { category: cat }
-        for (const rid of runIds) row[rid] = perRun[rid]?.[cat] ?? 0
-        return row
-      })
-      return { step, data }
+    return [...categories].map(cat => {
+      const row: Record<string, number | string> = { category: cat }
+      for (const rid of runIds) row[rid] = perRun[rid]?.[cat] ?? 0
+      return row
     })
   }, [runIds, seriesFor])
 
+  if (data.length === 0) {
+    return <p className="text-[10px] text-muted-foreground">No bar data to compare</p>
+  }
   return (
-    <div className="space-y-3">
-      {stepViews.map(({ step, data }) => {
-        return (
-          <div key={step}>
-            <div className="text-[10px] text-muted-foreground mb-0.5">Step {step}</div>
-            <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={data}>
-                <XAxis dataKey="category" tick={chartAxisTick} tickLine={false} axisLine={false} />
-                <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
-                <Tooltip
-                  cursor={chartBarCursor}
-                  wrapperStyle={chartHiddenWrapper}
-                  content={
-                    <PortalTooltip
-                      formatter={(value, dataKey) => [value, runNameFor(String(dataKey ?? ''))]}
-                    />
-                  }
-                />
-                {runIds.map(rid => (
-                  <Bar
-                    key={rid}
-                    dataKey={rid}
-                    stackId="stack"
-                    fill={runColors.get(rid) ?? DEFAULT_RUN_COLOR}
-                  />
-                ))}
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )
-      })}
-    </div>
+    <ResponsiveContainer width="100%" height={200}>
+      <BarChart data={data}>
+        <XAxis dataKey="category" tick={chartAxisTick} tickLine={false} axisLine={false} />
+        <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
+        <Tooltip
+          cursor={chartBarCursor}
+          wrapperStyle={chartHiddenWrapper}
+          content={
+            <PortalTooltip
+              formatter={(value, dataKey) => [value, runNameFor(String(dataKey ?? ''))]}
+            />
+          }
+        />
+        {runIds.map(rid => (
+          <Bar
+            key={rid}
+            dataKey={rid}
+            stackId="stack"
+            fill={runColors.get(rid) ?? DEFAULT_RUN_COLOR}
+          />
+        ))}
+      </BarChart>
+    </ResponsiveContainer>
   )
 }
 
@@ -689,24 +721,30 @@ function ComparisonHistogram({ runIds, runColors, runNameFor, seriesFor }: {
   runNameFor: (rid: string) => string
   seriesFor: SeriesFor
 }) {
-  type Slot = { rid: string; step: number; samples: number[] }
+  // Each run's series carries one snapshot of `{label: list[number]}`.
+  // Slots are (run, label) pairs — the comparison view stacks every
+  // labeled distribution from every run against a shared min/max so
+  // overlaps line up. Color is the run color; the per-emission
+  // `colors=True` flag is intentionally ignored here because the
+  // palette belongs to runs in this view.
+  type Slot = { rid: string; label: string; samples: number[] }
   const NUM = 30
 
   const { slots, data } = useMemo(() => {
-    // Bin all samples across every run × every step against a shared range.
     const s: Slot[] = []
     for (const rid of runIds) {
       const series = seriesFor(rid)
-      if (!series) continue
-      for (const e of series.entries) {
-        if (Array.isArray(e.value)) {
-          s.push({ rid, step: e.step ?? 0, samples: e.value as number[] })
+      if (!series || series.entries.length === 0) continue
+      const latest = series.entries[series.entries.length - 1]
+      const v = latest.value
+      if (!v || typeof v !== 'object' || Array.isArray(v)) continue
+      for (const [label, raw] of Object.entries(v as Record<string, unknown>)) {
+        if (Array.isArray(raw)) {
+          s.push({ rid, label, samples: raw as number[] })
         }
       }
     }
     if (s.length === 0) return { slots: s, data: [] as Record<string, number>[] }
-    // Fold-based min/max — avoids `Math.min(...arr)` stack overflow on large
-    // sample pools and is O(N) with no intermediate allocation.
     let min = Infinity
     let max = -Infinity
     for (const slot of s) for (const v of slot.samples) {
@@ -714,7 +752,6 @@ function ComparisonHistogram({ runIds, runColors, runNameFor, seriesFor }: {
       if (v > max) max = v
     }
     const size = (max - min) / NUM || 1
-    // Pre-bin each slot once; avoids rescanning every slot per bin.
     const counts = s.map(slot => {
       const row = new Array<number>(NUM).fill(0)
       for (const v of slot.samples) {
@@ -729,7 +766,7 @@ function ComparisonHistogram({ runIds, runColors, runNameFor, seriesFor }: {
     for (let i = 0; i < NUM; i++) {
       const row: Record<string, number> = { x: min + (i + 0.5) * size }
       s.forEach((slot, j) => {
-        row[`${slot.rid}__${slot.step}__${j}`] = counts[j][i]
+        row[`${slot.rid}__${slot.label}__${j}`] = counts[j][i]
       })
       rows.push(row)
     }
@@ -758,14 +795,14 @@ function ComparisonHistogram({ runIds, runColors, runNameFor, seriesFor }: {
             <PortalTooltip
               labelFormatter={v => `x≈${Number(v).toFixed(2)}`}
               formatter={(value, dataKey) => {
-                const [rid, step] = String(dataKey ?? '').split('__')
-                return [value, `${runNameFor(rid)} · step ${step}`]
+                const [rid, label] = String(dataKey ?? '').split('__')
+                return [value, `${runNameFor(rid)} · ${label}`]
               }}
             />
           }
         />
         {slots.map((slot, j) => {
-          const key = `${slot.rid}__${slot.step}__${j}`
+          const key = `${slot.rid}__${slot.label}__${j}`
           const color = runColors.get(slot.rid) ?? DEFAULT_RUN_COLOR
           return (
             <Area
@@ -791,19 +828,21 @@ function ComparisonScatter({ runIds, runColors, runNameFor, seriesFor, allLabels
   seriesFor: SeriesFor
   allLabels: string[]
 }) {
-  type Slot = { rid: string; step: number; label: string; data: { x: number; y: number }[] }
+  type Slot = { rid: string; label: string; data: { x: number; y: number }[] }
   const slots: Slot[] = []
+  // Each run carries a single snapshot entry post-overwrite. Pull
+  // the latest only — earlier entries (if any) have been superseded
+  // by definition.
   for (const rid of runIds) {
     const s = seriesFor(rid)
-    if (!s) continue
-    for (const e of s.entries) {
-      const v = e.value as Record<string, { x?: unknown; y?: unknown }> | undefined
-      if (!v || typeof v !== 'object') continue
-      for (const [label, series] of Object.entries(v)) {
-        if (!series || !Array.isArray(series.x) || !Array.isArray(series.y)) continue
-        const data = (series.x as number[]).map((x, i) => ({ x, y: (series.y as number[])[i] }))
-        slots.push({ rid, step: e.step ?? 0, label, data })
-      }
+    if (!s || s.entries.length === 0) continue
+    const latest = s.entries[s.entries.length - 1]
+    const v = latest.value as Record<string, { x?: unknown; y?: unknown }> | undefined
+    if (!v || typeof v !== 'object') continue
+    for (const [label, series] of Object.entries(v)) {
+      if (!series || !Array.isArray(series.x) || !Array.isArray(series.y)) continue
+      const data = (series.x as number[]).map((x, i) => ({ x, y: (series.y as number[])[i] }))
+      slots.push({ rid, label, data })
     }
   }
   if (slots.length === 0) {
@@ -826,8 +865,8 @@ function ComparisonScatter({ runIds, runColors, runNameFor, seriesFor, allLabels
           const shape = shapeForLabel(slot.label, allLabels)
           return (
             <Scatter
-              key={`${slot.rid}-${slot.step}-${slot.label}-${i}`}
-              name={`${runNameFor(slot.rid)} · ${slot.label} · step ${slot.step}`}
+              key={`${slot.rid}-${slot.label}-${i}`}
+              name={`${runNameFor(slot.rid)} · ${slot.label}`}
               data={slot.data}
               fill={color}
               stroke="var(--color-popover-foreground)"

@@ -37,14 +37,19 @@ function downsample(series: LinePoint[]): LinePoint[] {
 export const LineMetric = memo(function LineMetric({
   entries,
   color,
+  fill,
 }: {
   entries: MetricEntry[]
   color: string
+  // When true, the chart claims its parent's height instead of locking
+  // to the default 120 px. Used by the grid-view card body so the chart
+  // fills the card's remaining space.
+  fill?: boolean
 }) {
   const data = useMemo(() => downsample(toLinePoints(entries)), [entries])
   if (data.length === 0) return null
   return (
-    <div className="h-[120px]">
+    <div className={fill ? 'h-full' : 'h-[120px]'}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data}>
           <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />

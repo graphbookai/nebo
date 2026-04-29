@@ -72,8 +72,19 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
   const uiHints = (nodeInfo.ui_hints ?? null) as { color?: string } | null
   const hintColor = uiHints?.color
   const hasStatusColor = hasErrors || hasPendingAsk || isRunning
+  // The store already carries both width and height (set by NodeResizer's
+  // onResize callback). Earlier we only applied `width` to nodeStyle, so
+  // dragging the south handle bumped the stored height but the DOM never
+  // grew — height appeared "stuck". Apply both axes here.
   const nodeStyle: CSSProperties = {
-    ...(storedSize ? { width: storedSize.width, minWidth: storedSize.width } : {}),
+    ...(storedSize
+      ? {
+          width: storedSize.width,
+          minWidth: storedSize.width,
+          height: storedSize.height,
+          minHeight: storedSize.height,
+        }
+      : {}),
     ...(hintColor && !hasStatusColor ? { borderColor: hintColor } : {}),
   }
 
@@ -135,7 +146,14 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
           <div className="mt-2">
             <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-0.5">
               <span>{progress.name ?? 'Progress'}</span>
-              <span>{Math.round((progress.current / progress.total) * 100)}%</span>
+              <span>
+                {progress.current}/{progress.total}
+                {progress.total > 0 && (
+                  <span className="ml-1 text-muted-foreground/70">
+                    ({Math.round((progress.current / progress.total) * 100)}%)
+                  </span>
+                )}
+              </span>
             </div>
             <div className="h-1.5 bg-muted rounded-full overflow-hidden">
               <div

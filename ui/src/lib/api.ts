@@ -94,6 +94,10 @@ export interface MetricEntry {
   value: unknown
   tags: string[]
   timestamp: number
+  // Set on log_scatter / log_histogram emissions when the user passed
+  // colors=True. The chart components read this to decide whether to
+  // distinguish labels by palette color (true) or by shape only (false).
+  colors?: boolean
 }
 
 export interface LoggableMetricSeries {
