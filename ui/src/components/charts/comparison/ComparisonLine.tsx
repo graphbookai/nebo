@@ -3,7 +3,7 @@ import type { ChartConfiguration } from 'chart.js'
 import { useChartJs } from '@/components/charts/useChartJs'
 import { useChartTokens } from '@/components/charts/useChartTokens'
 import { DEFAULT_RUN_COLOR } from '@/lib/colors'
-import type { SeriesFor } from '@/components/node-tabs/seriesFor'
+import type { SeriesFor } from '@/components/charts/seriesFor'
 
 export const ComparisonLine = memo(function ComparisonLine({
   runIds,
@@ -91,6 +91,10 @@ export const ComparisonLine = memo(function ComparisonLine({
       }),
     }),
   })
+
+  if (datasets.length === 0) {
+    return <p className="text-[10px] text-muted-foreground">No line data to compare</p>
+  }
 
   return (
     <div ref={containerRef} className="h-[140px]">

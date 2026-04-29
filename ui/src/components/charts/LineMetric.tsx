@@ -81,6 +81,12 @@ export const LineMetric = memo(function LineMetric({
           },
         },
         plugins: { legend: { display: false } },
+        // Vertical-line cursor: hover anywhere along x picks the nearest
+        // step's value. Matches recharts' default tooltip cursor; without
+        // this, Chart.js's default 'nearest'+'intersect: true' would only
+        // fire when the pointer is on a data point — invisible here since
+        // pointRadius is 0.
+        interaction: { mode: 'index', intersect: false },
       },
     }),
     [data, color, tokens.axisTickColor, tokens.gridStroke],

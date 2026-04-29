@@ -151,6 +151,11 @@ export const HistogramMetric = memo(function HistogramMetric({
           },
         },
         plugins: { legend: { display: false } },
+        // Hover anywhere along x picks the nearest bin across all labels —
+        // matches recharts' AreaChart cursor behavior. Without this,
+        // Chart.js's default 'nearest'+'intersect: true' only fires when the
+        // pointer is on a (zero-radius) point.
+        interaction: { mode: 'index', intersect: false },
       },
     }
   }, [view, tokens.axisTickColor, tokens.gridStroke])

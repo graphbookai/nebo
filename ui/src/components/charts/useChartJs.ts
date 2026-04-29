@@ -51,13 +51,19 @@ export function useChartJs<TType extends keyof ChartTypeRegistry>(
           tooltip: {
             ...(initialConfig.options?.plugins?.tooltip ?? {}),
             enabled: false,
-            external: ({
-              chart,
-              tooltip,
-            }: {
-              chart: Chart<TType>
-              tooltip: TooltipModel<TType>
+            // Chart.js 4.5 resolves option values through a scriptable
+            // pipeline that occasionally invokes this callback with a
+            // context that lacks the `tooltip` field (the scriptable code
+            // path predates the afterEvent path). Bail early in that case
+            // — the real call from the tooltip plugin's afterEvent always
+            // carries both fields.
+            external: (ctx: {
+              chart?: Chart<TType>
+              tooltip?: TooltipModel<TType>
             }) => {
+              const chart = ctx?.chart
+              const tooltip = ctx?.tooltip
+              if (!chart || !tooltip) return
               if (tooltip.opacity === 0) {
                 setTooltip(chartId, null)
                 return
