@@ -19,6 +19,7 @@ import { DEFAULT_RUN_COLOR, RUN_COLOR_PALETTE } from '@/lib/colors'
 import { LineMetric } from '@/components/charts/LineMetric'
 import { ComparisonLine } from '@/components/charts/comparison/ComparisonLine'
 import { ComparisonBar } from '@/components/charts/comparison/ComparisonBar'
+import { ComparisonScatter } from '@/components/charts/comparison/ComparisonScatter'
 import type { SeriesFor } from '@/components/charts/seriesFor'
 import { BarMetric } from '@/components/charts/BarMetric'
 import { PieMetric } from '@/components/charts/PieMetric'
@@ -27,21 +28,15 @@ import { HistogramMetric } from '@/components/charts/HistogramMetric'
 import {
   AreaChart,
   Area,
-  ScatterChart,
-  Scatter,
   XAxis,
   YAxis,
-  ZAxis,
   Tooltip,
-  CartesianGrid,
   ResponsiveContainer,
 } from 'recharts'
 import {
   chartAxisTick,
   chartBarCursor,
-  chartGridStroke,
   chartHiddenWrapper,
-  chartScatterCursor,
 } from '@/components/charts/chartStyles'
 import { PortalTooltip } from '@/components/charts/PortalTooltip'
 import { ShapeIcon } from '@/components/charts/ShapeIcon'
@@ -574,7 +569,7 @@ function ComparisonChart({
   if (type === 'line') return <ComparisonLine runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
   if (type === 'bar') return <ComparisonBar runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
   if (type === 'histogram') return <ComparisonHistogram runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
-  if (type === 'scatter') return <ComparisonScatter runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} allLabels={allLabels} />
+  if (type === 'scatter') return <ComparisonScatter runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
   // pie: one pie per run (stacked)
   return (
     <div className="space-y-2">
@@ -700,62 +695,3 @@ function ComparisonHistogram({ runIds, runColors, runNameFor, seriesFor }: {
   )
 }
 
-function ComparisonScatter({ runIds, runColors, runNameFor, seriesFor, allLabels }: {
-  runIds: string[]
-  runColors: Map<string, string>
-  runNameFor: (rid: string) => string
-  seriesFor: SeriesFor
-  allLabels: string[]
-}) {
-  type Slot = { rid: string; label: string; data: { x: number; y: number }[] }
-  const slots: Slot[] = []
-  // Each run carries a single snapshot entry post-overwrite. Pull
-  // the latest only — earlier entries (if any) have been superseded
-  // by definition.
-  for (const rid of runIds) {
-    const s = seriesFor(rid)
-    if (!s || s.entries.length === 0) continue
-    const latest = s.entries[s.entries.length - 1]
-    const v = latest.value as Record<string, { x?: unknown; y?: unknown }> | undefined
-    if (!v || typeof v !== 'object') continue
-    for (const [label, series] of Object.entries(v)) {
-      if (!series || !Array.isArray(series.x) || !Array.isArray(series.y)) continue
-      const data = (series.x as number[]).map((x, i) => ({ x, y: (series.y as number[])[i] }))
-      slots.push({ rid, label, data })
-    }
-  }
-  if (slots.length === 0) {
-    return <p className="text-[10px] text-muted-foreground">No scatter data to compare</p>
-  }
-  return (
-    <ResponsiveContainer width="100%" height={220}>
-      <ScatterChart>
-        <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
-        <XAxis dataKey="x" type="number" tick={chartAxisTick} tickLine={false} axisLine={false} />
-        <YAxis dataKey="y" type="number" tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
-        <ZAxis range={[18, 18]} />
-        <Tooltip
-          cursor={chartScatterCursor}
-          wrapperStyle={chartHiddenWrapper}
-          content={<PortalTooltip />}
-        />
-        {slots.map((slot, i) => {
-          const color = runColors.get(slot.rid) ?? DEFAULT_RUN_COLOR
-          const shape = shapeForLabel(slot.label, allLabels)
-          return (
-            <Scatter
-              key={`${slot.rid}-${slot.label}-${i}`}
-              name={`${runNameFor(slot.rid)} · ${slot.label}`}
-              data={slot.data}
-              fill={color}
-              stroke="var(--color-popover-foreground)"
-              strokeWidth={0.5}
-              strokeOpacity={0.5}
-              shape={shape}
-            />
-          )
-        })}
-      </ScatterChart>
-    </ResponsiveContainer>
-  )
-}
