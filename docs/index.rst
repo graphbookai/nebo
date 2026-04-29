@@ -21,7 +21,7 @@ Nebo is a modern logging SDK for multi-modal data. Decorate functions and classe
     def process(records):
         for r in nb.track(records, name="processing"):
             r["value"] *= 2
-        nb.log_metric("count", float(len(records)))
+        nb.log_line("count", float(len(records)))
         return records
 
     @nb.fn()

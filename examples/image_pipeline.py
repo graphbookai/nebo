@@ -4,7 +4,7 @@ Demonstrates:
 - @nb.fn() for registering pipeline steps
 - nb.log_image(img, step=i) for logging images with step indices
 - nb.log_cfg() for logging transform configuration
-- nb.log_metric() for tracking image statistics
+- nb.log_line() for tracking image statistics
 - Processing a batch of 10 images through a series of transforms
 """
 
@@ -107,7 +107,7 @@ def detect_edges(images: list[Image.Image]) -> list[Image.Image]:
         )
 
         mean_intensity = float(arr.mean())
-        nb.log_metric("edge_intensity", mean_intensity, step=i)
+        nb.log_line("edge_intensity", mean_intensity, step=i)
         result.append(edges)
     nb.log(f"Detected edges in {len(images)} images")
     return result
@@ -120,7 +120,7 @@ def compute_stats(images: list[Image.Image]) -> dict:
     for i, img in enumerate(images):
         arr = np.array(img).astype(np.float32)
         brightness = float(arr.mean())
-        nb.log_metric("brightness", brightness, step=i)
+        nb.log_line("brightness", brightness, step=i)
         stats.append({"index": i, "brightness": brightness})
     avg = sum(s["brightness"] for s in stats) / len(stats)
     nb.log(f"Average brightness across {len(images)} images: {avg:.1f}")

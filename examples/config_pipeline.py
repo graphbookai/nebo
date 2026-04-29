@@ -13,7 +13,6 @@ Demonstrates two complementary ways to surface configuration:
 Also shown:
 - ``@nb.fn()`` to register pipeline steps
 - ``nb.log()`` for text and tensor-like object logging
-- ``nb.log_text()`` for rich markdown logging
 - Multiple source nodes and branching DAG
 - Error capture with enriched tracebacks
 """
@@ -150,14 +149,13 @@ def compute_statistics(
     nb.log(f"Statistics: mean={stats['mean']:.4f}, std={stats['std']:.4f}, "
            f"{stats['above_threshold']}/{stats['count']} above threshold={threshold}")
 
-    # Log a rich text summary
-    nb.log_text("stats_summary", f"""## Statistical Summary
-- **Samples**: {stats['count']}
-- **Mean**: {stats['mean']:.4f}
-- **Std Dev**: {stats['std']:.4f}
-- **Range**: [{stats['min']:.4f}, {stats['max']:.4f}]
-- **Above threshold ({threshold})**: {stats['above_threshold']}
-""")
+    nb.log(
+        f"Statistical Summary — "
+        f"samples={stats['count']}, "
+        f"mean={stats['mean']:.4f}, std={stats['std']:.4f}, "
+        f"range=[{stats['min']:.4f}, {stats['max']:.4f}], "
+        f"above_threshold({threshold})={stats['above_threshold']}"
+    )
 
     time.sleep(0.5)
     return stats

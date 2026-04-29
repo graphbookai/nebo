@@ -28,14 +28,11 @@ def main() -> None:
     # ── Scalar metrics at the Global level ────────────────────────────────────
     # Auto-step counter, one series per name.
     for step in range(50):
-        nb.log_metric("global_heartbeat", math.sin(step / 5.0))
-        nb.log_metric("global_cost", 1.0 / (1 + step))
+        nb.log_line("global_heartbeat", math.sin(step / 5.0))
+        nb.log_line("global_cost", 1.0 / (1 + step))
 
-    # ── Text / markdown snippet on the Global loggable ────────────────────────
-    nb.log_text(
-        "env_report",
-        "- python: OK\n- gpu: absent (CPU path)\n- cache: warm\n",
-    )
+    # ── Multi-line text snippet on the Global loggable ───────────────────────
+    nb.log("env report:\n- python: OK\n- gpu: absent (CPU path)\n- cache: warm")
 
     # ── Image on the Global loggable ──────────────────────────────────────────
     xx, yy = np.meshgrid(np.linspace(-3, 3, 128), np.linspace(-3, 3, 128))
@@ -48,7 +45,7 @@ def main() -> None:
 
     values = [float(i) * 0.1 for i in range(32)]
     for i,v in enumerate(values):
-        nb.log_metric("random values", v, step=i)
+        nb.log_line("random values", v, step=i)
 
 
 if __name__ == "__main__":

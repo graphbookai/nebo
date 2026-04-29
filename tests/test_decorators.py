@@ -822,12 +822,12 @@ class TestNodeMaterialization:
         assert state.loggables[node_id].materialized is True
 
     def test_node_materializes_on_log_metric(self) -> None:
-        """Node is materialized even when it only calls log_metric()."""
-        from nebo.logging.logger import log_metric
+        """Node is materialized even when it only calls log_line()."""
+        from nebo.logging.logger import log_line
 
         @fn()
         def metric_function():
-            log_metric("loss", 0.5)
+            log_line("loss", 0.5)
 
         metric_function()
         state = get_state()

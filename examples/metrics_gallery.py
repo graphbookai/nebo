@@ -1,14 +1,16 @@
-"""Example: All metric types + tag filtering.
+"""Example: All typed log_* metric functions + tag/label filtering.
 
-Demonstrates ``nb.log_metric`` with ``type="line"`` (default), ``"bar"``,
-``"scatter"``, ``"pie"``, and ``"histogram"``. Every demo attaches ``tags``
-to each emission so you can use the chip row above each chart in the UI
-to filter which emissions are shown.
+Demonstrates ``nb.log_line``, ``nb.log_bar``, ``nb.log_pie``,
+``nb.log_scatter``, and ``nb.log_histogram``. Every demo attaches
+``tags`` to each emission so you can use the chip row above each chart
+in the UI to filter which emissions are shown. ``log_scatter`` also
+exposes a per-label chip row — labels are the dict keys of the
+``{label: list[(x, y)]}`` value.
 
-Line series plot step on the x-axis (one chart per metric name). For every
-other type, *each* emission produces its own chart in the UI — so bar, pie,
-scatter, and histogram emissions emitted across multiple ``step`` values
-render as a stack of per-step charts.
+Line series plot step on the x-axis (one chart per metric name). For
+every other type, *each* emission produces its own chart in the UI —
+so bar, pie, and histogram emissions emitted across multiple ``step``
+values render as a stack of per-step charts.
 """
 
 import math
@@ -39,12 +41,12 @@ def line_demo() -> None:
     jitter_scale = float(rng.uniform(0.5, 1.5))
     for step in range(100):
         phase = "warmup" if step < 20 else "main"
-        nb.log_metric(
+        nb.log_line(
             "loss",
             math.exp(-step / 20.0) + 0.1 * jitter_scale * math.sin(step + _SEED % 7),
             tags=[f"phase:{phase}"],
         )
-        nb.log_metric(
+        nb.log_line(
             "lr",
             1e-3 if phase == "warmup" else 3e-4,
             tags=[f"phase:{phase}"],
@@ -63,10 +65,9 @@ def bar_demo() -> None:
             "bird": int(rng.integers(5, 25)),
             "fish": int(rng.integers(0, 15)),
         }
-        nb.log_metric(
+        nb.log_bar(
             "class_counts",
             counts,
-            type="bar",
             step=step,
             tags=[f"split:{split}"],
         )
@@ -83,10 +84,9 @@ def pie_demo() -> None:
             "completion": int(rng.integers(100, 1000)),
             "scratch":    int(rng.integers(40, 200)),
         }
-        nb.log_metric(
+        nb.log_pie(
             "token_budget",
             snapshot,
-            type="pie",
             step=step,
             tags=[f"phase:{phase}"],
         )
@@ -94,17 +94,27 @@ def pie_demo() -> None:
 
 @nb.fn(ui={"default_tab": "metrics"})
 def scatter_demo() -> None:
-    """Scatter: one chart per step. Tag with the model version."""
+    """Scatter: one chart per emission, with multiple labeled clusters.
+
+    Each emission's value is ``{label: list[(x, y)]}`` — every label
+    becomes its own series on the same chart, distinguished by shape,
+    and the per-label chip row in the UI lets you toggle clusters on
+    and off independently of the tag chips.
+    """
     rng = _rng(4)
     for step in range(2):
         version = "v1" if step < 1 else "v2"
-        slope = float(rng.uniform(0.1, 1.0))
-        xs = rng.normal(0, 1, size=50).tolist()
-        ys = [x * slope + float(rng.normal(0, 0.3)) for x in xs]
-        nb.log_metric(
+        # Two clusters per emission so the per-label chip row has
+        # something to toggle. Each cluster picks its own slope.
+        clusters = {}
+        for label in ("inliers", "outliers"):
+            slope = float(rng.uniform(0.1, 1.0))
+            xs = rng.normal(0, 1, size=40).tolist()
+            ys = [x * slope + float(rng.normal(0, 0.3)) for x in xs]
+            clusters[label] = list(zip(xs, ys))
+        nb.log_scatter(
             "embed_2d",
-            {"x": xs, "y": ys},
-            type="scatter",
+            clusters,
             step=step,
             tags=[f"model:{version}"],
         )
@@ -118,10 +128,9 @@ def histogram_demo() -> None:
         shape = float(rng.uniform(1.0, 4.0)) + step / 4.0
         samples = rng.gamma(shape=shape, scale=2.0, size=500).tolist()
         bucket = "suspect" if step % 3 == 0 else "normal"
-        nb.log_metric(
+        nb.log_histogram(
             "latencies_ms",
             samples,
-            type="histogram",
             step=step,
             tags=[f"bucket:{bucket}"],
         )
@@ -131,12 +140,13 @@ def main() -> None:
     nb.md(
         "# Metrics gallery\n\n"
         "Each demo attaches `tags` to every emission so the chip row above "
-        "each chart can filter what's rendered. `line` plots a whole "
-        "series on step; `bar` and `pie` emit **one chart per step**; "
-        "`histogram` and `scatter` combine all steps into one chart "
-        "(histogram: overlapping areas; scatter: recycled shapes). "
-        "Colors indicate the **run** — single-run views use the run's "
-        "color for every series."
+        "each chart can filter what's rendered. `log_line` plots a whole "
+        "series on step; `log_bar` and `log_pie` emit **one chart per step**; "
+        "`log_histogram` combines all steps into one chart (overlapping "
+        "areas); `log_scatter` lays each emission's labeled clusters onto "
+        "one chart, distinguishable by shape and toggleable via the per-"
+        "label chip row. Colors indicate the **run** — single-run views "
+        "use the run's color for every series."
     )
     nb.ui(tracker="step")
     line_demo()

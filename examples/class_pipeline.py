@@ -27,7 +27,7 @@ class Agent:
         """Analyze the query and context to form a plan."""
         nb.log(f"Thinking about: {query}")
         nb.log(f"Using {len(context)} context documents")
-        nb.log_metric("context_docs", float(len(context)))
+        nb.log_line("context_docs", float(len(context)))
         time.sleep(0.3)
         return {"plan": f"Respond to '{query}' using context"}
 
@@ -43,7 +43,7 @@ class Agent:
         """Evaluate the quality of the response."""
         nb.log("Reflecting on response quality")
         score = 0.85
-        nb.log_metric("quality_score", score)
+        nb.log_line("quality_score", score)
         time.sleep(0.2)
         return {"score": score, "response": response}
 

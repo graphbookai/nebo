@@ -58,7 +58,7 @@ Edges are inferred at runtime, not declared. `nebo/core/decorators.py` wraps eve
 ### Package layout
 
 - `nebo/core/` — decorators, DAG builder, session state, `DaemonClient`, config, tracker, `.nebo` file format.
-- `nebo/logging/` — user-facing `log`/`log_metric`/`log_image`/`log_audio`/`log_text`/`md`, plus the serializer/queue that batches events to the daemon.
+- `nebo/logging/` — user-facing `log`/`log_line`/`log_bar`/`log_pie`/`log_scatter`/`log_histogram`/`log_image`/`log_audio`/`md`, plus the serializer/queue that batches events to the daemon.
 - `nebo/server/` — `daemon.py` (FastAPI app, created via `create_daemon_app` factory), `runner.py` (manages subprocess pipelines kicked off by `nebo run` or MCP), `chat.py`, `protocol.py` (`MessageType` enum + `decode_batch`).
 - `nebo/mcp/` — MCP tools (`tools.py`) and stdio/server entry points. 15 tools, roughly split into observation (graph, logs, metrics, errors, description) and action (run / stop / restart / ask / wait / read+write source).
 - `nebo/terminal/` — Rich dashboard used in local mode.

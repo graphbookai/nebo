@@ -6,7 +6,7 @@ Usage:
     @nb.fn()
     def my_function():
         nb.log("hello")
-        nb.log_metric("loss", 0.5)
+        nb.log_line("loss", 0.5)
 """
 
 from __future__ import annotations
@@ -27,10 +27,13 @@ from nebo.alerts import AlertLevel, alert
 from nebo.notebook import show
 from nebo.logging.logger import (
     log,
-    log_metric,
+    log_line,
+    log_bar,
+    log_pie,
+    log_scatter,
+    log_histogram,
     log_image,
     log_audio,
-    log_text,
     md,
 )
 
@@ -523,10 +526,13 @@ __all__ = [
     "init",
     "log",
     "log_cfg",
-    "log_metric",
+    "log_line",
+    "log_bar",
+    "log_pie",
+    "log_scatter",
+    "log_histogram",
     "log_image",
     "log_audio",
-    "log_text",
     "md",
     "ask",
     "ui",

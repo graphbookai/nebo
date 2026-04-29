@@ -32,7 +32,7 @@ def train(X, y, lr: float = 0.01, epochs: int = 50):
         error = preds - y
         loss = float(np.mean(error ** 2))
         w -= lr * (2 / len(y)) * (X.T @ error)
-        nb.log_metric("loss", loss, step=epoch)
+        nb.log_line("loss", loss, step=epoch)
 
         if epoch % 10 == 0:
             nb.log(f"Epoch {epoch}: loss={loss:.4f}")
@@ -48,8 +48,8 @@ def evaluate(X, y, w):
     preds = X @ w
     mse = float(np.mean((preds - y) ** 2))
     r2 = 1 - mse / float(np.var(y))
-    nb.log_metric("mse", mse)
-    nb.log_metric("r2", r2)
+    nb.log_line("mse", mse)
+    nb.log_line("r2", r2)
     nb.log(f"MSE={mse:.4f}, R2={r2:.4f}")
     return {"mse": mse, "r2": r2}
 

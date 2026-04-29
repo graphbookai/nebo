@@ -37,7 +37,7 @@ def transform(records: list[dict]) -> list[dict]:
     for r in nb.track(records, name="transforming"):
         transformed.append({**r, "value": r["value"] / 50.0, "tagged": True})
     nb.log(f"Transformed {len(transformed)} records")
-    nb.log_metric("record_count", float(len(transformed)))
+    nb.log_line("record_count", float(len(transformed)))
     time.sleep(0.3)
     return transformed
 
@@ -53,7 +53,7 @@ def aggregate(records: list[dict]) -> dict:
         "max": max(values),
     }
     nb.log(f"Aggregated: mean={stats['mean']:.4f}, count={stats['count']}")
-    nb.log_metric("mean_value", stats["mean"])
+    nb.log_line("mean_value", stats["mean"])
     time.sleep(0.3)
     return stats
 

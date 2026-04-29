@@ -151,7 +151,7 @@ def log(data: dict, step: Optional[int] = None, commit: bool = True) -> None:
     """Drop-in replacement for ``wandb.log``.
 
     Each key/value is dispatched by value type:
-      - numeric → ``nb.log_metric`` (line chart)
+      - numeric → ``nb.log_line`` (line chart)
       - image-like (numpy 2D/3D, PIL Image) → ``nb.log_image``
       - other → cast to float if possible, else logged via ``nb.log``
 
@@ -162,16 +162,16 @@ def log(data: dict, step: Optional[int] = None, commit: bool = True) -> None:
     for k, v in data.items():
         if isinstance(v, bool):
             # bool is an int subclass; record as a 0/1 metric.
-            nb.log_metric(k, int(v), step=step)
+            nb.log_line(k, int(v), step=step)
             continue
         if isinstance(v, (int, float)):
-            nb.log_metric(k, v, step=step)
+            nb.log_line(k, v, step=step)
             continue
         if _looks_like_image(v):
             nb.log_image(v, name=k, step=step)
             continue
         try:
-            nb.log_metric(k, float(v), step=step)
+            nb.log_line(k, float(v), step=step)
         except (TypeError, ValueError):
             nb.log(f"{k}: {v}")
 

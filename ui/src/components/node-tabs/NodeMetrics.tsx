@@ -46,7 +46,12 @@ import {
 } from '@/components/charts/chartStyles'
 import { PortalTooltip } from '@/components/charts/PortalTooltip'
 import { ShapeIcon } from '@/components/charts/ShapeIcon'
-import { UNTAGGED_KEY, entryTag, shapeForTag, entriesMatchingTags } from '@/components/charts/scatterShape'
+import {
+  UNTAGGED_KEY,
+  entriesMatchingTags,
+  scatterLabels,
+  shapeForLabel,
+} from '@/components/charts/scatterShape'
 import { useTagChips } from '@/components/charts/useTagChips'
 
 interface NodeMetricsProps {
@@ -110,13 +115,40 @@ export function MetricBlock({
 
   const { active: activeTags, toggle } = useTagChips(allTags)
 
-  const filtered = useMemo(
+  // Scatter dict keys (the per-emission `{label: {x,y}}` keys) drive a
+  // second chip row that turns whole sub-series on or off — this is the
+  // analogue of toggling slices in a pie or columns in a bar chart.
+  const allLabels = useMemo(
+    () => series.type === 'scatter' ? scatterLabels(series.entries) : [],
+    [series.type, series.entries],
+  )
+  const { active: activeLabels, toggle: toggleLabel } = useTagChips(allLabels)
+
+  const tagFiltered = useMemo(
     // When no tag chips exist (e.g. nothing was ever tagged on this metric),
     // skip filtering — otherwise every entry, having neither tags nor an
     // active (untagged) chip to satisfy, gets excluded.
     () => allTags.length === 0 ? series.entries : entriesMatchingTags(series.entries, activeTags),
     [series.entries, activeTags, allTags],
   )
+
+  // Drop labels that the user has toggled off. Done here, not inside
+  // ScatterMetric, so the per-label shape index in `allLabels` stays
+  // stable while only the rendered slots change.
+  const filtered = useMemo(() => {
+    if (series.type !== 'scatter' || allLabels.length === 0) return tagFiltered
+    return tagFiltered
+      .map(e => {
+        const v = e.value as Record<string, unknown> | undefined
+        if (!v || typeof v !== 'object') return e
+        const kept: Record<string, unknown> = {}
+        for (const k of Object.keys(v)) if (activeLabels.has(k)) kept[k] = v[k]
+        return { ...e, value: kept }
+      })
+      // Hide entries whose labels are all toggled off, so we don't render
+      // an empty chart slot for them.
+      .filter(e => Object.keys(e.value as Record<string, unknown>).length > 0)
+  }, [series.type, tagFiltered, activeLabels, allLabels.length])
 
   return (
     <div>
@@ -132,17 +164,30 @@ export function MetricBlock({
               label={t === UNTAGGED_KEY ? '(untagged)' : t}
               active={activeTags.has(t)}
               onClick={() => toggle(t)}
-              icon={
-                series.type === 'scatter' ? (
-                  <ShapeIcon shape={shapeForTag(t, allTags)} color={color} />
-                ) : undefined
-              }
+            />
+          ))}
+        </div>
+      )}
+      {allLabels.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {allLabels.map(l => (
+            <Chip
+              key={`label:${l}`}
+              label={l}
+              active={activeLabels.has(l)}
+              onClick={() => toggleLabel(l)}
+              icon={<ShapeIcon shape={shapeForLabel(l, allLabels)} color={color} />}
             />
           ))}
         </div>
       )}
       <div className="mt-1">
-        <SingleRunChart type={series.type} entries={filtered} color={color} allTags={allTags} />
+        <SingleRunChart
+          type={series.type}
+          entries={filtered}
+          color={color}
+          allLabels={allLabels}
+        />
       </div>
     </div>
   )
@@ -179,16 +224,16 @@ function SingleRunChart({
   type,
   entries,
   color,
-  allTags,
+  allLabels,
 }: {
   type: string
   entries: MetricEntry[]
   color: string
-  allTags: string[]
+  allLabels: string[]
 }) {
   if (type === 'line') return <LineMetric entries={entries} color={color} />
   if (type === 'histogram') return <HistogramMetric entries={entries} color={color} />
-  if (type === 'scatter') return <ScatterMetric entries={entries} color={color} allTags={allTags} />
+  if (type === 'scatter') return <ScatterMetric entries={entries} color={color} allLabels={allLabels} />
   // bar and pie emit one chart per emission; step label above each.
   return (
     <div className="space-y-3">
@@ -329,6 +374,26 @@ function ComparisonMetricBlock({
 
   const { active: activeTags, toggle: toggleTag } = useTagChips(allTags)
 
+  // For scatter, also collect the union of dict-key labels across runs so
+  // the user can hide whole sub-series the way bar/pie users hide categories.
+  const allLabels = useMemo(() => {
+    if (type !== 'scatter') return [] as string[]
+    const labels = new Set<string>()
+    for (const rid of comparisonRunIds) {
+      const series = runs.get(rid)?.loggableMetrics[loggableId]?.[name]
+      if (!series) continue
+      for (const e of series.entries) {
+        const v = e.value
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+          for (const k of Object.keys(v as Record<string, unknown>)) labels.add(k)
+        }
+      }
+    }
+    return [...labels].sort()
+  }, [type, comparisonRunIds, runs, loggableId, name])
+
+  const { active: activeLabels, toggle: toggleLabel } = useTagChips(allLabels)
+
   return (
     <div>
       <div className="flex items-center justify-between">
@@ -371,15 +436,23 @@ function ComparisonMetricBlock({
             label={t === UNTAGGED_KEY ? '(untagged)' : t}
             active={activeTags.has(t)}
             onClick={() => toggleTag(t)}
-            icon={
-              type === 'scatter' ? (
-                // Color-neutral on the chip; the point's color is the run's.
-                <ShapeIcon shape={shapeForTag(t, allTags)} color="var(--color-popover-foreground)" />
-              ) : undefined
-            }
           />
         ))}
       </div>
+      {allLabels.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {allLabels.map(l => (
+            <Chip
+              key={`label:${l}`}
+              label={l}
+              active={activeLabels.has(l)}
+              onClick={() => toggleLabel(l)}
+              // Color-neutral on the chip; the point's color is the run's.
+              icon={<ShapeIcon shape={shapeForLabel(l, allLabels)} color="var(--color-popover-foreground)" />}
+            />
+          ))}
+        </div>
+      )}
       <div className="mt-1">
         <ComparisonChart
           type={type}
@@ -387,7 +460,8 @@ function ComparisonMetricBlock({
           loggableId={loggableId}
           runIds={runIds}
           activeTags={activeTags}
-          allTags={allTags}
+          activeLabels={activeLabels}
+          allLabels={allLabels}
         />
       </div>
     </div>
@@ -400,14 +474,16 @@ function ComparisonChart({
   loggableId,
   runIds,
   activeTags,
-  allTags,
+  activeLabels,
+  allLabels,
 }: {
   type: string
   name: string
   loggableId: string
   runIds: string[]
   activeTags: Set<string>
-  allTags: string[]
+  activeLabels: Set<string>
+  allLabels: string[]
 }) {
   const runs = useStore(s => s.runs)
   const runColors = useStore(s => s.runColors)
@@ -419,15 +495,32 @@ function ComparisonChart({
     (rid: string) => {
       const s = runs.get(rid)?.loggableMetrics[loggableId]?.[name]
       if (!s) return undefined
-      return { ...s, entries: entriesMatchingTags(s.entries, activeTags) }
+      const tagFiltered = entriesMatchingTags(s.entries, activeTags)
+      // Drop deselected scatter labels here so the comparison renderer
+      // only sees the slots the user wants. Pie and bar values are
+      // also dicts but we leave them untouched — their toggling story
+      // lives in their own legend/category rendering, not this chip row.
+      if (s.type === 'scatter' && allLabels.length > 0) {
+        const trimmed = tagFiltered
+          .map(e => {
+            const v = e.value as Record<string, unknown> | undefined
+            if (!v || typeof v !== 'object') return e
+            const kept: Record<string, unknown> = {}
+            for (const k of Object.keys(v)) if (activeLabels.has(k)) kept[k] = v[k]
+            return { ...e, value: kept }
+          })
+          .filter(e => Object.keys(e.value as Record<string, unknown>).length > 0)
+        return { ...s, entries: trimmed }
+      }
+      return { ...s, entries: tagFiltered }
     },
-    [runs, loggableId, name, activeTags],
+    [runs, loggableId, name, activeTags, activeLabels, allLabels.length],
   )
 
   if (type === 'line') return <ComparisonLine runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
   if (type === 'bar') return <ComparisonBar runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
   if (type === 'histogram') return <ComparisonHistogram runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
-  if (type === 'scatter') return <ComparisonScatter runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} allTags={allTags} />
+  if (type === 'scatter') return <ComparisonScatter runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} allLabels={allLabels} />
   // pie: one pie per run (stacked)
   return (
     <div className="space-y-2">
@@ -691,23 +784,26 @@ function ComparisonHistogram({ runIds, runColors, runNameFor, seriesFor }: {
   )
 }
 
-function ComparisonScatter({ runIds, runColors, runNameFor, seriesFor, allTags }: {
+function ComparisonScatter({ runIds, runColors, runNameFor, seriesFor, allLabels }: {
   runIds: string[]
   runColors: Map<string, string>
   runNameFor: (rid: string) => string
   seriesFor: SeriesFor
-  allTags: string[]
+  allLabels: string[]
 }) {
-  type Slot = { rid: string; step: number; tag: string; data: { x: number; y: number }[] }
+  type Slot = { rid: string; step: number; label: string; data: { x: number; y: number }[] }
   const slots: Slot[] = []
   for (const rid of runIds) {
     const s = seriesFor(rid)
     if (!s) continue
     for (const e of s.entries) {
-      const v = e.value as { x?: unknown; y?: unknown } | undefined
-      if (!v || !Array.isArray(v.x) || !Array.isArray(v.y)) continue
-      const data = (v.x as number[]).map((x, i) => ({ x, y: (v.y as number[])[i] }))
-      slots.push({ rid, step: e.step ?? 0, tag: entryTag(e), data })
+      const v = e.value as Record<string, { x?: unknown; y?: unknown }> | undefined
+      if (!v || typeof v !== 'object') continue
+      for (const [label, series] of Object.entries(v)) {
+        if (!series || !Array.isArray(series.x) || !Array.isArray(series.y)) continue
+        const data = (series.x as number[]).map((x, i) => ({ x, y: (series.y as number[])[i] }))
+        slots.push({ rid, step: e.step ?? 0, label, data })
+      }
     }
   }
   if (slots.length === 0) {
@@ -727,11 +823,11 @@ function ComparisonScatter({ runIds, runColors, runNameFor, seriesFor, allTags }
         />
         {slots.map((slot, i) => {
           const color = runColors.get(slot.rid) ?? DEFAULT_RUN_COLOR
-          const shape = shapeForTag(slot.tag, allTags)
+          const shape = shapeForLabel(slot.label, allLabels)
           return (
             <Scatter
-              key={`${slot.rid}-${slot.step}-${i}`}
-              name={`${runNameFor(slot.rid)} · step ${slot.step}`}
+              key={`${slot.rid}-${slot.step}-${slot.label}-${i}`}
+              name={`${runNameFor(slot.rid)} · ${slot.label} · step ${slot.step}`}
               data={slot.data}
               fill={color}
               stroke="var(--color-popover-foreground)"

@@ -1067,16 +1067,6 @@ export const useStore = create<NeboStore>((set, get) => ({
             }
             break
 
-          case 'text':
-            newLogs.push({
-              timestamp: (event.timestamp as number) ?? Date.now() / 1000,
-              node: loggableId ?? null,
-              message: `[${(data.name as string) ?? ''}] ${(data.content as string) ?? (event.content as unknown as string) ?? ''}`,
-              level: 'info',
-              step: (event.step as number) ?? null,
-            })
-            break
-
           case 'config':
             if (loggableId && run.graph?.nodes[loggableId]) {
               run.graph.nodes[loggableId] = {

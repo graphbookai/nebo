@@ -15,7 +15,6 @@ class MessageType(str, Enum):
     METRIC = "metric"
     IMAGE = "image"
     AUDIO = "audio"
-    TEXT = "text"
     PROGRESS = "progress"
     ERROR = "error"
     LOGGABLE_REGISTER = "loggable_register"

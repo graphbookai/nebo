@@ -438,19 +438,6 @@ class DaemonState:
                     "timestamp": event.get("timestamp", time.time()),
                 })
 
-        elif etype == "text":
-            # Store as a log entry (same as log_text() does locally)
-            entry = LogEntry(
-                timestamp=event.get("timestamp", time.time()),
-                node=loggable_id,
-                message=f"[{event.get('name', '')}] {event.get('content', '')}",
-                level="info",
-                type="text",
-            )
-            run.logs.append(entry)
-            if loggable_id and loggable_id in run.loggables:
-                run.loggables[loggable_id].logs.append(event)
-
         elif etype == "ask_prompt":
             ask_id = event.get("ask_id") or event.get("data", {}).get("ask_id", "")
             if ask_id:

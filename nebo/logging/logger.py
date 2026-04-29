@@ -123,71 +123,88 @@ def _scalar(v: Any) -> Any:
     return v
 
 
-def _normalize_metric_value(value: Any, mtype: str) -> Any:
-    """Per-type normalization; tensors/ndarrays -> plain Python."""
+def _normalize_line(value: Any) -> float:
+    if hasattr(value, "item"):
+        value = value.item()
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(
+            f"log_line requires a scalar number, got {type(value).__name__}"
+        )
+    return float(value)
+
+
+def _normalize_categorical(value: Any, fname: str) -> dict:
     if hasattr(value, "tolist"):
         value = value.tolist()
-    if mtype == "line":
-        if isinstance(value, (int, float)):
-            return float(value)
+    if not isinstance(value, dict):
         raise TypeError(
-            f"line metric requires scalar value, got {type(value).__name__}"
+            f"{fname} requires dict[str, number], got {type(value).__name__}"
         )
-    if mtype == "bar" or mtype == "pie":
-        if isinstance(value, dict):
-            return {str(k): _scalar(v) for k, v in value.items()}
+    return {str(k): _scalar(v) for k, v in value.items()}
+
+
+def _normalize_scatter(value: Any) -> dict:
+    """Scatter accepts {label: list[(x, y)]}.
+
+    Stored as {label: {"x": [...], "y": [...]}} so the UI can iterate
+    labels without re-splitting tuples on every render.
+    """
+    if hasattr(value, "tolist"):
+        value = value.tolist()
+    if not isinstance(value, dict) or not value:
         raise TypeError(
-            f"{mtype} metric requires dict[str, number], got {type(value).__name__}"
+            "log_scatter requires a non-empty dict {label: list[(x, y)]}, "
+            f"got {type(value).__name__}"
         )
-    if mtype == "scatter":
-        if isinstance(value, dict) and "x" in value and "y" in value:
-            xs = list(value["x"])
-            ys = list(value["y"])
-            if len(xs) != len(ys):
-                raise ValueError(
-                    f"scatter metric x and y must be the same length, "
-                    f"got len(x)={len(xs)} and len(y)={len(ys)}"
-                )
-            return {"x": xs, "y": ys}
-        if isinstance(value, list):
-            xs = []
-            ys = []
-            for pair in value:
+    out: dict[str, dict[str, list]] = {}
+    for label, pairs in value.items():
+        if hasattr(pairs, "tolist"):
+            pairs = pairs.tolist()
+        if not isinstance(pairs, list):
+            raise TypeError(
+                f"log_scatter label {label!r} must map to list[(x, y)], "
+                f"got {type(pairs).__name__}"
+            )
+        xs: list = []
+        ys: list = []
+        for pair in pairs:
+            try:
                 x, y = pair
-                xs.append(_scalar(x))
-                ys.append(_scalar(y))
-            return {"x": xs, "y": ys}
-        raise TypeError("scatter metric requires dict{x,y} or list[(x,y)]")
-    if mtype == "histogram":
-        if isinstance(value, dict) and "bins" in value and "counts" in value:
-            return {"bins": list(value["bins"]), "counts": list(value["counts"])}
-        if isinstance(value, list):
-            return [_scalar(v) for v in value]
-        raise TypeError("histogram metric requires list[number] or {bins, counts}")
-    raise ValueError(f"unknown metric type: {mtype!r}")
+            except (TypeError, ValueError) as exc:
+                raise TypeError(
+                    f"log_scatter label {label!r} contains a non-(x, y) "
+                    f"item: {pair!r}"
+                ) from exc
+            xs.append(_scalar(x))
+            ys.append(_scalar(y))
+        out[str(label)] = {"x": xs, "y": ys}
+    return out
 
 
-def log_metric(
+def _normalize_histogram(value: Any) -> Any:
+    if hasattr(value, "tolist"):
+        value = value.tolist()
+    if isinstance(value, dict) and "bins" in value and "counts" in value:
+        return {"bins": list(value["bins"]), "counts": list(value["counts"])}
+    if isinstance(value, list):
+        return [_scalar(v) for v in value]
+    raise TypeError(
+        "log_histogram requires list[number] or {bins, counts}, "
+        f"got {type(value).__name__}"
+    )
+
+
+def _emit_metric(
     name: str,
-    value: Any,
-    *,
-    type: str = "line",
-    step: Optional[int] = None,
-    tags: Optional[list[str]] = None,
+    normalized: Any,
+    mtype: str,
+    step: Optional[int],
+    tags: Optional[list[str]],
 ) -> None:
-    """Log a metric emission.
+    """Shared write path for the typed log_* functions.
 
-    The `type` kwarg selects the chart renderer and locks after first
-    emission for `name` on a given loggable. `tags` attach to the
-    emission and can be used to filter the series in the UI.
-
-    Supported types:
-      - "line"      : value is a scalar (int | float)
-      - "bar"       : value is a dict {label: number}
-      - "pie"       : value is a dict {label: number}
-      - "scatter"   : value is either {"x": [...], "y": [...]} or list[(x, y)]
-      - "histogram" : value is either list[number] (raw samples) or
-                       {"bins": [...], "counts": [...]} (pre-binned)
+    Maintains the per-`(loggable, name)` type lock and the auto-step
+    behavior for line metrics.
     """
     _ensure_initialized()
     state = get_state()
@@ -195,21 +212,19 @@ def log_metric(
     timestamp = time.time()
     state.ensure_loggable(node_id)
 
-    normalized = _normalize_metric_value(value, type)
-
     loggable = state.loggables[node_id]
     existing = loggable.metrics.get(name)
-    if existing is not None and existing.get("type") != type:
+    if existing is not None and existing.get("type") != mtype:
         raise ValueError(
             f"metric {name!r} was emitted with type={existing['type']!r} "
-            f"first; cannot change to type={type!r}"
+            f"first; cannot change to type={mtype!r}"
         )
 
-    if step is None and type == "line":
+    if step is None and mtype == "line":
         step = len(existing["entries"]) if existing else 0
 
     if existing is None:
-        loggable.metrics[name] = {"type": type, "entries": []}
+        loggable.metrics[name] = {"type": mtype, "entries": []}
     series = loggable.metrics[name]
     entry = {
         "step": step,
@@ -223,12 +238,82 @@ def log_metric(
         "type": "metric",
         "loggable_id": node_id,
         "name": name,
-        "metric_type": type,
+        "metric_type": mtype,
         "value": normalized,
         "step": step,
         "tags": entry["tags"],
         "timestamp": timestamp,
     })
+
+
+def log_line(
+    name: str,
+    value: Any,
+    *,
+    step: Optional[int] = None,
+    tags: Optional[list[str]] = None,
+) -> None:
+    """Log a scalar line-chart datapoint.
+
+    `step` auto-increments per `(loggable, name)` when omitted. `tags`
+    attach to the emission for UI chip filtering.
+    """
+    _emit_metric(name, _normalize_line(value), "line", step, tags)
+
+
+def log_bar(
+    name: str,
+    value: dict,
+    *,
+    step: Optional[int] = None,
+    tags: Optional[list[str]] = None,
+) -> None:
+    """Log a bar-chart snapshot. `value` is a dict ``{label: number}``;
+    each emission renders as one chart in the UI."""
+    _emit_metric(name, _normalize_categorical(value, "log_bar"), "bar", step, tags)
+
+
+def log_pie(
+    name: str,
+    value: dict,
+    *,
+    step: Optional[int] = None,
+    tags: Optional[list[str]] = None,
+) -> None:
+    """Log a pie-chart snapshot. `value` is a dict ``{label: number}``;
+    each emission renders as one chart in the UI."""
+    _emit_metric(name, _normalize_categorical(value, "log_pie"), "pie", step, tags)
+
+
+def log_scatter(
+    name: str,
+    value: dict,
+    *,
+    step: Optional[int] = None,
+    tags: Optional[list[str]] = None,
+) -> None:
+    """Log a labeled scatter snapshot.
+
+    `value` is a dict ``{label: list[(x, y)]}`` — every label becomes a
+    separate series on the same chart, distinguishable by shape and
+    toggleable via the UI chip row.
+    """
+    _emit_metric(name, _normalize_scatter(value), "scatter", step, tags)
+
+
+def log_histogram(
+    name: str,
+    value: Any,
+    *,
+    step: Optional[int] = None,
+    tags: Optional[list[str]] = None,
+) -> None:
+    """Log a histogram emission.
+
+    `value` is either ``list[number]`` (raw samples; the UI bins them)
+    or a pre-binned ``{"bins": [...], "counts": [...]}`` dict.
+    """
+    _emit_metric(name, _normalize_histogram(value), "histogram", step, tags)
 
 
 def log_image(
@@ -316,33 +401,6 @@ def log_audio(audio: Any, sr: int = 16000, *, name: Optional[str] = None, step: 
     }
 
     state.loggables[node_id].audio.append({"name": name, "step": step, "sr": sr, "timestamp": timestamp})
-
-    state._send_to_client(entry)
-
-
-def log_text(name: str, text: str) -> None:
-    """Log rich text or markdown content.
-
-    Args:
-        name: The text name/label.
-        text: The text/markdown content.
-    """
-    _ensure_initialized()
-    state = get_state()
-    node_id = _current_node.get() or GLOBAL_LOGGABLE_ID
-    timestamp = time.time()
-
-    state.ensure_loggable(node_id)
-
-    entry = {
-        "type": "text",
-        "loggable_id": node_id,
-        "name": name,
-        "content": text,
-        "timestamp": timestamp,
-    }
-
-    state.loggables[node_id].logs.append(entry)
 
     state._send_to_client(entry)
 

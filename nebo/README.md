@@ -33,7 +33,7 @@ def transform(records: list[dict]) -> list[dict]:
     for r in nb.track(records, name="transforming"):
         out.append({**r, "value": r["value"] / 50.0})
     nb.log(f"Transformed {len(out)} records")
-    nb.log_metric("record_count", float(len(out)))
+    nb.log_line("record_count", float(len(out)))
     return out
 
 @nb.fn()
@@ -107,7 +107,7 @@ Methods appear as `Agent.think` and `Agent.act` in the DAG, grouped under `Agent
 
 ### Automatic Materialization
 
-Decorated functions appear in the DAG as soon as they execute for the first time — a call to `nb.log()`, `nb.log_metric()`, etc. is not required. This keeps dependency chains intact when an intermediate function only orchestrates calls to other nodes without logging anything itself.
+Decorated functions appear in the DAG as soon as they execute for the first time — a call to `nb.log()`, `nb.log_line()`, etc. is not required. This keeps dependency chains intact when an intermediate function only orchestrates calls to other nodes without logging anything itself.
 
 ### `depends_on` -- Explicit dependency declaration
 
@@ -138,21 +138,26 @@ def train(data):
         nb.log(f"Epoch {epoch}: loss={loss:.4f}")
 ```
 
-### `nb.log_metric(name, value, *, type="line", step=None, tags=None)` -- Metrics
+### Typed metric helpers — `nb.log_line` / `log_bar` / `log_pie` / `log_scatter` / `log_histogram`
 
-Log metrics as line charts (default), bar charts, scatter plots, pie charts, or histograms. Type locks on first emission per `(loggable, name)` pair.
+One function per chart type. Each takes `(name, value, *, step=None, tags=None)`. The chart type locks on first emission per `(loggable, name)` pair — reusing a name with a different `log_*` function raises `ValueError`.
 
 ```python
 @nb.fn()
 def train(model, data):
     for epoch in range(100):
         loss = train_one_epoch(model, data)
-        nb.log_metric("loss", loss)                           # line (scalar)
-        nb.log_metric("counts", {"cat": 3, "dog": 5}, type="bar")
-        nb.log_metric("lr", 3e-4, tags=["main"])              # tagged for UI filter
+        nb.log_line("loss", loss)                                  # scalar
+        nb.log_bar("counts", {"cat": 3, "dog": 5})                 # {label: number}
+        nb.log_line("lr", 3e-4, tags=["main"])                     # tagged for UI filter
+        nb.log_scatter("embed_2d", {                               # {label: list[(x, y)]}
+            "inliers":  [(0.1, 0.2), (0.3, 0.4)],
+            "outliers": [(2.0, -1.0)],
+        })
+        nb.log_histogram("latencies", samples)                     # list[number]
 ```
 
-Value shape per type: `line` scalar; `bar`/`pie` `{label: number}`; `scatter` `{"x": [...], "y": [...]}` or list of `(x, y)`; `histogram` list of samples or `{"bins": [...], "counts": [...]}`.
+Value shapes: `log_line` scalar; `log_bar` / `log_pie` `{label: number}`; `log_scatter` `{label: list[(x, y)]}` (each label renders as its own toggleable series); `log_histogram` list of samples or `{"bins": [...], "counts": [...]}`.
 
 ### `nb.log_cfg(cfg)` -- Configuration logging
 
@@ -183,10 +188,6 @@ Log images (PIL, NumPy arrays, or PyTorch tensors) for visual inspection, with o
 ### `nb.log_audio(audio, sr=16000, name=None, step=None)` -- Audio logging
 
 Log audio data for playback and analysis.
-
-### `nb.log_text(name, text)` -- Rich text / Markdown logging
-
-Log formatted text or Markdown content.
 
 ### `nb.md(description)` -- Workflow description
 
@@ -333,11 +334,14 @@ Two execution modes:
 |----------|-----------|-------------|
 | `fn` | `@fn()`, `@fn(depends_on=[...])`, `@fn(ui={...})` | Register a function/class as a DAG node |
 | `log` | `log(message: str)` | Log a text message |
-| `log_metric` | `log_metric(name, value, *, type="line", step=None, tags=None)` | Log a metric (line/bar/scatter/pie/histogram) |
+| `log_line` | `log_line(name, value, *, step=None, tags=None)` | Log a scalar line-chart datapoint |
+| `log_bar` | `log_bar(name, value, *, step=None, tags=None)` | Log a bar-chart snapshot (`{label: number}`) |
+| `log_pie` | `log_pie(name, value, *, step=None, tags=None)` | Log a pie-chart snapshot (`{label: number}`) |
+| `log_scatter` | `log_scatter(name, value, *, step=None, tags=None)` | Log labeled scatter points (`{label: list[(x, y)]}`) |
+| `log_histogram` | `log_histogram(name, value, *, step=None, tags=None)` | Log a histogram (`list[number]` or `{bins, counts}`) |
 | `log_cfg` | `log_cfg(cfg: dict)` | Log node configuration |
 | `log_image` | `log_image(image, *, name=None, step=None, points=None, boxes=None, circles=None, polygons=None, bitmask=None)` | Log an image (optionally with geometric labels) |
 | `log_audio` | `log_audio(audio, sr=16000, name=None, step=None)` | Log audio data |
-| `log_text` | `log_text(name, text)` | Log rich text / Markdown |
 | `track` | `track(iterable, name=None, total=None)` | Progress tracking |
 | `md` | `md(description: str)` | Set workflow description |
 | `ui` | `ui(layout, view, collapsed, minimap, theme)` | Set run-level UI defaults |

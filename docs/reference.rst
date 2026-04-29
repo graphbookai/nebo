@@ -53,31 +53,54 @@ Logging Functions
     :param message: The message string or tensor-like object.
     :param step: Optional step counter.
 
-.. function:: nb.log_metric(name, value, *, type="line", step=None, tags=None)
+.. function:: nb.log_line(name, value, *, step=None, tags=None)
 
-   Log a metric emission.
+   Log a scalar line-chart datapoint. ``step`` auto-increments per
+   ``(loggable, name)`` when omitted.
 
    :param name: Metric name.
-   :param value: Type-dependent; see below.
-   :param type: ``"line"`` (default) | ``"bar"`` | ``"scatter"`` | ``"pie"`` | ``"histogram"``.
-   :param step: Optional step counter (auto-incremented for line).
+   :param value: A scalar ``int | float`` (NumPy/PyTorch scalars are accepted).
+   :param step: Optional step counter.
    :param tags: List of strings attached to this emission for UI filtering.
 
-   Value shape per type:
+.. function:: nb.log_bar(name, value, *, step=None, tags=None)
 
-   - ``line``: scalar ``int | float``.
-   - ``bar`` / ``pie``: dict ``{label: number}``.
-   - ``scatter``: dict ``{"x": [...], "y": [...]}`` or list of ``(x, y)``.
-   - ``histogram``: list of raw samples, or dict ``{"bins": [...], "counts": [...]}``.
+   Log a bar-chart snapshot. Each emission renders as one chart.
 
-   Type locks on first emission per ``(loggable, name)`` pair; re-emitting
-   with a different type raises ``ValueError``.
+   :param value: Dict ``{label: number}``.
 
-   Example::
+.. function:: nb.log_pie(name, value, *, step=None, tags=None)
 
-       nb.log_metric("loss", 0.5)
-       nb.log_metric("counts", {"cat": 3, "dog": 5}, type="bar")
-       nb.log_metric("lr", 3e-4, tags=["main"])
+   Log a pie-chart snapshot. Each emission renders as one chart.
+
+   :param value: Dict ``{label: number}``.
+
+.. function:: nb.log_scatter(name, value, *, step=None, tags=None)
+
+   Log a labeled scatter snapshot. Every label becomes its own series
+   on the same chart, distinguishable by shape and toggleable via the
+   per-label chip row in the UI.
+
+   :param value: Dict ``{label: list[(x, y)]}``.
+
+.. function:: nb.log_histogram(name, value, *, step=None, tags=None)
+
+   Log a histogram emission.
+
+   :param value: Either ``list[number]`` (raw samples; the UI bins them)
+       or pre-binned ``{"bins": [...], "counts": [...]}``.
+
+The chart type locks on first emission per ``(loggable, name)`` pair —
+mixing ``log_line`` and ``log_bar`` for the same metric name raises
+``ValueError``.
+
+Example::
+
+    nb.log_line("loss", 0.5)
+    nb.log_bar("counts", {"cat": 3, "dog": 5})
+    nb.log_scatter("embed_2d", {"inliers": [(0.1, 0.2), (0.3, 0.4)],
+                                 "outliers": [(2.0, -1.0)]})
+    nb.log_line("lr", 3e-4, tags=["main"])
 
 .. function:: nb.log_image(image, *, name=None, step=None, points=None, boxes=None, circles=None, polygons=None, bitmask=None)
 
@@ -113,13 +136,6 @@ Logging Functions
     :param sr: Sample rate (default: 16000).
     :param name: Optional audio clip name.
     :param step: Optional step counter.
-
-.. function:: nb.log_text(name: str, text: str) -> None
-
-    Log rich text or Markdown content.
-
-    :param name: The text name/label.
-    :param text: The text/Markdown content.
 
 .. function:: nb.log_cfg(cfg: dict[str, Any]) -> None
 

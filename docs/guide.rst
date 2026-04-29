@@ -103,14 +103,15 @@ In the DAG, ``DataPipeline`` appears as a transparent bounding box containing ``
 The Global loggable
 ===================
 
-``nb.log``, ``nb.log_metric``, ``nb.log_image``, ``nb.log_audio``, and
-``nb.log_text`` all work *outside* any ``@nb.fn()`` function. Calls made
-at module scope or from non-decorated helpers land on the **Global
-loggable**, identified as ``"__global__"``.
+``nb.log``, ``nb.log_line`` (and the other typed ``nb.log_*`` chart
+helpers), ``nb.log_image``, and ``nb.log_audio`` all work *outside*
+any ``@nb.fn()`` function. Calls made at module scope or from
+non-decorated helpers land on the **Global loggable**, identified as
+``"__global__"``.
 
 The Global loggable appears as a distinct card at the top of the grid
 view (labelled **"List"** on mobile) and is excluded from the DAG view
-— it is not a node. Its tabs (Logs, Metrics, Images, Audio, Text) work
+— it is not a node. Its tabs (Logs, Metrics, Images, Audio) work
 identically to any node's tabs.
 
 Example:
@@ -120,7 +121,7 @@ Example:
     import nebo as nb
 
     nb.log("environment looks good")           # → Global
-    nb.log_metric("warmup_heartbeat", 1.0)     # → Global
+    nb.log_line("warmup_heartbeat", 1.0)       # → Global
 
     @nb.fn()
     def train(): ...
@@ -145,10 +146,18 @@ Text Logs
             loss = train_epoch(model, data)
             nb.log(f"Epoch {epoch}: loss={loss:.4f}")
 
-Scalar Metrics
---------------
+Metric charts
+-------------
 
-``nb.log_metric(name, value, step=None)`` logs a scalar metric. Steps are auto-incremented if not provided:
+Nebo has one logging function per chart type — ``nb.log_line`` for
+scalars over time, ``nb.log_bar`` and ``nb.log_pie`` for snapshot
+distributions, ``nb.log_histogram`` for sample arrays, and
+``nb.log_scatter`` for labeled 2-D point clouds. The chart type locks
+on first emission per ``(loggable, name)`` pair, so reusing a name
+with a different ``log_*`` function raises ``ValueError``.
+
+``nb.log_line(name, value, step=None)`` logs a scalar; steps
+auto-increment if omitted:
 
 .. code-block:: python
 
@@ -157,8 +166,18 @@ Scalar Metrics
         for epoch in range(100):
             loss = train_epoch(model, data)
             accuracy = evaluate(model, data)
-            nb.log_metric("loss", loss)
-            nb.log_metric("accuracy", accuracy)
+            nb.log_line("loss", loss)
+            nb.log_line("accuracy", accuracy)
+
+``nb.log_scatter`` takes a labeled point dict and lets the UI toggle
+each label on or off:
+
+.. code-block:: python
+
+    nb.log_scatter("embed_2d", {
+        "inliers":  [(0.1, 0.2), (0.3, 0.4)],
+        "outliers": [(2.0, -1.0)],
+    })
 
 Images
 ------
@@ -185,20 +204,6 @@ Audio
         waveform = tts_model(text)
         nb.log_audio(waveform, sr=22050, name="speech")
         return waveform
-
-Rich Text
----------
-
-``nb.log_text(name, text)`` logs Markdown or formatted text:
-
-.. code-block:: python
-
-    @nb.fn()
-    def summarize(stats):
-        nb.log_text("report", f"""## Results
-    - **Accuracy**: {stats['acc']:.2%}
-    - **Loss**: {stats['loss']:.4f}
-    """)
 
 Configuration
 -------------
@@ -308,7 +313,7 @@ future UI features.
     @nb.fn(ui={"default_tab": "metrics"})
     def train(epochs=100):
         for step in range(epochs):
-            nb.log_metric("loss", compute_loss(step))
+            nb.log_line("loss", compute_loss(step))
 
 
 Execution Modes
@@ -432,8 +437,8 @@ Complete Example: Data Processing Pipeline
         """Compute statistics on the processed data."""
         stats = {"mean": float(data.mean()), "std": float(data.std()), "n": len(data)}
         nb.log(f"Stats: mean={stats['mean']:.4f}, std={stats['std']:.4f}")
-        nb.log_metric("mean", stats["mean"])
-        nb.log_metric("std", stats["std"])
+        nb.log_line("mean", stats["mean"])
+        nb.log_line("std", stats["std"])
         return stats
 
     @nb.fn()
@@ -455,6 +460,6 @@ Runnable examples live in the ``examples/`` directory of the repository:
 
 - ``examples/global_logging.py`` — logging from outside any ``@nb.fn()`` (the Global loggable).
 - ``examples/image_labels.py`` — ``nb.log_image()`` with points, boxes, circles, polygons, and bitmasks.
-- ``examples/metrics_gallery.py`` — all five ``nb.log_metric()`` types (line, bar, scatter, pie, histogram) plus tag filtering.
+- ``examples/metrics_gallery.py`` — the five typed metric helpers (`nb.log_line`, `nb.log_bar`, `nb.log_scatter`, `nb.log_pie`, `nb.log_histogram`) plus tag filtering.
 - ``examples/basic_pipeline.py`` — minimal starting point.
 - ``examples/image_pipeline.py`` — end-to-end image pipeline with decorated edges.

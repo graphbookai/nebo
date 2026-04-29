@@ -73,8 +73,8 @@ def train(dataset, model, epochs=100, lr=0.01):
 
     for epoch in nb.track(range(epochs), name="epochs"):
         loss, acc = train_step(model, X, y)
-        nb.log_metric("loss", loss, step=epoch)
-        nb.log_metric("accuracy", acc, step=epoch)
+        nb.log_line("loss", loss, step=epoch)
+        nb.log_line("accuracy", acc, step=epoch)
 
         if epoch % 10 == 0:
             nb.log(f"Epoch {epoch}: loss={loss:.4f}")
@@ -89,7 +89,7 @@ def run_experiment():
 ```
 
 **Key APIs for ML:**
-- `nb.log_metric(name, value, step=)` — loss, accuracy, lr curves
+- `nb.log_line(name, value, step=)` — loss, accuracy, lr curves
 - `nb.log_image(img, step=)` — sample outputs, weight visualizations
 - `nb.log_cfg(dict)` — hyperparameters shown in info tab
 - `nb.track(range(epochs))` — epoch progress bar
@@ -130,7 +130,7 @@ def normalize(records):
     """Normalize values to [0, 1]."""
     nb.log_cfg({"method": "minmax"})
     out = [normalize_record(r) for r in nb.track(records, name="normalizing")]
-    nb.log_metric("record_count", float(len(out)))
+    nb.log_line("record_count", float(len(out)))
     return out
 
 @nb.fn()
@@ -144,7 +144,7 @@ def filter_outliers(records, threshold=3.0):
 @nb.fn()
 def generate_report(clean, raw):
     """Compare clean vs raw datasets."""
-    nb.log_text("summary", f"**Clean:** {len(clean)} | **Raw:** {len(raw)}")
+    nb.log(f"summary — clean: {len(clean)} | raw: {len(raw)}")
     return {"clean": len(clean), "raw": len(raw)}
 
 @nb.fn()
@@ -157,7 +157,6 @@ def run_pipeline():
 
 **Key APIs for pipelines:**
 - `nb.log_cfg(dict)` — per-step configuration in info tab
-- `nb.log_text(name, markdown)` — rich markdown summaries
 - `nb.track(items)` — progress bars on batch processing
 - `nb.md(description)` — workflow-level description
 - `minimap=True` — useful for wide pipelines
@@ -188,7 +187,7 @@ class Agent:
     def think(self, query, context):
         """Analyze query and form a plan."""
         nb.log(f"Thinking: {query}")
-        nb.log_metric("context_docs", float(len(context)))
+        nb.log_line("context_docs", float(len(context)))
         return {"plan": f"Respond using {len(context)} docs"}
 
     def act(self, plan):
@@ -200,7 +199,7 @@ class Agent:
     def reflect(self, query, response):
         """Evaluate response quality."""
         score = evaluate(response)
-        nb.log_metric("quality_score", score)
+        nb.log_line("quality_score", score)
         if score < 0.7:
             retry = nb.ask("Quality is low. Retry?", options=["yes", "no"])
             if retry == "yes":
@@ -219,7 +218,7 @@ def main():
 **Key APIs for agents:**
 - `@nb.fn()` on class — all methods auto-wrapped; methods appear as `Agent.think`, `Agent.act` etc. in the DAG, grouped under the class name
 - `nb.ask(question, options=[...])` — pauses execution, returns the selected option as a string
-- `nb.log_metric(name, value)` — per-action quality scores
+- `nb.log_line(name, value)` — per-action quality scores
 - `view="grid"` — table view suits many small method calls
 - `tracker="step"` — track by action count, not wall time
 
@@ -232,11 +231,10 @@ def main():
 | `@nb.fn(pausable=True)` | Allow pausing from web UI |
 | `@nb.fn(ui={"collapsed": True})` | Per-node UI hints |
 | `nb.log(message)` | Text log to current node |
-| `nb.log_metric(name, value, step=)` | Scalar metric with optional step |
+| `nb.log_line(name, value, step=)` | Scalar metric with optional step |
 | `nb.log_cfg(dict)` | Configuration dict for info tab |
 | `nb.log_image(img, name=, step=)` | PIL/numpy/torch image |
 | `nb.log_audio(audio, sr=, name=, step=)` | Audio data |
-| `nb.log_text(name, text)` | Rich markdown content |
 | `nb.track(iterable, name=, total=)` | Progress bar |
 | `nb.md(description)` | Workflow-level markdown |
 | `nb.ui(layout=, view=, tracker=, ...)` | Run-level UI defaults |

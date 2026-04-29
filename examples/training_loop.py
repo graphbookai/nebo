@@ -1,7 +1,7 @@
 """Example 2: ML Training Loop with Metrics and Inspection
 
 Demonstrates:
-- nb.log_metric() for tracking loss, accuracy over steps
+- nb.log_line() for tracking loss, accuracy over steps
 - nb.log_image() for logging generated images
 - @nb.fn() on training functions
 - Metric history accessible via the state API
@@ -103,8 +103,8 @@ def train(dataset: dict, model: dict, epochs: int = 10, batch_size: int = 16) ->
         history["loss"].append(avg_loss)
         history["accuracy"].append(avg_acc)
 
-        nb.log_metric("loss", float(avg_loss), step=epoch)
-        nb.log_metric("accuracy", float(avg_acc), step=epoch)
+        nb.log_line("loss", float(avg_loss), step=epoch)
+        nb.log_line("accuracy", float(avg_acc), step=epoch)
         nb.log(f"Epoch {epoch}: loss={avg_loss:.4f}, accuracy={avg_acc:.4f}")
 
         # Log a sample image every 3 epochs

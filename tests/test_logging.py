@@ -6,7 +6,15 @@ import pytest
 
 from nebo.core.state import NodeInfo, SessionState, get_state, _current_node
 from nebo.core.decorators import fn
-from nebo.logging.logger import log, log_metric, log_text, md
+from nebo.logging.logger import (
+    log,
+    log_bar,
+    log_histogram,
+    log_line,
+    log_pie,
+    log_scatter,
+    md,
+)
 from nebo.core.config import log_cfg
 
 
@@ -28,13 +36,13 @@ class TestLogging:
         assert len(node.logs) == 1
         assert node.logs[0]["message"] == "hello world"
 
-    def test_log_metric_inside_step(self) -> None:
-        """log_metric() should store metrics on the node."""
+    def test_log_line_inside_step(self) -> None:
+        """log_line() should store metrics on the node."""
         @fn()
         def train():
-            log_metric("loss", 0.5, step=0)
-            log_metric("loss", 0.3, step=1)
-            log_metric("loss", 0.1, step=2)
+            log_line("loss", 0.5, step=0)
+            log_line("loss", 0.3, step=1)
+            log_line("loss", 0.1, step=2)
 
         train()
         state = get_state()
@@ -47,18 +55,6 @@ class TestLogging:
         assert series["entries"][0]["value"] == 0.5
         assert series["entries"][2]["step"] == 2
         assert series["entries"][2]["value"] == 0.1
-
-    def test_log_text(self) -> None:
-        """log_text() should store text entries."""
-        @fn()
-        def report():
-            log_text("summary", "## Results\nAll good!")
-
-        report()
-        state = get_state()
-        node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "report")
-        assert len(node.logs) == 1
-        assert node.logs[0]["content"] == "## Results\nAll good!"
 
     def test_md_sets_workflow_description(self) -> None:
         """md() should set the workflow-level description."""
@@ -242,10 +238,10 @@ def test_log_outside_fn_routes_to_global():
     assert g.logs[0]["loggable_id"] == "__global__"
 
 
-def test_log_metric_outside_fn_routes_to_global():
+def test_log_line_outside_fn_routes_to_global():
     import nebo as nb
     nb.get_state().reset()
-    nb.log_metric("top_lvl_metric", 3.14)
+    nb.log_line("top_lvl_metric", 3.14)
     g = nb.get_state().loggables["__global__"]
     assert "top_lvl_metric" in g.metrics
     assert g.metrics["top_lvl_metric"]["entries"][-1]["value"] == 3.14
@@ -338,61 +334,98 @@ def test_log_image_bitmask_stored_as_media_reference():
     assert "data" in entry  # inline base64
 
 
-def test_log_metric_default_type_is_line():
+def test_log_line_records_scalar():
     import nebo as nb
     nb.get_state().reset()
-    nb.log_metric("loss", 0.5)
+    nb.log_line("loss", 0.5)
     series = nb.get_state().loggables["__global__"].metrics["loss"]
     assert series["type"] == "line"
     assert series["entries"][-1]["value"] == 0.5
 
 
-def test_log_metric_bar_type_accepts_dict_value():
+def test_log_bar_accepts_dict_value():
     import nebo as nb
     nb.get_state().reset()
-    nb.log_metric("class_counts", {"cat": 3, "dog": 5, "bird": 2}, type="bar")
+    nb.log_bar("class_counts", {"cat": 3, "dog": 5, "bird": 2})
     series = nb.get_state().loggables["__global__"].metrics["class_counts"]
     assert series["type"] == "bar"
     assert series["entries"][-1]["value"] == {"cat": 3, "dog": 5, "bird": 2}
 
 
-def test_log_metric_tags_attached_to_emission():
+def test_log_pie_accepts_dict_value():
     import nebo as nb
     nb.get_state().reset()
-    nb.log_metric("loss", 0.1, tags=["schedule:warmup"])
-    nb.log_metric("loss", 0.05, tags=["schedule:main"])
+    nb.log_pie("budget", {"prompt": 800, "completion": 200})
+    series = nb.get_state().loggables["__global__"].metrics["budget"]
+    assert series["type"] == "pie"
+    assert series["entries"][-1]["value"] == {"prompt": 800, "completion": 200}
+
+
+def test_log_line_tags_attached_to_emission():
+    import nebo as nb
+    nb.get_state().reset()
+    nb.log_line("loss", 0.1, tags=["schedule:warmup"])
+    nb.log_line("loss", 0.05, tags=["schedule:main"])
     series = nb.get_state().loggables["__global__"].metrics["loss"]
     assert series["entries"][0]["tags"] == ["schedule:warmup"]
     assert series["entries"][1]["tags"] == ["schedule:main"]
 
 
-def test_log_metric_type_locks_after_first_emission():
+def test_metric_type_locks_after_first_emission():
     import nebo as nb
     import pytest
     nb.get_state().reset()
-    nb.log_metric("m", 1.0)  # default type=line
+    nb.log_line("m", 1.0)
     with pytest.raises(ValueError, match="type"):
-        nb.log_metric("m", {"a": 1}, type="bar")
+        nb.log_bar("m", {"a": 1})
 
 
-def test_log_metric_histogram_accepts_raw_samples():
+def test_log_histogram_accepts_raw_samples():
     import nebo as nb
     import numpy as np
     nb.get_state().reset()
     samples = np.random.default_rng(0).normal(size=100).tolist()
-    nb.log_metric("latencies", samples, type="histogram")
+    nb.log_histogram("latencies", samples)
     series = nb.get_state().loggables["__global__"].metrics["latencies"]
     assert series["type"] == "histogram"
     assert isinstance(series["entries"][-1]["value"], list)
     assert len(series["entries"][-1]["value"]) == 100
 
 
-def test_log_metric_scatter_accepts_list_of_pairs():
+def test_log_scatter_accepts_labeled_points():
+    """{label: list[(x, y)]} → {label: {"x": [...], "y": [...]}}."""
     import nebo as nb
     nb.get_state().reset()
-    points = [(1, 2), (3, 4), (5, 6)]
-    nb.log_metric("embed", points, type="scatter")
+    nb.log_scatter(
+        "embed",
+        {
+            "cluster_a": [(1, 2), (3, 4)],
+            "cluster_b": [(5, 6), (7, 8), (9, 10)],
+        },
+    )
     series = nb.get_state().loggables["__global__"].metrics["embed"]
     assert series["type"] == "scatter"
-    entry_value = series["entries"][-1]["value"]
-    assert entry_value == {"x": [1, 3, 5], "y": [2, 4, 6]}
+    value = series["entries"][-1]["value"]
+    assert value == {
+        "cluster_a": {"x": [1, 3], "y": [2, 4]},
+        "cluster_b": {"x": [5, 7, 9], "y": [6, 8, 10]},
+    }
+
+
+def test_log_scatter_rejects_legacy_xy_dict():
+    """Legacy {"x": [...], "y": [...]} format is no longer accepted —
+    it would be interpreted as labels named "x" and "y" mapped to flat
+    number lists, which fails the per-label list[(x,y)] check."""
+    import nebo as nb
+    import pytest
+    nb.get_state().reset()
+    with pytest.raises(TypeError):
+        nb.log_scatter("embed", {"x": [1, 2, 3], "y": [4, 5, 6]})
+
+
+def test_log_scatter_rejects_flat_pair_list():
+    import nebo as nb
+    import pytest
+    nb.get_state().reset()
+    with pytest.raises(TypeError):
+        nb.log_scatter("embed", [(1, 2), (3, 4)])
