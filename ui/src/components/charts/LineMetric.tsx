@@ -1,12 +1,12 @@
 import { memo, useMemo } from 'react'
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+import type { ChartConfiguration } from 'chart.js'
 import type { MetricEntry } from '@/lib/api'
-import { chartAxisTick, chartGridStroke, chartHiddenWrapper } from './chartStyles'
-import { PortalTooltip } from './PortalTooltip'
+import { useChartJs } from './useChartJs'
+import { useChartTokens } from './useChartTokens'
 
 const MAX_DISPLAY_POINTS = 500
 
-type LinePoint = { step: number; value: number }
+type LinePoint = { x: number; y: number }
 
 function toLinePoints(entries: MetricEntry[]): LinePoint[] {
   const points: LinePoint[] = []
@@ -15,7 +15,7 @@ function toLinePoints(entries: MetricEntry[]): LinePoint[] {
     const step = e.step ?? i
     const value = typeof e.value === 'number' ? e.value : Number(e.value)
     if (Number.isFinite(value)) {
-      points.push({ step, value })
+      points.push({ x: step, y: value })
     }
   }
   return points
@@ -42,41 +42,71 @@ export const LineMetric = memo(function LineMetric({
   entries: MetricEntry[]
   color: string
   // When true, the chart claims its parent's height instead of locking
-  // to the default 120 px. Used by the grid-view card body so the chart
+  // to the default 120px. Used by the grid-view card body so the chart
   // fills the card's remaining space.
   fill?: boolean
 }) {
+  const tokens = useChartTokens()
   const data = useMemo(() => downsample(toLinePoints(entries)), [entries])
+
+  const config: ChartConfiguration<'line'> = useMemo(
+    () => ({
+      type: 'line',
+      data: {
+        datasets: [
+          {
+            data,
+            borderColor: color,
+            borderWidth: 1.5,
+            pointRadius: 0,
+            tension: 0.3, // approximates recharts' type="monotone" smoothing
+          },
+        ],
+      },
+      options: {
+        animation: false,
+        responsive: false,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            type: 'linear',
+            ticks: { color: tokens.axisTickColor, font: { size: 10 } },
+            grid: { color: tokens.gridStroke, drawTicks: false },
+            border: { display: false },
+          },
+          y: {
+            ticks: { color: tokens.axisTickColor, font: { size: 10 } },
+            grid: { color: tokens.gridStroke, drawTicks: false },
+            border: { display: false },
+          },
+        },
+        plugins: { legend: { display: false } },
+      },
+    }),
+    [data, color, tokens.axisTickColor, tokens.gridStroke],
+  )
+
+  const { canvasRef, containerRef } = useChartJs<'line'>({
+    config,
+    formatTooltip: (tooltip) => ({
+      title: tooltip.dataPoints?.[0]
+        ? `Step ${(tooltip.dataPoints[0].parsed as { x: number }).x}`
+        : undefined,
+      items: (tooltip.dataPoints ?? []).map((dp) => ({
+        label: 'value',
+        value: (dp.parsed as { y: number }).y.toLocaleString(undefined, {
+          maximumFractionDigits: 4,
+        }),
+        color,
+      })),
+    }),
+  })
+
   if (data.length === 0) return null
+
   return (
-    <div className={fill ? 'h-full' : 'h-[120px]'}>
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
-          <XAxis dataKey="step" tick={chartAxisTick} tickLine={false} axisLine={false} />
-          <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
-          <Tooltip
-            wrapperStyle={chartHiddenWrapper}
-            content={
-              <PortalTooltip
-                labelFormatter={(step) => `Step ${step}`}
-                formatter={(value) => [
-                  typeof value === 'number' ? value.toFixed(4) : String(value ?? ''),
-                  'value',
-                ]}
-              />
-            }
-          />
-          <Line
-            type="monotone"
-            dataKey="value"
-            stroke={color}
-            strokeWidth={1.5}
-            dot={false}
-            isAnimationActive={false}
-          />
-        </LineChart>
-      </ResponsiveContainer>
+    <div ref={containerRef} className={fill ? 'h-full' : 'h-[120px]'}>
+      <canvas ref={canvasRef} />
     </div>
   )
 })

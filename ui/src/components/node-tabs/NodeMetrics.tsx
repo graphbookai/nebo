@@ -17,6 +17,8 @@ import { useStore } from '@/store'
 import type { MetricEntry, LoggableMetricSeries } from '@/lib/api'
 import { DEFAULT_RUN_COLOR, RUN_COLOR_PALETTE } from '@/lib/colors'
 import { LineMetric } from '@/components/charts/LineMetric'
+import { ComparisonLine } from '@/components/charts/comparison/ComparisonLine'
+import type { SeriesFor } from '@/components/node-tabs/seriesFor'
 import { BarMetric } from '@/components/charts/BarMetric'
 import { PieMetric } from '@/components/charts/PieMetric'
 import { ScatterMetric } from '@/components/charts/ScatterMetric'
@@ -24,8 +26,6 @@ import { HistogramMetric } from '@/components/charts/HistogramMetric'
 import {
   BarChart,
   Bar,
-  LineChart,
-  Line,
   AreaChart,
   Area,
   ScatterChart,
@@ -591,64 +591,6 @@ function ComparisonChart({
           </div>
         )
       })}
-    </div>
-  )
-}
-
-type SeriesFor = (rid: string) => LoggableMetricSeries | undefined
-
-function ComparisonLine({ runIds, runColors, runNameFor, seriesFor }: {
-  runIds: string[]
-  runColors: Map<string, string>
-  runNameFor: (rid: string) => string
-  seriesFor: SeriesFor
-}) {
-  const stepMap = new Map<number, Record<string, number>>()
-  for (const rid of runIds) {
-    const s = seriesFor(rid)
-    if (!s || s.type !== 'line') continue
-    for (const e of s.entries) {
-      const step = e.step ?? 0
-      const v = typeof e.value === 'number' ? e.value : Number(e.value)
-      if (!Number.isFinite(v)) continue
-      if (!stepMap.has(step)) stepMap.set(step, { step })
-      stepMap.get(step)![rid] = v
-    }
-  }
-  const data = [...stepMap.values()].sort((a, b) => a.step - b.step)
-  return (
-    <div className="h-[140px]">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
-          <XAxis dataKey="step" tick={chartAxisTick} tickLine={false} axisLine={false} />
-          <YAxis tick={chartAxisTick} tickLine={false} axisLine={false} width={40} />
-          <Tooltip
-            wrapperStyle={chartHiddenWrapper}
-            content={
-              <PortalTooltip
-                labelFormatter={step => `Step ${step}`}
-                formatter={(value, dataKey) => [
-                  value != null ? Number(value).toFixed(4) : '',
-                  runNameFor(String(dataKey ?? '')),
-                ]}
-              />
-            }
-          />
-          {runIds.map(rid => (
-            <Line
-              key={rid}
-              type="monotone"
-              dataKey={rid}
-              stroke={runColors.get(rid) ?? DEFAULT_RUN_COLOR}
-              strokeWidth={1.5}
-              dot={false}
-              isAnimationActive={false}
-              connectNulls
-            />
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
     </div>
   )
 }
