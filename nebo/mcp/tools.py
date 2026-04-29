@@ -1,7 +1,15 @@
 """MCP tool implementations for nebo.
 
-Observation tools query pipeline state. Action tools control pipeline lifecycle.
-All tools communicate with the daemon server via HTTP using only stdlib (no httpx needed).
+Observation tools query pipeline state. Action tools control pipeline
+lifecycle. All tools talk to the daemon over HTTP using only stdlib
+(no httpx needed).
+
+These functions run inside the ``nebo mcp-stdio`` bridge process,
+which is launched by the LLM client. That process never executes any
+``@nb.fn``-decorated code, so its in-process ``SessionState``
+singleton is empty — the daemon's HTTP API is the only real source of
+data. If the daemon is unreachable, observation tools surface that
+explicitly rather than silently returning empty SDK state.
 """
 
 from __future__ import annotations
@@ -24,6 +32,16 @@ def _get(url: str, timeout: float = 5.0) -> Any:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _daemon_unreachable(server_url: str, exc: Exception) -> dict[str, Any]:
+    """Uniform error envelope for observation tools when the daemon
+    can't be reached. The SDK lives in a different process than the
+    MCP bridge, so there is no in-process fallback to read."""
+    return {
+        "error": f"daemon unreachable at {server_url}: {exc}",
+        "hint": "Start the daemon with `nebo serve` (default port 7861).",
+    }
+
+
 def _post(url: str, body: Any, timeout: float = 10.0) -> Any:
     """HTTP POST with JSON body, returning parsed JSON. Raises on failure."""
     data = json.dumps(body).encode("utf-8")
@@ -44,11 +62,9 @@ async def get_graph(run_id: Optional[str] = None, server_url: str = _DEFAULT_URL
     try:
         if run_id:
             return _get(f"{server_url}/runs/{run_id}/graph")
-        else:
-            return _get(f"{server_url}/graph")
-    except Exception:
-        from nebo.core.state import get_state
-        return get_state().get_graph_dict()
+        return _get(f"{server_url}/graph")
+    except Exception as e:
+        return _daemon_unreachable(server_url, e)
 
 
 async def get_loggable_status(loggable_id: str, run_id: Optional[str] = None, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
@@ -56,26 +72,9 @@ async def get_loggable_status(loggable_id: str, run_id: Optional[str] = None, se
     try:
         if run_id:
             return _get(f"{server_url}/runs/{run_id}/loggables/{loggable_id}")
-        else:
-            return _get(f"{server_url}/loggables/{loggable_id}")
-    except Exception:
-        from nebo.core.state import get_state
-        state = get_state()
-        loggable = state.loggables.get(loggable_id)
-        if loggable is None:
-            return {"error": f"Loggable '{loggable_id}' not found"}
-        result: dict[str, Any] = {
-            "loggable_id": loggable.loggable_id,
-            "kind": loggable.kind,
-            "recent_logs": loggable.logs[-20:],
-            "errors": loggable.errors,
-            "progress": loggable.progress,
-        }
-        # Node-specific fields (present only on NodeInfo)
-        for attr in ("name", "func_name", "docstring", "exec_count", "is_source", "params"):
-            if hasattr(loggable, attr):
-                result[attr] = getattr(loggable, attr)
-        return result
+        return _get(f"{server_url}/loggables/{loggable_id}")
+    except Exception as e:
+        return _daemon_unreachable(server_url, e)
 
 
 async def get_logs(
@@ -95,16 +94,8 @@ async def get_logs(
         else:
             url = f"{server_url}/logs?{qs}"
         return _get(url)
-    except Exception:
-        from nebo.core.state import get_state
-        state = get_state()
-        all_logs = []
-        for lid, lg in state.loggables.items():
-            if loggable_id and lid != loggable_id:
-                continue
-            all_logs.extend(lg.logs)
-        all_logs.sort(key=lambda x: x.get("timestamp", 0))
-        return {"logs": all_logs[-limit:]}
+    except Exception as e:
+        return _daemon_unreachable(server_url, e)
 
 
 async def get_metrics(
@@ -113,25 +104,13 @@ async def get_metrics(
     server_url: str = _DEFAULT_URL,
 ) -> dict[str, Any]:
     """Get metric time series data for a loggable."""
-    # Try daemon first (loggable status includes metrics)
     try:
         result = _get(f"{server_url}/loggables/{loggable_id}")
-        if "error" not in result:
-            metrics = result.get("metrics", {})
-            if name:
-                if name in metrics:
-                    return {"loggable_id": loggable_id, "metrics": {name: metrics[name]}}
-                return {"error": f"Metric '{name}' not found for loggable '{loggable_id}'"}
-            return {"loggable_id": loggable_id, "metrics": metrics}
-    except Exception:
-        pass
-    # Fallback to local state
-    from nebo.core.state import get_state
-    state = get_state()
-    loggable = state.loggables.get(loggable_id)
-    if loggable is None:
-        return {"error": f"Loggable '{loggable_id}' not found"}
-    metrics = loggable.metrics
+    except Exception as e:
+        return _daemon_unreachable(server_url, e)
+    if "error" in result:
+        return result
+    metrics = result.get("metrics", {})
     if name:
         if name in metrics:
             return {"loggable_id": loggable_id, "metrics": {name: metrics[name]}}
@@ -143,41 +122,23 @@ async def get_errors(run_id: Optional[str] = None, server_url: str = _DEFAULT_UR
     """Get all exceptions/errors, with full tracebacks and node context."""
     try:
         if run_id:
-            url = f"{server_url}/runs/{run_id}/errors"
-        else:
-            url = f"{server_url}/errors"
-        return _get(url)
-    except Exception:
-        from nebo.core.state import get_state
-        state = get_state()
-        all_errors = []
-        for lg in state.loggables.values():
-            all_errors.extend(lg.errors)
-        return {"errors": all_errors}
+            return _get(f"{server_url}/runs/{run_id}/errors")
+        return _get(f"{server_url}/errors")
+    except Exception as e:
+        return _daemon_unreachable(server_url, e)
 
 
 async def get_description(server_url: str = _DEFAULT_URL) -> dict[str, Any]:
     """Get workflow description and all node docstrings."""
-    # Try daemon first (graph includes workflow_description and node docstrings)
     try:
         graph = _get(f"{server_url}/graph")
-        return {
-            "workflow_description": graph.get("workflow_description"),
-            "node_descriptions": {
-                nid: n.get("docstring") for nid, n in graph.get("nodes", {}).items()
-                if n.get("docstring")
-            },
-        }
-    except Exception:
-        pass
-    from nebo.core.state import get_state
-    state = get_state()
+    except Exception as e:
+        return _daemon_unreachable(server_url, e)
     return {
-        "workflow_description": state.workflow_description,
+        "workflow_description": graph.get("workflow_description"),
         "node_descriptions": {
-            lid: getattr(lg, "docstring", None)
-            for lid, lg in state.loggables.items()
-            if getattr(lg, "docstring", None)
+            nid: n.get("docstring") for nid, n in graph.get("nodes", {}).items()
+            if n.get("docstring")
         },
     }
 

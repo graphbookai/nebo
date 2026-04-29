@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any, Optional, Union
 
-from nebo.core.state import _current_node, get_state
+from nebo.core.state import MetricCursor, _current_node, get_state
 
 
 GLOBAL_LOGGABLE_ID = "__global__"
@@ -212,27 +212,24 @@ def _emit_metric(
     timestamp = time.time()
     state.ensure_loggable(node_id)
 
-    loggable = state.loggables[node_id]
-    existing = loggable.metrics.get(name)
-    if existing is not None and existing.get("type") != mtype:
+    cursors = state._metric_cursors.setdefault(node_id, {})
+    cur = cursors.get(name)
+    if cur is None:
+        cur = MetricCursor(type=mtype)
+        cursors[name] = cur
+    elif cur.type != mtype:
         raise ValueError(
-            f"metric {name!r} was emitted with type={existing['type']!r} "
+            f"metric {name!r} was emitted with type={cur.type!r} "
             f"first; cannot change to type={mtype!r}"
         )
 
-    if step is None and mtype == "line":
-        step = len(existing["entries"]) if existing else 0
-
-    if existing is None:
-        loggable.metrics[name] = {"type": mtype, "entries": []}
-    series = loggable.metrics[name]
-    entry = {
-        "step": step,
-        "value": normalized,
-        "tags": list(tags) if tags else [],
-        "timestamp": timestamp,
-    }
-    series["entries"].append(entry)
+    if mtype == "line":
+        if step is None:
+            step = cur.next_step
+        # The next auto-step always advances past the highest step seen,
+        # so an explicit step=N followed by an auto-step jumps to N+1
+        # rather than reverting to the cursor's previous count.
+        cur.next_step = max(cur.next_step, step + 1)
 
     state._send_to_client({
         "type": "metric",
@@ -241,7 +238,7 @@ def _emit_metric(
         "metric_type": mtype,
         "value": normalized,
         "step": step,
-        "tags": entry["tags"],
+        "tags": list(tags) if tags else [],
         "timestamp": timestamp,
     })
 
@@ -362,10 +359,6 @@ def log_image(
     if labels:
         entry["labels"] = labels
 
-    state.loggables[node_id].images.append(
-        {"name": name, "step": step, "timestamp": timestamp,
-         "labels": labels or None}
-    )
     state._send_to_client(entry)
 
 
@@ -399,8 +392,6 @@ def log_audio(audio: Any, sr: int = 16000, *, name: Optional[str] = None, step: 
         "step": step,
         "timestamp": timestamp,
     }
-
-    state.loggables[node_id].audio.append({"name": name, "step": step, "sr": sr, "timestamp": timestamp})
 
     state._send_to_client(entry)
 

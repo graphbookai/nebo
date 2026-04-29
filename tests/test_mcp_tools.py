@@ -36,25 +36,17 @@ class TestMCPObservationTools:
         SessionState.reset_singleton()
 
     @pytest.mark.asyncio
-    async def test_get_description(self) -> None:
-        """Should return workflow description and node docstrings."""
+    async def test_get_description_daemon_unreachable(self) -> None:
+        """When the daemon is down, observation tools surface that
+        explicitly. The MCP bridge runs in its own process and cannot
+        reach the user's pipeline SDK state, so there's no fallback to
+        substitute."""
         from nebo.mcp.tools import get_description
-        from nebo.core.state import get_state
-        from nebo.core.decorators import fn
-
-        @fn()
-        def my_func():
-            """A documented function."""
-            pass
-
-        my_func()  # Node registers on first execution
-
-        state = get_state()
-        state.workflow_description = "Test workflow"
 
         result = await get_description(server_url="http://localhost:19999")
-        assert result["workflow_description"] == "Test workflow"
-        assert any("A documented function" in (v or "") for v in result["node_descriptions"].values())
+        assert "error" in result
+        assert "daemon unreachable" in result["error"]
+        assert "hint" in result
 
     @pytest.mark.asyncio
     async def test_get_metrics_not_found(self) -> None:

@@ -34,39 +34,50 @@ class TestWandbInit:
 
 
 class TestWandbLog:
+    """The wandb shim dispatches to nb.log_line under the hood, so its
+    asserts read off the SDK's wire output via a CapturingClient
+    rather than the now-removed local metrics mirror."""
+
     def setup_method(self) -> None:
         _reset_state()
-        wandb.init(name="t")
 
-    def _global_metrics(self) -> dict:
-        loggable = get_state().loggables["__global__"]
-        return loggable.metrics
+    def _attach_client(self):
+        from tests.conftest import CapturingClient
+        wandb.init(name="t")
+        client = CapturingClient()
+        get_state()._client = client
+        return client
 
     def test_log_numeric_scalars_become_metrics(self) -> None:
+        client = self._attach_client()
         wandb.log({"loss": 0.5, "epoch": 1})
-        m = self._global_metrics()
-        assert "loss" in m and "epoch" in m
-        assert m["loss"]["entries"][-1]["value"] == 0.5
-        assert m["epoch"]["entries"][-1]["value"] == 1
+        loss_events = client.metrics_named("loss")
+        epoch_events = client.metrics_named("epoch")
+        assert loss_events and loss_events[-1]["value"] == 0.5
+        assert epoch_events and epoch_events[-1]["value"] == 1
 
     def test_log_bool_becomes_int_metric(self) -> None:
+        client = self._attach_client()
         wandb.log({"converged": True})
-        m = self._global_metrics()
-        assert m["converged"]["entries"][-1]["value"] == 1
+        events = client.metrics_named("converged")
+        assert events[-1]["value"] == 1
 
     def test_log_step_threads_through(self) -> None:
+        client = self._attach_client()
         wandb.log({"loss": 0.4}, step=7)
-        entries = self._global_metrics()["loss"]["entries"]
-        assert entries[-1]["step"] == 7
+        events = client.metrics_named("loss")
+        assert events[-1]["step"] == 7
 
     def test_log_string_value_falls_back_to_log(self) -> None:
-        # A non-numeric, non-image value should not crash; it should be logged
-        # as a text line on the global loggable.
+        self._attach_client()
         wandb.log({"note": "hello world"})
+        # Non-numeric, non-image values fall through to nb.log(), which
+        # appends to the bounded `recent_logs` deque on the global loggable.
         global_loggable = get_state().loggables["__global__"]
-        # "hello world" lands in either metrics (parsed as float — won't be
-        # parseable) or logs. Confirm logs got it.
-        assert any("note: hello world" in entry.get("message", "") for entry in global_loggable.logs)
+        assert any(
+            "note: hello world" in entry.get("message", "")
+            for entry in list(global_loggable.logs)
+        )
 
 
 class TestWandbConfig:

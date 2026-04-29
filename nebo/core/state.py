@@ -3,21 +3,45 @@
 from __future__ import annotations
 
 import threading
+from collections import deque
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional
+from typing import Any, Deque, Literal, Optional
+
+
+# Number of recent log entries the SDK keeps per loggable for the
+# terminal "Recent logs" panel. The daemon's `.nebo` file is the
+# source of truth for the full log history; the SDK only mirrors a
+# small tail to render locally.
+RECENT_LOGS_MAXLEN = 200
+
+
+@dataclass
+class MetricCursor:
+    """Tiny per-(loggable, metric-name) state kept on the SDK.
+
+    The SDK no longer mirrors the full metric series in memory — that
+    job belongs to the daemon. The cursor keeps just enough to
+    enforce the per-(loggable, name) chart-type lock and to assign
+    auto-step values for line metrics.
+    """
+    type: str
+    next_step: int = 0
 
 
 @dataclass
 class LoggableInfo:
-    """Base class for any entity that collects logs/metrics/images/audio/errors."""
+    """Base class for any entity that the terminal renders.
+
+    The SDK keeps the bare minimum the local terminal display needs
+    (recent logs, errors, progress). Metric values, image metadata,
+    and audio metadata are no longer mirrored — those flow straight
+    to the daemon, which persists them in the `.nebo` file.
+    """
     loggable_id: str = ""
     kind: Literal["node", "global"] = "node"
-    logs: list = field(default_factory=list)
-    metrics: dict = field(default_factory=lambda: {})
+    logs: Deque[dict] = field(default_factory=lambda: deque(maxlen=RECENT_LOGS_MAXLEN))
     errors: list = field(default_factory=list)
-    images: list = field(default_factory=list)
-    audio: list = field(default_factory=list)
     progress: Optional[dict] = None
 
 
@@ -63,6 +87,7 @@ class _RunSnapshot:
     ui_config: Optional[dict]
     has_pausable: bool
     linear_last: Optional[str]
+    metric_cursors: dict
 
 
 class SessionState:
@@ -90,6 +115,9 @@ class SessionState:
         )
         self.edges: list[DAGEdge] = []
         self._edge_set: set[tuple[str, str]] = set()
+        # Per-loggable, per-metric-name cursor for type-lock + auto-step.
+        # Replaces the old loggable.metrics["entries"] mirror.
+        self._metric_cursors: dict[str, dict[str, MetricCursor]] = {}
         self.workflow_description: Optional[str] = None
         self.port: int = 7861
         self.server_process: Any = None
@@ -345,6 +373,10 @@ class SessionState:
                 ui_config=self.ui_config,
                 has_pausable=self._has_pausable,
                 linear_last=self._linear_last,
+                metric_cursors={
+                    lid: dict(cursors)
+                    for lid, cursors in self._metric_cursors.items()
+                },
             )
 
     def restore_run_state(self, run_id: str) -> None:
@@ -363,6 +395,10 @@ class SessionState:
             self.ui_config = snap.ui_config
             self._has_pausable = snap.has_pausable
             self._linear_last = snap.linear_last
+            self._metric_cursors = {
+                lid: dict(cursors)
+                for lid, cursors in snap.metric_cursors.items()
+            }
 
     def clear_run_state(self) -> None:
         """Reset per-run fields to empty (for new runs)."""
@@ -375,6 +411,7 @@ class SessionState:
             self._edge_set.clear()
             self._return_origins.clear()
             self._node_parents.clear()
+            self._metric_cursors.clear()
             self.workflow_description = None
             self.ui_config = None
             self._has_pausable = False
@@ -391,6 +428,7 @@ class SessionState:
             self._edge_set.clear()
             self._return_origins.clear()
             self._node_parents.clear()
+            self._metric_cursors.clear()
             self._linear_last = None
             self.dag_strategy = "object"
             self.workflow_description = None

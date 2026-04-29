@@ -1,4 +1,6 @@
 """Tests for the Loggable abstraction in state.py."""
+from collections import deque
+
 from nebo.core.state import (
     LoggableInfo,
     NodeInfo,
@@ -10,12 +12,18 @@ from nebo.core.state import (
 
 def test_loggable_info_has_shared_fields():
     loggable = LoggableInfo(loggable_id="x", kind="node")
-    assert loggable.logs == []
-    assert loggable.metrics == {}
+    # `logs` is a bounded ring buffer used by the terminal "Recent
+    # logs" panel; it is the only payload-bearing field the SDK keeps
+    # on disk-volume buckets after the v3 redesign.
+    assert isinstance(loggable.logs, deque)
+    assert len(loggable.logs) == 0
     assert loggable.errors == []
-    assert loggable.images == []
-    assert loggable.audio == []
     assert loggable.progress is None
+    # Metric values, image metadata, and audio metadata are no longer
+    # mirrored on the SDK — they go straight to the daemon.
+    assert not hasattr(loggable, "metrics")
+    assert not hasattr(loggable, "images")
+    assert not hasattr(loggable, "audio")
 
 
 def test_node_info_inherits_loggable_info():
@@ -24,7 +32,8 @@ def test_node_info_inherits_loggable_info():
     assert node.kind == "node"
     assert node.exec_count == 0
     assert node.is_source is True
-    assert node.logs == []  # inherited
+    assert isinstance(node.logs, deque)  # inherited
+    assert len(node.logs) == 0
 
 
 def test_global_info_has_fixed_kind():
