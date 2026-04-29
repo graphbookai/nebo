@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 import { Search, Maximize2, Minimize2 } from 'lucide-react'
 import { LoggableTabContainer } from '@/components/node-tabs/LoggableTabContainer'
 import { MetricBlock } from '@/components/node-tabs/NodeMetrics'
-import { ImageItem } from '@/components/node-tabs/NodeImages'
+import { VirtualizedImageList } from '@/components/node-tabs/NodeImages'
 import { AudioItem } from '@/components/node-tabs/NodeAudio'
 import { NodeLogs } from '@/components/node-tabs/NodeLogs'
 import { useLoggableHasContent } from '@/hooks/useLoggableHasContent'
@@ -189,11 +189,13 @@ function GlobalImageCard({
 }) {
   return (
     <CardShell title={name} isMaximized={isMaximized} onToggleMaximize={onToggleMaximize}>
-      <div className="space-y-3">
-        {entries.map(img => (
-          <ImageItem key={img.mediaId} runId={runId} loggableId="__global__" img={img} showTimestamp />
-        ))}
-      </div>
+      <VirtualizedImageList
+        runId={runId}
+        loggableId="__global__"
+        images={entries}
+        showTimestamp
+        maxHeight={isMaximized ? 600 : 400}
+      />
     </CardShell>
   )
 }

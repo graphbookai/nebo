@@ -1,5 +1,6 @@
 // Renders a single loggable's tab; works for node- and global-kind loggables.
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { useStore, type ImageEntry } from '@/store'
 import { useTimelineFilter } from '@/hooks/useTimelineFilter'
 import { useMedia } from '@/hooks/useMedia'
@@ -57,6 +58,64 @@ export function ImageItem({ runId, loggableId, img, showTimestamp }: { runId: st
   )
 }
 
+// Only the items inside the viewport (plus overscan) are mounted, so a tab with
+// thousands of images stays cheap to switch into and to scroll through. Without
+// virtualization, mounting every ImageItem creates one useMedia subscription per
+// image (which re-fires on every mediaCache update) plus a real <img>+SVG tree.
+export function VirtualizedImageList({
+  runId,
+  loggableId,
+  images,
+  showTimestamp,
+  maxHeight,
+  itemGap = 12,
+  estimateSize = 240,
+}: {
+  runId: string
+  loggableId: string
+  images: ImageEntry[]
+  showTimestamp?: boolean
+  maxHeight: number
+  itemGap?: number
+  estimateSize?: number
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const virtualizer = useVirtualizer({
+    count: images.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => estimateSize + itemGap,
+    overscan: 3,
+    getItemKey: (index) => images[index].mediaId,
+  })
+
+  return (
+    <div ref={scrollRef} className="overflow-auto" style={{ maxHeight }}>
+      <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
+        {virtualizer.getVirtualItems().map(vi => {
+          const img = images[vi.index]
+          return (
+            <div
+              key={vi.key}
+              data-index={vi.index}
+              ref={virtualizer.measureElement}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${vi.start}px)`,
+                paddingBottom: itemGap,
+              }}
+            >
+              <ImageItem runId={runId} loggableId={loggableId} img={img} showTimestamp={showTimestamp} />
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function ComparisonImageCell({ runId, loggableId }: { runId: string; loggableId: string }) {
   const allImages = useStore(s => s.runs.get(runId)?.loggableImages[loggableId]) ?? []
   const timelineFilter = useTimelineFilter()
@@ -71,11 +130,12 @@ function ComparisonImageCell({ runId, loggableId }: { runId: string; loggableId:
   }
 
   return (
-    <div className="space-y-2 p-1">
-      {images.map((img) => (
-        <ImageItem key={img.mediaId} runId={runId} loggableId={loggableId} img={img} />
-      ))}
-    </div>
+    <VirtualizedImageList
+      runId={runId}
+      loggableId={loggableId}
+      images={images}
+      maxHeight={280}
+    />
   )
 }
 
@@ -93,10 +153,12 @@ function SingleRunImages({ runId, loggableId }: { runId: string; loggableId: str
   }
 
   return (
-    <div className="space-y-3">
-      {images.map((img) => (
-        <ImageItem key={img.mediaId} runId={runId} loggableId={loggableId} img={img} showTimestamp />
-      ))}
-    </div>
+    <VirtualizedImageList
+      runId={runId}
+      loggableId={loggableId}
+      images={images}
+      showTimestamp
+      maxHeight={380}
+    />
   )
 }
