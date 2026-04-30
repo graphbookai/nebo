@@ -43,6 +43,9 @@ export function registerChartJs(): void {
   Chart.defaults.animation = false as const
   Chart.defaults.animations.colors = false
   Chart.defaults.animations.numbers = false
-  Chart.defaults.responsive = false
-  Chart.defaults.maintainAspectRatio = false
+  // Leave `responsive` and `maintainAspectRatio` at their Chart.js defaults
+  // (true and true). We override `maintainAspectRatio` to false on each chart
+  // so it fills the parent's fixed height; `responsive: true` lets Chart.js
+  // own canvas sizing (inline width/height match parent) so charts don't
+  // try to expand to their bitmap intrinsic dims and push their containers.
 }

@@ -56,7 +56,7 @@ export const ComparisonBar = memo(function ComparisonBar({
       data,
       options: {
         animation: false,
-        responsive: false,
+        responsive: true,
         maintainAspectRatio: false,
         // Stacked across runs to preserve the recharts-era behavior where
         // every category bar showed total magnitude with each run as a layer.
@@ -104,7 +104,7 @@ export const ComparisonBar = memo(function ComparisonBar({
 
   return (
     <div ref={containerRef} className="h-[140px]">
-      <canvas ref={canvasRef} />
+      <canvas ref={canvasRef} className="cursor-crosshair" />
     </div>
   )
 })

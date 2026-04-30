@@ -65,7 +65,7 @@ export const LineMetric = memo(function LineMetric({
       },
       options: {
         animation: false,
-        responsive: false,
+        responsive: true,
         maintainAspectRatio: false,
         scales: {
           x: {
@@ -112,7 +112,7 @@ export const LineMetric = memo(function LineMetric({
 
   return (
     <div ref={containerRef} className={fill ? 'h-full' : 'h-[120px]'}>
-      <canvas ref={canvasRef} />
+      <canvas ref={canvasRef} className="cursor-crosshair" />
     </div>
   )
 })

@@ -80,7 +80,7 @@ export const ComparisonScatter = memo(function ComparisonScatter({
       data: { datasets },
       options: {
         animation: false,
-        responsive: false,
+        responsive: true,
         maintainAspectRatio: false,
         scales: {
           x: {
@@ -130,7 +130,7 @@ export const ComparisonScatter = memo(function ComparisonScatter({
 
   return (
     <div ref={containerRef} className="h-[200px]">
-      <canvas ref={canvasRef} />
+      <canvas ref={canvasRef} className="cursor-crosshair" />
     </div>
   )
 })

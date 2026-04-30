@@ -47,7 +47,7 @@ export const BarMetric = memo(function BarMetric({
       },
       options: {
         animation: false,
-        responsive: false,
+        responsive: true,
         maintainAspectRatio: false,
         scales: {
           x: {
@@ -87,7 +87,7 @@ export const BarMetric = memo(function BarMetric({
 
   return (
     <div ref={containerRef} className={fill ? 'h-full' : 'h-[140px]'}>
-      <canvas ref={canvasRef} />
+      <canvas ref={canvasRef} className="cursor-crosshair" />
     </div>
   )
 })

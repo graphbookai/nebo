@@ -50,7 +50,7 @@ export const ComparisonLine = memo(function ComparisonLine({
       data: { datasets },
       options: {
         animation: false,
-        responsive: false,
+        responsive: true,
         maintainAspectRatio: false,
         scales: {
           x: {
@@ -98,7 +98,7 @@ export const ComparisonLine = memo(function ComparisonLine({
 
   return (
     <div ref={containerRef} className="h-[140px]">
-      <canvas ref={canvasRef} />
+      <canvas ref={canvasRef} className="cursor-crosshair" />
     </div>
   )
 })

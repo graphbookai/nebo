@@ -50,7 +50,7 @@ export const PieMetric = memo(function PieMetric({
       },
       options: {
         animation: false,
-        responsive: false,
+        responsive: true,
         maintainAspectRatio: false,
         cutout: '0%', // pie, not doughnut
         plugins: { legend: { display: false } },
@@ -84,7 +84,7 @@ export const PieMetric = memo(function PieMetric({
   return (
     <div className={fill ? 'flex h-full flex-col' : 'flex flex-col'}>
       <div ref={containerRef} className={fill ? 'flex-1' : 'h-[180px]'}>
-        <canvas ref={canvasRef} />
+        <canvas ref={canvasRef} className="cursor-crosshair" />
       </div>
       <div
         className="mt-1 flex flex-wrap justify-center gap-x-3 gap-y-1 text-[10px]"

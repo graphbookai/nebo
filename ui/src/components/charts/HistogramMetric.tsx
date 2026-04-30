@@ -131,7 +131,7 @@ export const HistogramMetric = memo(function HistogramMetric({
       data: { datasets: view.datasets },
       options: {
         animation: false,
-        responsive: false,
+        responsive: true,
         maintainAspectRatio: false,
         scales: {
           x: {
@@ -181,7 +181,7 @@ export const HistogramMetric = memo(function HistogramMetric({
 
   return (
     <div ref={containerRef} className={fill ? 'h-full' : 'h-[200px]'}>
-      <canvas ref={canvasRef} />
+      <canvas ref={canvasRef} className="cursor-crosshair" />
     </div>
   )
 })

@@ -74,7 +74,7 @@ export const ScatterMetric = memo(function ScatterMetric({
       data: { datasets },
       options: {
         animation: false,
-        responsive: false,
+        responsive: true,
         maintainAspectRatio: false,
         scales: {
           x: {
@@ -118,7 +118,7 @@ export const ScatterMetric = memo(function ScatterMetric({
 
   return (
     <div ref={containerRef} className={fill ? 'h-full' : 'h-[200px]'}>
-      <canvas ref={canvasRef} />
+      <canvas ref={canvasRef} className="cursor-crosshair" />
     </div>
   )
 })

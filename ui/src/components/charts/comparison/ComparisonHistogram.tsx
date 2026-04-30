@@ -108,7 +108,7 @@ export const ComparisonHistogram = memo(function ComparisonHistogram({
       data: { datasets: view?.datasets ?? [] },
       options: {
         animation: false,
-        responsive: false,
+        responsive: true,
         maintainAspectRatio: false,
         scales: {
           x: {
@@ -160,7 +160,7 @@ export const ComparisonHistogram = memo(function ComparisonHistogram({
 
   return (
     <div ref={containerRef} className="h-[200px]">
-      <canvas ref={canvasRef} />
+      <canvas ref={canvasRef} className="cursor-crosshair" />
     </div>
   )
 })
