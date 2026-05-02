@@ -365,6 +365,33 @@ def ask(
             display.resume()
 
 
+def flush(timeout: float = 5.0) -> bool:
+    """Block until queued events are sent to the daemon.
+
+    Useful for fencing a logging-heavy section before something
+    irreversible (saving artifacts, sending an email, etc.) so the
+    UI shows everything that was logged before that point.
+
+    Args:
+        timeout: Max seconds to wait. Default 5.0.
+
+    Returns:
+        True if all queued events were flushed (or there was no
+        client to flush). False if the timeout elapsed with events
+        still unsent — those events remain in the client's internal
+        buffer and may be retried by the next periodic flush, but
+        will be lost if the process exits before they go out.
+
+    No-op (returns True) in local mode, before init, or after the
+    daemon has been disconnected.
+    """
+    state = get_state()
+    client = state._client
+    if client is None:
+        return True
+    return client.flush(timeout=timeout)
+
+
 def ui(
     layout: Optional[Literal["horizontal", "vertical"]] = None,
     view: Optional[Literal["dag", "grid"]] = None,
@@ -524,6 +551,7 @@ __all__ = [
     "fn",
     "track",
     "init",
+    "flush",
     "log",
     "log_cfg",
     "log_line",
