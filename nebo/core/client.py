@@ -387,15 +387,21 @@ class DaemonClient:
                         self._queue.put(event)
                 return
 
-    def flush(self) -> None:
-        """Force-flush the current event buffer immediately.
+    def flush(self, timeout: float = 5.0) -> bool:
+        """Force-flush queued events to the daemon, blocking until done
+        or `timeout` seconds elapse.
 
-        Blocks until all queued events have been sent. Useful for
-        time-sensitive events like ask prompts that shouldn't wait
-        for the next batch interval.
+        Useful for time-sensitive events (e.g. ask prompts) that
+        shouldn't wait for the next batch interval, and for fencing
+        a logging-heavy section before something irreversible.
+
+        Returns True if everything was sent; False if any events
+        remain un-flushed when the deadline expired (those events
+        stay in self._buffer).
         """
-        self._drain_queue_into_buffer()
-        self._do_flush()
+        deadline = time.monotonic() + max(0.0, timeout)
+        result = self._drain_with_retry(deadline)
+        return result.dropped == 0
 
     def get(self, path: str) -> Optional[dict[str, Any]]:
         """Send a GET request to the daemon and return the JSON response.

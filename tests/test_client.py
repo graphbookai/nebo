@@ -225,6 +225,38 @@ class TestShutdownTimeout:
         assert client._shutdown_timeout == 7.0
 
 
+class TestFlushTimeout:
+    def test_returns_true_on_success(self) -> None:
+        client = DaemonClient()
+        client._buffer = [{"e": 1}]
+        client._post_batch = lambda batch: (True, None)  # type: ignore[method-assign]
+
+        assert client.flush(timeout=1.0) is True
+        assert client._buffer == []
+
+    def test_returns_false_when_dropped(self) -> None:
+        client = DaemonClient()
+        client._buffer = [{"e": 1}]
+        client._post_batch = lambda batch: (False, RuntimeError("nope"))  # type: ignore[method-assign]
+
+        assert client.flush(timeout=0.2) is False
+        assert client._buffer == [{"e": 1}]
+
+    def test_default_timeout_is_finite(self) -> None:
+        """Calling flush() with no args should not hang forever — returns
+        within the default budget (~5 s + slack)."""
+        client = DaemonClient()
+        client._buffer = [{"e": 1}]
+        client._post_batch = lambda batch: (False, RuntimeError("nope"))  # type: ignore[method-assign]
+
+        start = time.monotonic()
+        result = client.flush()
+        elapsed = time.monotonic() - start
+
+        assert result is False
+        assert elapsed < 6.0
+
+
 class TestModeDetection:
     """Tests for mode detection in nb.init()."""
 
