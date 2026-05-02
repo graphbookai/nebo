@@ -272,14 +272,18 @@ class DaemonClient:
             self._buffer = batch + self._buffer
         return ok
 
-    def _flush_remaining(self) -> None:
-        """Synchronously flush all remaining events."""
+    def _drain_queue_into_buffer(self) -> None:
+        """Move every event currently in self._queue into self._buffer."""
         while not self._queue.empty():
             try:
                 event = self._queue.get_nowait()
                 self._buffer.append(event)
             except queue.Empty:
                 break
+
+    def _flush_remaining(self) -> None:
+        """Synchronously flush all remaining events."""
+        self._drain_queue_into_buffer()
         self._do_flush()
 
     def _handle_disconnect(self) -> None:
@@ -311,13 +315,7 @@ class DaemonClient:
         time-sensitive events like ask prompts that shouldn't wait
         for the next batch interval.
         """
-        # Drain the queue into the buffer
-        while not self._queue.empty():
-            try:
-                event = self._queue.get_nowait()
-                self._buffer.append(event)
-            except queue.Empty:
-                break
+        self._drain_queue_into_buffer()
         self._do_flush()
 
     def get(self, path: str) -> Optional[dict[str, Any]]:

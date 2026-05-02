@@ -73,6 +73,33 @@ class TestChunkBuffer:
         assert client._chunk_buffer([], max_bytes=1_000_000) == []
 
 
+class TestDrainQueueIntoBuffer:
+    def test_moves_all_queued_events_into_buffer(self) -> None:
+        client = DaemonClient()
+        client._queue.put({"e": 1})
+        client._queue.put({"e": 2})
+        client._queue.put({"e": 3})
+
+        client._drain_queue_into_buffer()
+
+        assert client._queue.empty()
+        assert client._buffer == [{"e": 1}, {"e": 2}, {"e": 3}]
+
+    def test_appends_to_existing_buffer(self) -> None:
+        client = DaemonClient()
+        client._buffer = [{"e": 0}]
+        client._queue.put({"e": 1})
+
+        client._drain_queue_into_buffer()
+
+        assert client._buffer == [{"e": 0}, {"e": 1}]
+
+    def test_no_op_on_empty_queue(self) -> None:
+        client = DaemonClient()
+        client._drain_queue_into_buffer()
+        assert client._buffer == []
+
+
 class TestModeDetection:
     """Tests for mode detection in nb.init()."""
 
