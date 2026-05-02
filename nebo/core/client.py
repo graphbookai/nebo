@@ -184,14 +184,17 @@ class DaemonClient:
                 if not success:
                     self._handle_disconnect()
 
-    def _do_flush(self) -> bool:
-        """Send buffered events to the daemon. Returns True on success."""
-        if not self._buffer:
-            return True
+    def _post_batch(
+        self, batch: list[dict[str, Any]]
+    ) -> tuple[bool, Optional[Exception]]:
+        """POST a batch of events to the daemon.
 
-        batch = self._buffer[:]
-        self._buffer.clear()
-
+        Returns (True, None) on HTTP 200; (False, exc) otherwise. The
+        exception form is returned (not raised) so callers keep linear
+        flow and can record the cause for diagnostics.
+        """
+        if not batch:
+            return True, None
         try:
             if self._api_token:
                 # Cloud mode: send token + events in the body. Google's
@@ -219,11 +222,25 @@ class DaemonClient:
             # daemons over loopback are fast — 5s is fine there.
             request_timeout = 30.0 if self._api_token else 5.0
             with urllib.request.urlopen(req, timeout=request_timeout) as resp:
-                return resp.status == 200
-        except Exception:
-            # Put events back for retry
+                if resp.status == 200:
+                    return True, None
+                return False, RuntimeError(f"HTTP {resp.status}")
+        except Exception as exc:
+            return False, exc
+
+    def _do_flush(self) -> bool:
+        """Send buffered events to the daemon. Returns True on success."""
+        if not self._buffer:
+            return True
+
+        batch = self._buffer[:]
+        self._buffer.clear()
+
+        ok, _ = self._post_batch(batch)
+        if not ok:
+            # Put events back for retry by the next periodic tick.
             self._buffer = batch + self._buffer
-            return False
+        return ok
 
     def _flush_remaining(self) -> None:
         """Synchronously flush all remaining events."""
