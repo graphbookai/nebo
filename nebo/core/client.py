@@ -13,6 +13,7 @@ import atexit
 import json
 import os
 import queue
+import sys
 import threading
 import time
 import urllib.request
@@ -361,9 +362,26 @@ class DaemonClient:
                 break
 
     def _flush_remaining(self) -> None:
-        """Synchronously flush all remaining events."""
-        self._drain_queue_into_buffer()
-        self._do_flush()
+        """Drain queue + buffer at shutdown with a bounded retry budget.
+
+        On any unsent residue, prints a WARNING to stderr (not via the
+        `nebo` logger or `warnings.warn` — atexit runs after most
+        logging handlers have shut down and warnings filters may have
+        been reconfigured by user code by this point; bare stderr is
+        the path most likely to actually reach the terminal).
+        """
+        deadline = time.monotonic() + self._shutdown_timeout
+        result = self._drain_with_retry(deadline)
+        if result.dropped > 0:
+            kb = result.dropped_bytes / 1024
+            msg = (
+                f"nebo: WARNING — dropped {result.dropped} event(s) "
+                f"(~{kb:.0f} KB) at shutdown after "
+                f"{self._shutdown_timeout}s. "
+                f"Last error: {result.last_error}. "
+                "Some logs may not appear in the UI."
+            )
+            print(msg, file=sys.stderr, flush=True)
 
     def _handle_disconnect(self) -> None:
         """Handle daemon disconnection: buffer events and try to reconnect."""

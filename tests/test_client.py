@@ -257,6 +257,48 @@ class TestFlushTimeout:
         assert elapsed < 6.0
 
 
+class TestFlushRemainingWarning:
+    def test_silent_on_full_drain(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        client = DaemonClient(shutdown_timeout=1.0)
+        client._buffer = [{"e": 1}]
+        client._post_batch = lambda batch: (True, None)  # type: ignore[method-assign]
+
+        client._flush_remaining()
+
+        captured = capsys.readouterr()
+        assert captured.err == ""
+        assert client._buffer == []
+
+    def test_warns_on_dropped_events(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        client = DaemonClient(shutdown_timeout=0.1)
+        client._buffer = [{"e": 1}, {"e": 2}]
+        client._post_batch = lambda batch: (False, RuntimeError("nope"))  # type: ignore[method-assign]
+
+        client._flush_remaining()
+
+        captured = capsys.readouterr()
+        assert "nebo: WARNING" in captured.err
+        assert "dropped 2 event" in captured.err
+        assert "KB" in captured.err
+        assert "nope" in captured.err
+
+    def test_warning_includes_timeout_value(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        client = DaemonClient(shutdown_timeout=0.05)
+        client._buffer = [{"e": 1}]
+        client._post_batch = lambda batch: (False, RuntimeError("x"))  # type: ignore[method-assign]
+
+        client._flush_remaining()
+
+        captured = capsys.readouterr()
+        assert "0.05" in captured.err
+
+
 class TestModeDetection:
     """Tests for mode detection in nb.init()."""
 
