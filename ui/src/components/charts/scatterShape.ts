@@ -1,13 +1,18 @@
 import type { MetricEntry } from '@/lib/api'
 
+// Chart.js native pointStyle values. The `wye` shape from the recharts
+// implementation is dropped — Chart.js has no native equivalent and the
+// alternative (rendering wye to an offscreen canvas as pointStyle) adds a
+// factory layer for one shape. Net effect: a label that previously got
+// `wye` now gets `rectRounded`. UI-only, no SDK contract change.
 export const SCATTER_SHAPES = [
   'circle',
-  'cross',
-  'diamond',
-  'square',
-  'star',
+  'rect',
+  'rectRot',
   'triangle',
-  'wye',
+  'star',
+  'crossRot',
+  'rectRounded',
 ] as const
 export type ScatterShape = (typeof SCATTER_SHAPES)[number]
 
@@ -48,7 +53,7 @@ export function entriesMatchingTags(
   entries: MetricEntry[],
   activeTags: Set<string>,
 ): MetricEntry[] {
-  return entries.filter(e => {
+  return entries.filter((e) => {
     if (e.tags.length === 0) return activeTags.has(UNTAGGED_KEY)
     for (const t of e.tags) if (activeTags.has(t)) return true
     return false

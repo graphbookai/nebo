@@ -10,6 +10,7 @@ import { RunList } from '@/components/runs/RunList'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useEmbeddedView } from '@/hooks/useEmbeddedView'
 import { EmbeddedView } from '@/components/embedded/EmbeddedView'
+import { ChartTooltip } from '@/components/charts/ChartTooltip'
 
 export default function App() {
   useWebSocket()
@@ -26,6 +27,7 @@ export default function App() {
         <ErrorBoundary label="EmbeddedView">
           <EmbeddedView spec={embedded} />
         </ErrorBoundary>
+        <ChartTooltip />
       </TooltipProvider>
     )
   }
@@ -82,6 +84,7 @@ export default function App() {
         </>
       )}
     </div>
+    <ChartTooltip />
     </TooltipProvider>
   )
 }
