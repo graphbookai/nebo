@@ -17,7 +17,22 @@ import threading
 import time
 import urllib.request
 import urllib.error
+from dataclasses import dataclass
 from typing import Any, Optional
+
+
+@dataclass
+class DrainResult:
+    """Outcome of a drain attempt.
+
+    `last_error` is None on full success (dropped == 0); on partial or
+    full failure it carries `repr(exc)` of the most recent
+    `_post_batch` failure.
+    """
+    sent: int
+    dropped: int
+    dropped_bytes: int
+    last_error: Optional[str]
 
 
 class DaemonClient:
@@ -213,6 +228,57 @@ class DaemonClient:
         if current:
             chunks.append(current)
         return chunks
+
+    def _drain_with_retry(self, deadline: float) -> DrainResult:
+        """Drain queue + buffer to the daemon, retrying until deadline.
+
+        On entry, anything in self._buffer or self._queue is fair game.
+        On exit, any unsent events remain in self._buffer for the
+        caller to inspect (or for another call to retry).
+        """
+        sent = 0
+        last_error: Optional[str] = None
+
+        while True:
+            self._drain_queue_into_buffer()
+            if not self._buffer:
+                return DrainResult(
+                    sent=sent, dropped=0, dropped_bytes=0, last_error=None
+                )
+
+            pending = self._buffer[:]
+            self._buffer.clear()
+            chunks = self._chunk_buffer(pending, self._MAX_CHUNK_BYTES)
+
+            failed_at: Optional[int] = None
+            for i, chunk in enumerate(chunks):
+                ok, exc = self._post_batch(chunk)
+                if ok:
+                    sent += len(chunk)
+                else:
+                    last_error = repr(exc)
+                    failed_at = i
+                    break
+
+            if failed_at is not None:
+                # Restore the failed chunk + everything after it.
+                for chunk in chunks[failed_at:]:
+                    self._buffer.extend(chunk)
+
+                now = time.monotonic()
+                if now >= deadline:
+                    dropped_bytes = sum(
+                        len(json.dumps(e)) for e in self._buffer
+                    )
+                    return DrainResult(
+                        sent=sent,
+                        dropped=len(self._buffer),
+                        dropped_bytes=dropped_bytes,
+                        last_error=last_error,
+                    )
+                time.sleep(min(0.2, deadline - now))
+            # If failed_at is None, all chunks succeeded; loop again to
+            # catch anything queued during the POSTs.
 
     def _post_batch(
         self, batch: list[dict[str, Any]]

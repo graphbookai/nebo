@@ -100,6 +100,107 @@ class TestDrainQueueIntoBuffer:
         assert client._buffer == []
 
 
+class TestDrainWithRetry:
+    def test_succeeds_on_first_try(self) -> None:
+        client = DaemonClient()
+        client._buffer = [{"e": 1}, {"e": 2}]
+        sent_batches: list[list[dict[str, Any]]] = []
+
+        def fake_post(batch):
+            sent_batches.append(batch)
+            return True, None
+
+        client._post_batch = fake_post  # type: ignore[method-assign]
+
+        deadline = time.monotonic() + 5.0
+        result = client._drain_with_retry(deadline)
+
+        assert result.sent == 2
+        assert result.dropped == 0
+        assert result.last_error is None
+        assert client._buffer == []
+        assert sent_batches == [[{"e": 1}, {"e": 2}]]
+
+    def test_succeeds_after_transient_failure(self) -> None:
+        client = DaemonClient()
+        client._buffer = [{"e": 1}, {"e": 2}]
+        calls = {"n": 0}
+
+        def fake_post(batch):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return False, RuntimeError("transient")
+            return True, None
+
+        client._post_batch = fake_post  # type: ignore[method-assign]
+
+        deadline = time.monotonic() + 5.0
+        result = client._drain_with_retry(deadline)
+
+        assert result.sent == 2
+        assert result.dropped == 0
+        assert result.last_error is None
+        assert client._buffer == []
+        assert calls["n"] == 2
+
+    def test_returns_dropped_after_deadline(self) -> None:
+        client = DaemonClient()
+        client._buffer = [{"e": 1}, {"e": 2}]
+
+        def fake_post(batch):
+            return False, RuntimeError("permanent")
+
+        client._post_batch = fake_post  # type: ignore[method-assign]
+
+        deadline = time.monotonic() + 0.3
+        result = client._drain_with_retry(deadline)
+
+        assert result.sent == 0
+        assert result.dropped == 2
+        assert result.dropped_bytes > 0
+        assert result.last_error is not None
+        assert "permanent" in result.last_error
+        assert client._buffer == [{"e": 1}, {"e": 2}]
+
+    def test_drains_newly_queued_events_in_same_call(self) -> None:
+        client = DaemonClient()
+        client._queue.put({"e": 1})
+        first_call = {"done": False}
+
+        def fake_post(batch):
+            if not first_call["done"]:
+                first_call["done"] = True
+                client._queue.put({"e": 2})
+            return True, None
+
+        client._post_batch = fake_post  # type: ignore[method-assign]
+
+        deadline = time.monotonic() + 5.0
+        result = client._drain_with_retry(deadline)
+
+        assert result.sent == 2
+        assert client._buffer == []
+
+    def test_chunks_oversized_buffer(self) -> None:
+        client = DaemonClient()
+        client._buffer = [{"data": "x" * 300_000} for _ in range(10)]
+
+        sent_batches: list[list[dict[str, Any]]] = []
+
+        def fake_post(batch):
+            sent_batches.append(batch)
+            return True, None
+
+        client._post_batch = fake_post  # type: ignore[method-assign]
+
+        deadline = time.monotonic() + 5.0
+        result = client._drain_with_retry(deadline)
+
+        assert result.sent == 10
+        assert result.dropped == 0
+        assert len(sent_batches) >= 2
+
+
 class TestModeDetection:
     """Tests for mode detection in nb.init()."""
 
