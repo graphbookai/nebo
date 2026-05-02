@@ -201,6 +201,30 @@ class TestDrainWithRetry:
         assert len(sent_batches) >= 2
 
 
+class TestShutdownTimeout:
+    def test_default_is_ten_seconds(self) -> None:
+        client = DaemonClient()
+        assert client._shutdown_timeout == 10.0
+
+    def test_constructor_arg_overrides_default(self) -> None:
+        client = DaemonClient(shutdown_timeout=2.5)
+        assert client._shutdown_timeout == 2.5
+
+    def test_env_var_overrides_constructor(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("NEBO_SHUTDOWN_TIMEOUT", "0.5")
+        client = DaemonClient(shutdown_timeout=99.0)
+        assert client._shutdown_timeout == 0.5
+
+    def test_invalid_env_value_falls_back_to_constructor(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("NEBO_SHUTDOWN_TIMEOUT", "not-a-number")
+        client = DaemonClient(shutdown_timeout=7.0)
+        assert client._shutdown_timeout == 7.0
+
+
 class TestModeDetection:
     """Tests for mode detection in nb.init()."""
 

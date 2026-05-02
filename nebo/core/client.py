@@ -55,6 +55,7 @@ class DaemonClient:
         flush_interval: float = 0.1,
         base_url: Optional[str] = None,
         api_token: Optional[str] = None,
+        shutdown_timeout: float = 10.0,
     ) -> None:
         """Connect to a nebo daemon.
 
@@ -64,6 +65,10 @@ class DaemonClient:
         When `base_url` is set it takes precedence over `host`/`port`.
         When `api_token` is set, an `Authorization: Bearer <token>`
         header is added to every HTTP request.
+
+        `shutdown_timeout` (default 10 s; env override
+        NEBO_SHUTDOWN_TIMEOUT) is the budget the atexit drain has to
+        push remaining events to the daemon before warning to stderr.
         """
         self._host = host
         self._port = port
@@ -83,6 +88,14 @@ class DaemonClient:
         self._fallback_buffer: list[dict[str, Any]] = []
         self._lock = threading.Lock()
         self._run_completed: bool = False
+
+        env_timeout = os.environ.get("NEBO_SHUTDOWN_TIMEOUT")
+        if env_timeout is not None:
+            try:
+                shutdown_timeout = float(env_timeout)
+            except ValueError:
+                pass
+        self._shutdown_timeout = shutdown_timeout
 
     def _auth_headers(self) -> dict[str, str]:
         if self._api_token:
