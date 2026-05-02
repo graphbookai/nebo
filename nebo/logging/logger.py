@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging as _stdlib_logging
 import time
 from typing import Any, Optional, Union
 
@@ -9,6 +10,12 @@ from nebo.core.state import MetricCursor, _current_node, get_state
 
 
 GLOBAL_LOGGABLE_ID = "__global__"
+
+# Surface for nb.log() text messages. nb.init(terminal=False) attaches a
+# stdout StreamHandler to this logger so users in "released terminal" mode
+# see their logs; with the default terminal=True, no handler is attached and
+# emissions here are silent (the Rich panel renders them instead).
+_text_logger = _stdlib_logging.getLogger("nebo")
 
 
 def _ensure_initialized() -> None:
@@ -115,6 +122,18 @@ def log(message: Union[str, Any], *, step: Optional[int] = None) -> None:
     state.loggables[node_id].logs.append(entry)
 
     state._send_to_client(entry)
+
+    # Mirror to the stdlib "nebo" logger. With terminal=False this surfaces
+    # the message on stdout (init() attaches a StreamHandler in that mode);
+    # with the default terminal=True no handler is attached and the call is
+    # a no-op, leaving the Rich panel as the only renderer.
+    if _text_logger.handlers:
+        loggable = state.loggables.get(node_id)
+        if node_id == GLOBAL_LOGGABLE_ID or loggable is None:
+            _text_logger.info(message)
+        else:
+            func_name = getattr(loggable, "func_name", "") or node_id
+            _text_logger.info("[%s] %s", func_name, message)
 
 
 def _scalar(v: Any) -> Any:

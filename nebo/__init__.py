@@ -187,7 +187,6 @@ def init(
     run_id = env_run_id
     script_name: Optional[str] = None
     if resolved_mode != "local":
-        import sys
         script_name = os.path.abspath(sys.argv[0]) if sys.argv else "script"
         if not run_id:
             run_id = f"{uuid.uuid4().hex[:12]}"
@@ -284,6 +283,25 @@ def init(
                 atexit.register(state._display.stop)
         except ImportError:
             pass
+    elif not terminal:
+        # terminal=False means "release the terminal to stdout" — prints,
+        # tracebacks, and warnings are already untouched (we only intercept
+        # stdout via the Rich live dashboard, which we just skipped). But
+        # nb.log() would otherwise be silent because it writes only into
+        # in-memory state, so route it through the stdlib "nebo" logger to
+        # stdout. NEBO_NO_TERMINAL alone (with terminal=True) preserves the
+        # legacy fully-silent path used by the test suite.
+        nebo_logger = _stdlib_logging.getLogger("nebo")
+        nebo_logger.handlers = [
+            h for h in nebo_logger.handlers
+            if not getattr(h, "_nebo_managed", False)
+        ]
+        handler = _stdlib_logging.StreamHandler(sys.stdout)
+        handler.setFormatter(_stdlib_logging.Formatter("%(message)s"))
+        handler._nebo_managed = True  # type: ignore[attr-defined]
+        nebo_logger.addHandler(handler)
+        if nebo_logger.level == _stdlib_logging.NOTSET:
+            nebo_logger.setLevel(_stdlib_logging.INFO)
 
     # Start pause polling if we have pausable nodes and are in server mode
     if state._client is not None:
