@@ -1,7 +1,8 @@
 import { useStore } from '@/store'
 import { RunList } from '@/components/runs/RunList'
 import { SettingsPanel } from './SettingsPanel'
-import { Wifi, WifiOff } from 'lucide-react'
+import { Link2, Link2Off } from 'lucide-react'
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 
 export function Sidebar() {
   const connected = useStore(s => s.connected)
@@ -13,9 +14,23 @@ export function Sidebar() {
         <h1 className="text-lg font-semibold text-sidebar-foreground">Nebo</h1>
         <div className="flex items-center gap-1">
           {connected ? (
-            <Wifi className="h-4 w-4 text-green-500" />
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <Link2 className="h-4 w-4 text-green-500" />
+                </TooltipTrigger>
+                <TooltipContent align="start">
+                    Connected
+                </TooltipContent>
+            </Tooltip>
           ) : (
-            <WifiOff className="h-4 w-4 text-muted-foreground" />
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <Link2Off className="h-4 w-4 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent align="start">
+                    Disconnected
+                </TooltipContent>
+            </Tooltip>
           )}
           <SettingsPanel />
         </div>

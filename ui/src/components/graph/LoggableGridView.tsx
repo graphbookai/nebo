@@ -210,7 +210,7 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
   const allImages = allImagesRaw ?? EMPTY_LOGGABLE_IMAGES
   const allAudio = allAudioRaw ?? EMPTY_LOGGABLE_AUDIO
 
-  const [activeTab, setActiveTab] = useState<TabKey>('logs')
+  const [activeTab, setActiveTab] = useState<TabKey>('metrics')
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [modalCardId, setModalCardId] = useState<string | null>(null)

@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useStore } from '@/store'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 export function SettingsPanel() {
   const settings = useStore(s => s.settings)
@@ -12,7 +13,14 @@ export function SettingsPanel() {
     <Popover>
       <PopoverTrigger asChild>
         <Button variant="ghost" size="icon" title="Settings">
-          <Settings className="h-4 w-4" />
+            <Tooltip>
+                <TooltipTrigger>
+                    <Settings className="h-4 w-4" />
+                </TooltipTrigger>
+                <TooltipContent align="start">
+                    Settings
+                </TooltipContent>
+            </Tooltip>
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-60" align="end">
