@@ -27,6 +27,11 @@ class DaemonClient:
     Supports graceful fallback and reconnection.
     """
 
+    # 2 MB cap on a single POST body. Large enough that normal
+    # text-event traffic never chunks; small enough that common proxy /
+    # WAF body limits don't bite even with base64 image payloads.
+    _MAX_CHUNK_BYTES = 2 * 1024 * 1024
+
     def __init__(
         self,
         host: str = "localhost",
@@ -183,6 +188,31 @@ class DaemonClient:
                 last_flush = now
                 if not success:
                     self._handle_disconnect()
+
+    def _chunk_buffer(
+        self,
+        events: list[dict[str, Any]],
+        max_bytes: int,
+    ) -> list[list[dict[str, Any]]]:
+        """Split events into sub-batches each <= max_bytes encoded JSON.
+
+        A single event larger than max_bytes becomes its own chunk
+        (the chunker never drops — the network may still accept it).
+        """
+        chunks: list[list[dict[str, Any]]] = []
+        current: list[dict[str, Any]] = []
+        current_size = 0
+        for event in events:
+            event_size = len(json.dumps(event))
+            if current and current_size + event_size > max_bytes:
+                chunks.append(current)
+                current = []
+                current_size = 0
+            current.append(event)
+            current_size += event_size
+        if current:
+            chunks.append(current)
+        return chunks
 
     def _post_batch(
         self, batch: list[dict[str, Any]]

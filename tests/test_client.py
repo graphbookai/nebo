@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import time
+from typing import Any
 
 import pytest
 
@@ -45,6 +47,30 @@ class TestDaemonClient:
         """Should not crash when disconnecting without connection."""
         client = DaemonClient(port=19999)
         client.disconnect()  # should not raise
+
+
+class TestChunkBuffer:
+    def test_splits_by_byte_cap(self) -> None:
+        client = DaemonClient()
+        events = [{"data": "x" * 300_000} for _ in range(10)]
+        chunks = client._chunk_buffer(events, max_bytes=1_000_000)
+
+        for chunk in chunks:
+            size = sum(len(json.dumps(e)) for e in chunk)
+            assert len(chunk) == 1 or size <= 1_000_000
+
+        flat = [e for c in chunks for e in c]
+        assert flat == events
+
+    def test_oversize_event_is_own_chunk(self) -> None:
+        client = DaemonClient()
+        big = {"data": "x" * 3_000_000}
+        chunks = client._chunk_buffer([big], max_bytes=1_000_000)
+        assert chunks == [[big]]
+
+    def test_empty_input_returns_empty_list(self) -> None:
+        client = DaemonClient()
+        assert client._chunk_buffer([], max_bytes=1_000_000) == []
 
 
 class TestModeDetection:
