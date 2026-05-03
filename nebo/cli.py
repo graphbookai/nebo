@@ -74,6 +74,14 @@ def cmd_serve(args: argparse.Namespace) -> None:
 
     if getattr(args, "no_store", False):
         os.environ["NEBO_NO_STORE"] = "1"
+    if getattr(args, "store_dir", None):
+        os.environ["NEBO_STORE_DIR"] = args.store_dir
+    if getattr(args, "api_token", None):
+        os.environ["NEBO_API_TOKEN"] = args.api_token
+    if getattr(args, "read", None):
+        os.environ["NEBO_READ_MODE"] = args.read
+    if getattr(args, "write", None):
+        os.environ["NEBO_WRITE_MODE"] = args.write
 
     if args.daemon:
         # Background mode
@@ -89,6 +97,14 @@ def cmd_serve(args: argparse.Namespace) -> None:
         env["NEBO_DAEMON_PORT"] = str(port)
         if getattr(args, "no_store", False):
             env["NEBO_NO_STORE"] = "1"
+        if getattr(args, "store_dir", None):
+            env["NEBO_STORE_DIR"] = args.store_dir
+        if getattr(args, "api_token", None):
+            env["NEBO_API_TOKEN"] = args.api_token
+        if getattr(args, "read", None):
+            env["NEBO_READ_MODE"] = args.read
+        if getattr(args, "write", None):
+            env["NEBO_WRITE_MODE"] = args.write
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
@@ -365,6 +381,12 @@ def cmd_mcp_stdio(args: argparse.Namespace) -> None:
     run_stdio_bridge(port=args.port)
 
 
+def _lazy_deploy(args: argparse.Namespace) -> None:
+    """Defer the huggingface_hub import — it's an optional dependency."""
+    from nebo.cli_deploy import cmd_deploy
+    cmd_deploy(args)
+
+
 def main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -380,6 +402,10 @@ def main() -> None:
     p_serve.add_argument("--port", type=int, default=7861, help="Port (default: 7861)")
     p_serve.add_argument("--daemon", "-d", action="store_true", help="Run in background")
     p_serve.add_argument("--no-store", action="store_true", help="Disable .nebo file storage")
+    p_serve.add_argument("--store-dir", help="Directory for .nebo files (default: ./.nebo). Sets NEBO_STORE_DIR.")
+    p_serve.add_argument("--api-token", help="Require this token on API requests via X-Nebo-Token / ?token=. Sets NEBO_API_TOKEN.")
+    p_serve.add_argument("--read", choices=["public", "private"], help="Read access mode (default: public). Only matters when --api-token is set.")
+    p_serve.add_argument("--write", choices=["public", "private"], help="Write access mode (default: private). Only matters when --api-token is set.")
 
     # run
     p_run = subparsers.add_parser("run", help="Run a pipeline managed by the daemon")
@@ -422,6 +448,19 @@ def main() -> None:
     p_mcp_stdio = subparsers.add_parser("mcp-stdio", help="Run MCP stdio transport")
     p_mcp_stdio.add_argument("--port", type=int, default=7861)
 
+    # deploy
+    p_deploy = subparsers.add_parser(
+        "deploy",
+        help="Deploy the nebo daemon to a Hugging Face Space",
+    )
+    p_deploy.add_argument("--space-id", required=True, help="Hugging Face Space ID, e.g. 'username/my-dashboard'")
+    p_deploy.add_argument("--hf-token", help="Hugging Face write token (defaults to HF_TOKEN env / cached login)")
+    p_deploy.add_argument("--api-token", help="Token clients must send via X-Nebo-Token. Random if omitted.")
+    p_deploy.add_argument("--private", action="store_true", help="Create the Space as private")
+    p_deploy.add_argument("--from-source", action="store_true", help="Build a wheel from this checkout and ship it instead of installing from PyPI")
+    p_deploy.add_argument("--read", choices=["public", "private"], default="public", help="Read access mode (default: public — anyone can view).")
+    p_deploy.add_argument("--write", choices=["public", "private"], default="private", help="Write access mode (default: private — token required to push events / control runs).")
+
     args = parser.parse_args()
 
     commands = {
@@ -434,6 +473,7 @@ def main() -> None:
         "load": cmd_load,
         "mcp": cmd_mcp,
         "mcp-stdio": cmd_mcp_stdio,
+        "deploy": _lazy_deploy,
     }
 
     handler = commands.get(args.command)

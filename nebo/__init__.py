@@ -95,7 +95,7 @@ def init(
     dag_strategy: Literal["object", "stack", "both", "linear", "none"] = "object",
     flush_interval: float = 0.1,
     store: bool = True,
-    cloud_url: Optional[str] = None,
+    url: Optional[str] = None,
     api_token: Optional[str] = None,
     webhook_url: Optional[str] = None,
     webhook_min_level: Optional[int] = None,
@@ -105,16 +105,17 @@ def init(
 
     Mode detection (when mode='auto'):
     1. Check environment variables (set by 'nebo run')
-    2. Check for daemon at host:port (or cloud_url if set)
+    2. Check for daemon at host:port (or `url` if set)
     3. If found -> server mode (stream events to daemon)
     4. If not found -> local mode (in-process rich terminal only)
 
-    Cloud mode: pass `cloud_url` (full URL e.g. `https://router.run.app`)
-    and `api_token` (the `nb_live_...` token from the cloud UI). When
-    set, these override `host`+`port` and add an `Authorization: Bearer`
-    header to every request. Defaults read from `NEBO_CLOUD_URL` and
-    `NEBO_API_TOKEN` environment variables — set those to use cloud
-    mode without code changes.
+    Remote daemon: pass `url` (full URL, e.g. a Hugging Face Space at
+    `https://username-space.hf.space`) and optionally `api_token`. When
+    set, `url` overrides `host`+`port`. If `api_token` is provided, an
+    `X-Nebo-Token` header is added to every request — required when the
+    target daemon is configured with `NEBO_API_TOKEN`. Defaults read
+    from `NEBO_URL` and `NEBO_API_TOKEN`, so the same SDK call works
+    against a local or remote daemon without code changes.
 
     Args:
         port: Daemon server port (default 7861).
@@ -130,10 +131,10 @@ def init(
             disables automatic edge inference.
         flush_interval: Seconds between event flushes (default 0.1).
         store: Whether to persist events to .nebo files (default True).
-        cloud_url: Full URL of a hosted nebo router. Overrides host+port.
-            Defaults to env var NEBO_CLOUD_URL.
-        api_token: Bearer token for the cloud router. Required with
-            cloud_url. Defaults to env var NEBO_API_TOKEN.
+        url: Full URL of a remote daemon. Overrides host+port. Defaults
+            to env var NEBO_URL.
+        api_token: Token for daemons that require auth. Sent as
+            `X-Nebo-Token`. Defaults to env var NEBO_API_TOKEN.
         webhook_url: Slack-compatible webhook URL for `nb.alert()`. When
             unset, `nb.alert()` is a no-op.
         webhook_min_level: Minimum `AlertLevel` that fires the webhook.
@@ -191,16 +192,17 @@ def init(
         if not run_id:
             run_id = f"{uuid.uuid4().hex[:12]}"
 
-    # Cloud mode: env vars override args; cloud_url/api_token take
-    # precedence over host+port when provided.
-    cloud_url = cloud_url or os.environ.get("NEBO_CLOUD_URL")
+    # Env vars override args; `url` (when provided) takes precedence
+    # over host+port. `api_token` is sent on every request when a
+    # token-protected daemon is the target.
+    url = url or os.environ.get("NEBO_URL")
     api_token = api_token or os.environ.get("NEBO_API_TOKEN")
 
     def _make_client():
         from nebo.core.client import DaemonClient
-        if cloud_url:
+        if url:
             return DaemonClient(
-                base_url=cloud_url,
+                base_url=url,
                 api_token=api_token,
                 run_id=run_id,
                 flush_interval=flush_interval,
@@ -209,27 +211,20 @@ def init(
             host=host, port=port, run_id=run_id, flush_interval=flush_interval
         )
 
-    _endpoint_label = cloud_url or f"{host}:{port}"
+    _endpoint_label = url or f"{host}:{port}"
 
     def _connect_and_warmup(client: Any) -> bool:
-        """connect() then (if cloud) wait for the router to ready a daemon.
+        """connect() then optionally warm up if a router is in front.
 
         Returns True if the SDK can start sending events.
         """
         if not client.connect():
             return False
-        if cloud_url and api_token:
-            print(
-                f"nebo: connected to {cloud_url}. "
-                "Waiting for cloud-hosted daemon to be ready (this can take 30-60s on first run)..."
-            )
-            if not client.warmup(timeout=180.0):
-                print(
-                    "nebo: WARNING — daemon warmup did not complete; "
-                    "events may fail until the daemon comes up."
-                )
-                return True  # still proceed — the SDK will retry
-            print("nebo: cloud daemon ready.")
+        # warmup() is a no-op unless the target exposes /api/daemon/warmup
+        # (the multi-tenant router pattern). For a directly-reachable
+        # daemon (local or HF Space) it's silent.
+        if url and api_token:
+            client.warmup(timeout=180.0)
         return True
 
     if resolved_mode == "auto":

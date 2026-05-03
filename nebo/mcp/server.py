@@ -222,6 +222,99 @@ MCP_TOOLS = [
             "required": ["question"],
         },
     },
+    # ── Write Tools ──
+    # These mirror the SDK's nb.log_* helpers so an external agent can push
+    # data into a run without owning the SDK process. Each tool accepts a
+    # single entry or a list — `entries` is the canonical input shape.
+    {
+        "name": "nebo_log_metric",
+        "description": (
+            "Log one or more metric points to a run. Mirrors nb.log_line / "
+            "log_bar / log_pie / log_scatter / log_histogram from the SDK. "
+            "Default chart type is 'line' (accumulating); other types are "
+            "snapshots — re-emitting the same name overwrites."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "description": "Single entry or list of entries. Each: {run_id?, loggable_id, name, value, type?, step?, tags?}.",
+                    "oneOf": [
+                        {"type": "object"},
+                        {"type": "array", "items": {"type": "object"}},
+                    ],
+                },
+                "run_id": {"type": "string", "description": "Default run_id if entries don't specify one."},
+            },
+            "required": ["entries"],
+        },
+    },
+    {
+        "name": "nebo_log_image",
+        "description": (
+            "Log one or more images to a run. Mirrors nb.log_image. Each "
+            "entry supplies either `url` (fetched server-side, persisted) "
+            "or `data` (already-base64 bytes). Bytes are stored on the "
+            "daemon so the run survives the source URL going stale."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "description": "Single entry or list. Each: {run_id?, loggable_id, name, url? | data?, step?, labels?}.",
+                    "oneOf": [
+                        {"type": "object"},
+                        {"type": "array", "items": {"type": "object"}},
+                    ],
+                },
+                "run_id": {"type": "string"},
+            },
+            "required": ["entries"],
+        },
+    },
+    {
+        "name": "nebo_log_audio",
+        "description": (
+            "Log one or more audio recordings to a run. Mirrors "
+            "nb.log_audio. Same input shape as nebo_log_image plus an "
+            "optional `sr` (sample rate) per entry; default 16000."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "description": "Single entry or list. Each: {run_id?, loggable_id, name, url? | data?, sr?, step?}.",
+                    "oneOf": [
+                        {"type": "object"},
+                        {"type": "array", "items": {"type": "object"}},
+                    ],
+                },
+                "run_id": {"type": "string"},
+            },
+            "required": ["entries"],
+        },
+    },
+    {
+        "name": "nebo_log_text",
+        "description": (
+            "Log one or more text entries to a run. Mirrors nb.log. "
+            "loggable_id defaults to '__global__' when omitted."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "description": "Single entry or list. Each: {run_id?, loggable_id?, message, level?, step?}.",
+                    "oneOf": [
+                        {"type": "object"},
+                        {"type": "array", "items": {"type": "object"}},
+                    ],
+                },
+                "run_id": {"type": "string"},
+            },
+            "required": ["entries"],
+        },
+    },
 ]
 
 
@@ -247,6 +340,11 @@ async def handle_tool_call(name: str, arguments: dict[str, Any], server_url: str
         "nebo_ask_user": lambda a: tools.ask_user(a["question"], a.get("options"), server_url),
         "nebo_load_file": lambda a: tools.load_file(a["filepath"], server_url),
         "nebo_chat": lambda a: tools.chat(a["question"], a.get("run_id"), server_url),
+        # Write
+        "nebo_log_metric": lambda a: tools.log_metric(a["entries"], a.get("run_id"), server_url),
+        "nebo_log_image": lambda a: tools.log_image(a["entries"], a.get("run_id"), server_url),
+        "nebo_log_audio": lambda a: tools.log_audio(a["entries"], a.get("run_id"), server_url),
+        "nebo_log_text": lambda a: tools.log_text(a["entries"], a.get("run_id"), server_url),
     }
     handler = handlers.get(name)
     if handler is None:

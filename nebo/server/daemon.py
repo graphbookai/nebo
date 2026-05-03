@@ -22,7 +22,7 @@ from nebo.server.protocol import MessageType, decode_batch
 
 RunStatus = Literal["starting", "running", "completed", "crashed", "stopped"]
 
-NEBO_STORAGE_DIR = os.path.join(os.getcwd(), ".nebo")
+NEBO_STORAGE_DIR = os.environ.get("NEBO_STORE_DIR") or os.path.join(os.getcwd(), ".nebo")
 
 
 @dataclass
@@ -147,6 +147,13 @@ class Run:
 
     def get_summary(self) -> dict:
         """Return a concise run summary."""
+        # Flat catalog of available metric names per loggable. Lets agents
+        # discover what's loggable without iterating every loggable card.
+        metrics_index: dict[str, list[str]] = {
+            lid: sorted(loggable.metrics.keys())
+            for lid, loggable in self.loggables.items()
+            if loggable.metrics
+        }
         return {
             "id": self.id,
             "script_path": self.script_path,
@@ -160,6 +167,7 @@ class Run:
             "log_count": len(self.logs),
             "error_count": len(self.errors),
             "run_name": self.run_name,
+            "metrics_index": metrics_index,
         }
 
 
@@ -609,6 +617,56 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
 
     app.add_middleware(CORSWithWebSocket)
 
+    # Optional bearer-token auth, split into independent read/write
+    # gates. When the daemon process has NEBO_API_TOKEN set (e.g. as a
+    # Hugging Face Space secret) the gates kick in:
+    #
+    #   read mode (NEBO_READ_MODE, default 'public'):
+    #     'public'  → GET requests pass without a token
+    #     'private' → GET requests require a token
+    #   write mode (NEBO_WRITE_MODE, default 'private'):
+    #     'public'  → non-GET requests pass without a token
+    #     'private' → non-GET requests require a token
+    #
+    # /health and the static UI bundle stay open in every mode so
+    # external healthchecks and the iframe bootstrap HTML keep working.
+    # Without NEBO_API_TOKEN set, both gates are open regardless of
+    # mode — preserves the local-dev "no auth needed" workflow.
+    expected_token = os.environ.get("NEBO_API_TOKEN")
+    _read_private = os.environ.get("NEBO_READ_MODE", "public").lower() == "private"
+    _write_private = os.environ.get("NEBO_WRITE_MODE", "private").lower() == "private"
+    _GATED_PREFIXES = (
+        "/events", "/ingest", "/run", "/runs",
+        "/logs", "/errors", "/loggables", "/load",
+        "/chat", "/graph",
+    )
+
+    def _is_read(method: str) -> bool:
+        # GET/HEAD are reads; everything else (POST/PUT/PATCH/DELETE)
+        # mutates state and gates on write mode.
+        return method.upper() in ("GET", "HEAD")
+
+    if expected_token:
+        from fastapi.responses import JSONResponse
+
+        @app.middleware("http")
+        async def _auth_middleware(request, call_next):
+            path = request.url.path
+            if path == "/health" or not any(path.startswith(p) for p in _GATED_PREFIXES):
+                return await call_next(request)
+            # CORS preflight requests can't carry custom headers; let
+            # them through and rely on the eventual real request to
+            # authenticate.
+            if request.method == "OPTIONS":
+                return await call_next(request)
+            require_token = _read_private if _is_read(request.method) else _write_private
+            if not require_token:
+                return await call_next(request)
+            token = request.headers.get("x-nebo-token") or request.query_params.get("token")
+            if token != expected_token:
+                return JSONResponse(status_code=401, content={"error": "unauthorized"})
+            return await call_next(request)
+
     @app.get("/health")
     async def health():
         return {
@@ -1012,11 +1070,28 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
 
     @app.websocket("/stream")
     async def websocket_endpoint(ws: WebSocket):
+        # Browsers can't set custom WebSocket headers, so accept the
+        # token from `?token=...` as well as `X-Nebo-Token`. The
+        # handshake is gated by read mode (since the WS primarily
+        # broadcasts state to subscribers) and inbound `receive_text`
+        # is gated by write mode (clients can also push events here).
+        client_authed = False
+        if expected_token:
+            token = ws.query_params.get("token") or ws.headers.get("x-nebo-token")
+            client_authed = token == expected_token
+            if _read_private and not client_authed:
+                await ws.close(code=4401)
+                return
         await ws.accept()
         state._ws_clients.append(ws)
         try:
             while True:
                 data = await ws.receive_text()
+                # If write mode is private, silently ignore inbound
+                # events from unauthenticated clients. They keep the
+                # subscription so they still receive broadcasts.
+                if expected_token and _write_private and not client_authed:
+                    continue
                 events = decode_batch(data)
                 await state.ingest_events(events)
         except WebSocketDisconnect:

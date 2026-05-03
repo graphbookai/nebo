@@ -378,3 +378,232 @@ async def ask_user(question: str, options: Optional[list[str]] = None, server_ur
         return _post(f"{server_url}/events", [event])
     except Exception as e:
         return {"error": str(e)}
+
+
+# ─── Write Tools ─────────────────────────────────────────────────────────────
+#
+# These mirror the SDK's `nb.log_*` helpers as MCP tools so an external
+# agent can push data into a run without owning the SDK process. Each
+# tool accepts either a single entry or a list of entries; entries
+# missing a `run_id` fall back to the tool-level `run_id` argument or
+# the daemon's active run.
+
+_DEFAULT_FETCH_TIMEOUT = 30.0
+_DEFAULT_FETCH_LIMIT = 10 * 1024 * 1024  # 10 MB
+
+
+def _normalize_entries(entries: Any) -> list[dict[str, Any]]:
+    """Accept either a single entry dict or a list of entry dicts."""
+    if entries is None:
+        return []
+    if isinstance(entries, dict):
+        return [entries]
+    if isinstance(entries, list):
+        return [e for e in entries if isinstance(e, dict)]
+    return []
+
+
+def _post_events(
+    server_url: str,
+    events: list[dict[str, Any]],
+    run_id: Optional[str],
+) -> dict[str, Any]:
+    """POST a batch of events to the daemon, scoped to `run_id` if given."""
+    url = f"{server_url}/events"
+    if run_id:
+        url = f"{url}?run_id={urllib.request.quote(run_id)}"
+    return _post(url, events)
+
+
+def _ensure_loggable_event(loggable_id: str) -> dict[str, Any]:
+    """Idempotent register event so unknown loggables aren't silently dropped."""
+    return {
+        "type": "loggable_register",
+        "loggable_id": loggable_id,
+        "data": {"loggable_id": loggable_id, "kind": "global"},
+    }
+
+
+def _fetch_url_as_b64(url: str, timeout: float = _DEFAULT_FETCH_TIMEOUT, limit: int = _DEFAULT_FETCH_LIMIT) -> str:
+    """Fetch an HTTP(S) URL and return base64-encoded bytes.
+
+    Bounded by `limit` bytes so a malicious URL can't pin the bridge.
+    """
+    import base64
+    if not (url.startswith("http://") or url.startswith("https://")):
+        raise ValueError(f"only http(s):// URLs supported (got {url[:32]!r})")
+    req = urllib.request.Request(url, method="GET")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = resp.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError(f"media at {url} exceeds {limit} byte cap")
+    return base64.b64encode(data).decode("ascii")
+
+
+def _read_inline_data(entry: dict[str, Any]) -> Optional[str]:
+    """Pull a base64 payload from `data` (already encoded) or fetch `url`."""
+    if "data" in entry and entry["data"]:
+        return str(entry["data"])
+    if "url" in entry and entry["url"]:
+        return _fetch_url_as_b64(str(entry["url"]))
+    return None
+
+
+async def log_metric(
+    entries: Any,
+    run_id: Optional[str] = None,
+    server_url: str = _DEFAULT_URL,
+) -> dict[str, Any]:
+    """Push one or more metric points into a run.
+
+    Each entry: ``{run_id?, loggable_id, name, value, type?, step?, tags?}``.
+    `type` is one of ``line`` (default), ``bar``, ``pie``, ``scatter``, ``histogram``.
+    """
+    items = _normalize_entries(entries)
+    if not items:
+        return {"error": "no entries provided"}
+
+    # Group events by run_id so we issue one POST per target run.
+    by_run: dict[Optional[str], list[dict[str, Any]]] = {}
+    for entry in items:
+        lid = entry.get("loggable_id")
+        if not lid:
+            return {"error": "every entry needs a loggable_id"}
+        target = entry.get("run_id") or run_id
+        bucket = by_run.setdefault(target, [])
+        bucket.append(_ensure_loggable_event(lid))
+        bucket.append({
+            "type": "metric",
+            "loggable_id": lid,
+            "name": entry.get("name", ""),
+            "metric_type": entry.get("type", "line"),
+            "value": entry.get("value"),
+            "step": entry.get("step"),
+            "tags": entry.get("tags") or [],
+            "timestamp": time.time(),
+        })
+
+    sent = 0
+    for target_run, evts in by_run.items():
+        try:
+            _post_events(server_url, evts, target_run)
+            sent += sum(1 for e in evts if e["type"] == "metric")
+        except Exception as e:
+            return {"error": f"daemon write failed for run={target_run}: {e}", "sent": sent}
+    return {"status": "ok", "sent": sent}
+
+
+def _log_media(
+    entries: Any,
+    media_type: str,
+    run_id: Optional[str],
+    server_url: str,
+) -> dict[str, Any]:
+    """Shared body for log_image / log_audio. `media_type` is `image` or `audio`."""
+    items = _normalize_entries(entries)
+    if not items:
+        return {"error": "no entries provided"}
+
+    by_run: dict[Optional[str], list[dict[str, Any]]] = {}
+    for entry in items:
+        lid = entry.get("loggable_id")
+        if not lid:
+            return {"error": "every entry needs a loggable_id"}
+        try:
+            data_b64 = _read_inline_data(entry)
+        except Exception as e:
+            return {"error": f"could not load media for {entry.get('name')!r}: {e}"}
+        if not data_b64:
+            return {"error": f"entry {entry.get('name')!r} needs `url` or `data`"}
+        target = entry.get("run_id") or run_id
+        bucket = by_run.setdefault(target, [])
+        bucket.append(_ensure_loggable_event(lid))
+        evt: dict[str, Any] = {
+            "type": media_type,
+            "loggable_id": lid,
+            "name": entry.get("name", ""),
+            "data": data_b64,
+            "step": entry.get("step"),
+            "timestamp": time.time(),
+        }
+        if media_type == "audio":
+            evt["sr"] = entry.get("sr", 16000)
+        else:
+            if "labels" in entry:
+                evt["labels"] = entry["labels"]
+        bucket.append(evt)
+
+    sent = 0
+    for target_run, evts in by_run.items():
+        try:
+            _post_events(server_url, evts, target_run)
+            sent += sum(1 for e in evts if e["type"] == media_type)
+        except Exception as e:
+            return {"error": f"daemon write failed for run={target_run}: {e}", "sent": sent}
+    return {"status": "ok", "sent": sent}
+
+
+async def log_image(
+    entries: Any,
+    run_id: Optional[str] = None,
+    server_url: str = _DEFAULT_URL,
+) -> dict[str, Any]:
+    """Push one or more images into a run.
+
+    Each entry: ``{run_id?, loggable_id, name, url? | data?, step?, labels?}``.
+    Supply either ``url`` (fetched server-side) or ``data`` (already-base64
+    bytes). The daemon stores the bytes via the existing media path so the
+    image survives the source URL going stale.
+    """
+    return _log_media(entries, "image", run_id, server_url)
+
+
+async def log_audio(
+    entries: Any,
+    run_id: Optional[str] = None,
+    server_url: str = _DEFAULT_URL,
+) -> dict[str, Any]:
+    """Push one or more audio recordings into a run.
+
+    Each entry: ``{run_id?, loggable_id, name, url? | data?, sr?, step?}``.
+    """
+    return _log_media(entries, "audio", run_id, server_url)
+
+
+async def log_text(
+    entries: Any,
+    run_id: Optional[str] = None,
+    server_url: str = _DEFAULT_URL,
+) -> dict[str, Any]:
+    """Push one or more text log entries into a run.
+
+    Each entry: ``{run_id?, loggable_id, message, level?, step?}``. ``level``
+    is one of ``info`` (default), ``warning``, ``error``.
+    """
+    items = _normalize_entries(entries)
+    if not items:
+        return {"error": "no entries provided"}
+
+    by_run: dict[Optional[str], list[dict[str, Any]]] = {}
+    for entry in items:
+        lid = entry.get("loggable_id", "__global__")
+        target = entry.get("run_id") or run_id
+        bucket = by_run.setdefault(target, [])
+        bucket.append(_ensure_loggable_event(lid))
+        bucket.append({
+            "type": "log",
+            "loggable_id": lid,
+            "message": entry.get("message", ""),
+            "level": entry.get("level", "info"),
+            "step": entry.get("step"),
+            "timestamp": time.time(),
+        })
+
+    sent = 0
+    for target_run, evts in by_run.items():
+        try:
+            _post_events(server_url, evts, target_run)
+            sent += sum(1 for e in evts if e["type"] == "log")
+        except Exception as e:
+            return {"error": f"daemon write failed for run={target_run}: {e}", "sent": sent}
+    return {"status": "ok", "sent": sent}

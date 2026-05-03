@@ -1,0 +1,17 @@
+FROM python:3.12-slim
+
+# Hugging Face Spaces persistent volume mounts at /data. We point the
+# .nebo writer there so runs survive Space restarts. Disable the rich
+# terminal renderer — there's no TTY in the container.
+ENV NEBO_STORE_DIR=/data \
+    NEBO_NO_TERMINAL=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+${install_block}
+
+# Hugging Face Spaces requires Docker apps to listen on port 7860 by
+# default. We bind to 0.0.0.0 so the routed traffic reaches us.
+EXPOSE 7860
+
+CMD ["nebo", "serve", "--host", "0.0.0.0", "--port", "7860", "--store-dir", "/data"]

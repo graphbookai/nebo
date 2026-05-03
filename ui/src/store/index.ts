@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { RunSummary, GraphData, LogEntry, ErrorEntry, LabelsPayload, MetricType, MetricEntry, LoggableMetricSeries } from '@/lib/api'
 import type { WsEvent } from '@/lib/ws'
 import { assignColor } from '@/lib/colors'
+import { authHeaders } from '@/lib/auth'
 
 export interface NodeState {
   name: string
@@ -788,7 +789,7 @@ export const useStore = create<NeboStore>((set, get) => ({
     try {
       const response = await fetch('/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ question, run_id: runId }),
       })
 

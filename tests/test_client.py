@@ -48,6 +48,40 @@ class TestDaemonClient:
         client = DaemonClient(port=19999)
         client.disconnect()  # should not raise
 
+    def test_post_batch_uses_events_endpoint_with_auth_header(self) -> None:
+        """Regression: when an api_token is set, `_post_batch` must POST
+        to /events with `X-Nebo-Token` — not to a separate /r/v1
+        envelope endpoint. The HF-Spaces deploy in 2026-05 caught the
+        old behaviour silently 404ing on `/r/v1`."""
+        from unittest.mock import patch, MagicMock
+        client = DaemonClient(
+            base_url="https://example.test", api_token="tok123",
+        )
+        captured: dict[str, Any] = {}
+
+        class FakeResp:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *a): pass
+
+        def fake_urlopen(req, timeout):
+            captured["url"] = req.full_url
+            captured["headers"] = dict(req.headers)
+            captured["body"] = req.data
+            return FakeResp()
+
+        with patch("urllib.request.urlopen", fake_urlopen):
+            ok, exc = client._post_batch([{"type": "log", "message": "hi"}])
+
+        assert ok is True
+        assert captured["url"].startswith("https://example.test/events")
+        assert "X-nebo-token" in captured["headers"]
+        assert captured["headers"]["X-nebo-token"] == "tok123"
+        # Body is the raw event list, not a `{t, events}` envelope.
+        body = json.loads(captured["body"].decode())
+        assert isinstance(body, list)
+        assert body[0]["message"] == "hi"
+
 
 class TestChunkBuffer:
     def test_splits_by_byte_cap(self) -> None:

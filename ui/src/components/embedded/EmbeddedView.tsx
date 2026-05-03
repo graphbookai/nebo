@@ -39,16 +39,21 @@ export function EmbeddedView({ spec }: { spec: EmbeddedSpec }) {
   switch (spec.kind) {
     case 'run':
       return <EmbeddedRun runId={spec.runId} />
-    case 'nodes':
+    case 'dag':
       return <EmbeddedNodes runId={spec.runId} />
     case 'node':
       return <EmbeddedNode spec={spec} />
     case 'logs':
       return <EmbeddedLogs spec={spec} />
+    // Plural (gallery) and singular (filtered) share a renderer; the
+    // component already narrows by `spec.name` when set.
     case 'metrics':
+    case 'metric':
       return <EmbeddedMetrics spec={spec} />
     case 'images':
+    case 'image':
       return <EmbeddedImages spec={spec} />
+    case 'audios':
     case 'audio':
       return <EmbeddedAudio spec={spec} />
   }

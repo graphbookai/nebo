@@ -547,3 +547,94 @@ class TestRunCompletedEventClearsActiveRun:
         )
         assert resp.status_code == 200
         assert state.active_run_id == "r2"
+
+
+class TestApiTokenAuth:
+    """Bearer-token auth for the daemon. With NEBO_API_TOKEN set, the
+    NEBO_READ_MODE / NEBO_WRITE_MODE env vars decide which sides of
+    the API require the token. /health and the static UI bundle stay
+    open in every mode."""
+
+    def _app(self, monkeypatch, *, token=None, read=None, write=None):
+        from fastapi.testclient import TestClient
+        from nebo.server.daemon import DaemonState, create_daemon_app
+
+        if token is not None:
+            monkeypatch.setenv("NEBO_API_TOKEN", token)
+        else:
+            monkeypatch.delenv("NEBO_API_TOKEN", raising=False)
+        if read is not None:
+            monkeypatch.setenv("NEBO_READ_MODE", read)
+        else:
+            monkeypatch.delenv("NEBO_READ_MODE", raising=False)
+        if write is not None:
+            monkeypatch.setenv("NEBO_WRITE_MODE", write)
+        else:
+            monkeypatch.delenv("NEBO_WRITE_MODE", raising=False)
+
+        state = DaemonState()
+        return TestClient(create_daemon_app(state=state)), state
+
+    # ── /health stays open in every config ──
+
+    def test_health_open_without_token(self, monkeypatch) -> None:
+        client, _ = self._app(monkeypatch, token="s3cret")
+        assert client.get("/health").status_code == 200
+
+    # ── Default mode: read=public, write=private ──
+
+    def test_default_read_public(self, monkeypatch) -> None:
+        # GET passes without a token because the default is public read.
+        client, _ = self._app(monkeypatch, token="s3cret")
+        assert client.get("/runs").status_code == 200
+
+    def test_default_write_private_rejects_without_token(self, monkeypatch) -> None:
+        # POST without a token fails because the default is private write.
+        client, _ = self._app(monkeypatch, token="s3cret")
+        resp = client.post("/events", json=[{"type": "log", "message": "x"}])
+        assert resp.status_code == 401
+
+    def test_default_write_accepts_token_header(self, monkeypatch) -> None:
+        client, _ = self._app(monkeypatch, token="s3cret")
+        resp = client.post(
+            "/events",
+            json=[{"type": "log", "message": "x"}],
+            headers={"X-Nebo-Token": "s3cret"},
+        )
+        assert resp.status_code == 200
+
+    def test_default_write_accepts_token_query(self, monkeypatch) -> None:
+        # Browser/iframe flows can't set custom headers so the daemon
+        # also accepts the token via `?token=`.
+        client, _ = self._app(monkeypatch, token="s3cret")
+        resp = client.post(
+            "/events?token=s3cret",
+            json=[{"type": "log", "message": "x"}],
+        )
+        assert resp.status_code == 200
+
+    # ── Explicit read=private (fully private dashboard) ──
+
+    def test_read_private_rejects_get_without_token(self, monkeypatch) -> None:
+        client, _ = self._app(monkeypatch, token="s3cret", read="private")
+        assert client.get("/runs").status_code == 401
+
+    def test_read_private_accepts_get_with_token(self, monkeypatch) -> None:
+        client, _ = self._app(monkeypatch, token="s3cret", read="private")
+        resp = client.get("/runs", headers={"X-Nebo-Token": "s3cret"})
+        assert resp.status_code == 200
+
+    # ── Explicit write=public (read-only dashboard mistakenly opens writes) ──
+
+    def test_write_public_accepts_post_without_token(self, monkeypatch) -> None:
+        client, _ = self._app(monkeypatch, token="s3cret", write="public")
+        resp = client.post("/events", json=[{"type": "log", "message": "x"}])
+        assert resp.status_code == 200
+
+    # ── No token at all → both gates open (preserves local dev) ──
+
+    def test_unset_token_leaves_routes_open(self, monkeypatch) -> None:
+        client, _ = self._app(monkeypatch)
+        assert client.get("/runs").status_code == 200
+        resp = client.post("/events", json=[{"type": "log", "message": "x"}])
+        assert resp.status_code == 200

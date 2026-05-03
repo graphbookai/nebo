@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from 'react'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { useStore } from '@/store'
@@ -11,6 +12,8 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { useEmbeddedView } from '@/hooks/useEmbeddedView'
 import { EmbeddedView } from '@/components/embedded/EmbeddedView'
 import { ChartTooltip } from '@/components/charts/ChartTooltip'
+import { TokenPrompt } from '@/components/auth/TokenPrompt'
+import { getUnauthorized, subscribeUnauthorized } from '@/lib/auth'
 
 export default function App() {
   useWebSocket()
@@ -20,6 +23,21 @@ export default function App() {
   const connected = useStore(s => s.connected)
   const rightPanelOpen = useStore(s => s.rightPanelOpen)
   const embedded = useEmbeddedView()
+  const unauthorized = useSyncExternalStore(subscribeUnauthorized, getUnauthorized, getUnauthorized)
+
+  // 401 from any HTTP fetch flips the unauthorized flag. We block both
+  // the embedded slice view and the full dashboard behind the token
+  // prompt — without it, the WS reconnect loop just shows a misleading
+  // "Reconnecting…" forever, since the daemon refuses the handshake.
+  if (unauthorized) {
+    return (
+      <TooltipProvider delayDuration={200}>
+        <ErrorBoundary label="TokenPrompt">
+          <TokenPrompt />
+        </ErrorBoundary>
+      </TooltipProvider>
+    )
+  }
 
   if (embedded) {
     return (

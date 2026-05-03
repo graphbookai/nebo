@@ -1,12 +1,30 @@
 import { useEffect, useState } from 'react'
 
+/**
+ * Embedded ("iframe-friendly") view kinds. The kind is inferred from
+ * which URL params are present — there is no `view=` discriminator:
+ *
+ *   ?run=X                   → 'run'    (full DAG + timeline)
+ *   ?run=X&dag               → 'dag'    (graph only)
+ *   ?run=X&node=Y            → 'node'   (single node detail)
+ *   ?run=X&logs              → 'logs'   (logs panel; &node=Y filters)
+ *   ?run=X&metrics           → 'metrics' (metrics gallery; &node=Y filters)
+ *   ?run=X&metric=NAME       → 'metric'  (single metric; &node=Y filters)
+ *   ?run=X&images            → 'images'
+ *   ?run=X&image=NAME        → 'image'
+ *   ?run=X&audios            → 'audios'
+ *   ?run=X&audio=NAME        → 'audio'
+ */
 export type EmbeddedKind =
   | 'run'
-  | 'nodes'
+  | 'dag'
   | 'node'
   | 'logs'
   | 'metrics'
+  | 'metric'
   | 'images'
+  | 'image'
+  | 'audios'
   | 'audio'
 
 export interface EmbeddedView {
@@ -16,28 +34,40 @@ export interface EmbeddedView {
   // (e.g. "module.Class.method") or a bare function name. The view resolves
   // to the matching loggable at render time.
   nodeRef: string | null
-  // Optional: a metric/image/audio item name filter.
+  // For single-item kinds (metric / image / audio): the item name.
   name: string | null
 }
-
-const VALID: ReadonlySet<EmbeddedKind> = new Set([
-  'run', 'nodes', 'node', 'logs', 'metrics', 'images', 'audio',
-])
 
 function parse(): EmbeddedView | null {
   if (typeof window === 'undefined') return null
   const params = new URLSearchParams(window.location.search)
-  const view = params.get('view')
-  if (!view || !VALID.has(view as EmbeddedKind)) return null
-  // Accept either ?run= or the legacy ?run_id= for the run identifier.
   const runId = params.get('run') ?? params.get('run_id')
   if (!runId) return null
-  return {
-    kind: view as EmbeddedKind,
-    runId,
-    nodeRef: params.get('node'),
-    name: params.get('name'),
-  }
+
+  const nodeRef = params.get('node')
+
+  // Singular-name kinds: `?metric=loss` etc. A non-empty value selects one item.
+  const metric = params.get('metric')
+  if (metric) return { kind: 'metric', runId, nodeRef, name: metric }
+  const image = params.get('image')
+  if (image) return { kind: 'image', runId, nodeRef, name: image }
+  const audio = params.get('audio')
+  if (audio) return { kind: 'audio', runId, nodeRef, name: audio }
+
+  // Plural-flag kinds: presence of the key (any value, including empty)
+  // activates the gallery / panel. Order matters only for stable kind
+  // selection when callers accidentally combine flags.
+  if (params.has('metrics')) return { kind: 'metrics', runId, nodeRef, name: null }
+  if (params.has('images')) return { kind: 'images', runId, nodeRef, name: null }
+  if (params.has('audios')) return { kind: 'audios', runId, nodeRef, name: null }
+  if (params.has('logs')) return { kind: 'logs', runId, nodeRef, name: null }
+  if (params.has('dag')) return { kind: 'dag', runId, nodeRef, name: null }
+
+  // Bare `?run=X&node=Y` → single-node detail (no slice flag).
+  if (nodeRef) return { kind: 'node', runId, nodeRef, name: null }
+
+  // Bare `?run=X` → full run dashboard.
+  return { kind: 'run', runId, nodeRef: null, name: null }
 }
 
 /**

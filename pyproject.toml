@@ -20,6 +20,9 @@ dependencies = [
     "websockets>=11.0"
 ]
 
+[project.optional-dependencies]
+deploy = ["huggingface_hub>=0.20.0"]
+
 [dependency-groups]
 dev = [
     "pytest>=7.2.0",
@@ -46,4 +49,4 @@ source = "vcs"
 
 [tool.hatch.build]
 exclude = ["nebo/server/static/.gitkeep"]
-artifacts = ["nebo/.agents/**"]
+artifacts = ["nebo/.agents/**", "nebo/server/spaces/**"]

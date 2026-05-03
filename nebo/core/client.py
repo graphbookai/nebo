@@ -61,11 +61,12 @@ class DaemonClient:
         """Connect to a nebo daemon.
 
         For a local daemon: pass `host` + `port` (defaults work).
-        For a hosted/cloud daemon: pass `base_url` (e.g.
-        `https://nebo-cloud-router-xxx.a.run.app`) and `api_token`.
-        When `base_url` is set it takes precedence over `host`/`port`.
-        When `api_token` is set, an `Authorization: Bearer <token>`
-        header is added to every HTTP request.
+        For a remote daemon (e.g. one running on a Hugging Face Space):
+        pass `base_url` (e.g. `https://username-space.hf.space`) and
+        optionally `api_token`. When `base_url` is set it takes
+        precedence over `host`/`port`. When `api_token` is set, an
+        `X-Nebo-Token` header is added to every HTTP request — required
+        when the target daemon enforces auth via `NEBO_API_TOKEN`.
 
         `shutdown_timeout` (default 10 s; env override
         NEBO_SHUTDOWN_TIMEOUT) is the budget the atexit drain has to
@@ -109,15 +110,15 @@ class DaemonClient:
         return {}
 
     def warmup(self, timeout: float = 120.0) -> bool:
-        """Block until the cloud router has a daemon ready for this user.
+        """Block until a fronting router has a daemon ready (best-effort).
 
-        Calls POST /api/daemon/warmup which triggers the router to
-        lazy-create the per-user Cloud Run daemon and waits for it to
-        be Ready (cold start can take 30-60s). Returns True on success,
-        False on timeout or non-200 response.
+        POSTs to `/api/daemon/warmup` to nudge a multi-tenant router
+        into bringing up a per-user daemon. Returns True on 200, False
+        otherwise. For directly-reachable daemons (local or a Space)
+        this endpoint typically 404s and the caller should ignore the
+        return value.
 
-        No-op (returns True immediately) when no api_token is set —
-        warmup is only meaningful for cloud mode.
+        No-op (returns True immediately) when no api_token is set.
         """
         if not self._api_token:
             return True
@@ -306,30 +307,17 @@ class DaemonClient:
         if not batch:
             return True, None
         try:
-            if self._api_token:
-                # Cloud mode: send token + events in the body. Google's
-                # GFE WAF blocks every header- and URL-query-based auth
-                # we've tried on event-ingestion endpoints; body-only
-                # auth sidesteps it.
-                url = f"{self._base_url}/r/v1"
-                envelope: dict[str, Any] = {
-                    "t": self._api_token,
-                    "events": batch,
-                }
-                if self._run_id:
-                    envelope["run_id"] = self._run_id
-                data = json.dumps(envelope).encode("utf-8")
-            else:
-                # Local mode: talk to the daemon directly at /events.
-                url = f"{self._base_url}/events"
-                if self._run_id:
-                    url += f"?run_id={urllib.request.quote(self._run_id)}"
-                data = json.dumps(batch).encode("utf-8")
+            url = f"{self._base_url}/events"
+            if self._run_id:
+                url += f"?run_id={urllib.request.quote(self._run_id)}"
+            data = json.dumps(batch).encode("utf-8")
             req = urllib.request.Request(url, data=data, method="POST")
             req.add_header("Content-Type", "application/json")
-            # Cloud-mode requests cross the public internet and may
-            # spend a few seconds in TLS+routing tail latency. Local
-            # daemons over loopback are fast — 5s is fine there.
+            for k, v in self._auth_headers().items():
+                req.add_header(k, v)
+            # Remote daemons cross the public internet; loopback daemons
+            # are fast. Use the longer timeout whenever a token is in
+            # play, since that's the remote-target signal.
             request_timeout = 30.0 if self._api_token else 5.0
             with urllib.request.urlopen(req, timeout=request_timeout) as resp:
                 if resp.status == 200:

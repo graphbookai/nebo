@@ -181,6 +181,64 @@ class TestMCPNewTools:
         assert "error" in result or "answer" in result
 
 
+class TestMCPWriteTools:
+    """Tests for MCP write tools (log_metric / log_image / log_audio /
+    log_text). These don't need a live daemon — we exercise input
+    validation and the URL-fetching guard rails directly."""
+
+    @pytest.mark.asyncio
+    async def test_write_tools_registered(self) -> None:
+        from nebo.mcp.server import MCP_TOOLS
+        names = {t["name"] for t in MCP_TOOLS}
+        assert {
+            "nebo_log_metric",
+            "nebo_log_image",
+            "nebo_log_audio",
+            "nebo_log_text",
+        }.issubset(names)
+
+    @pytest.mark.asyncio
+    async def test_log_metric_rejects_empty(self) -> None:
+        from nebo.mcp.tools import log_metric
+        result = await log_metric([])
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_log_metric_requires_loggable_id(self) -> None:
+        from nebo.mcp.tools import log_metric
+        result = await log_metric({"name": "loss", "value": 0.1})
+        assert "error" in result and "loggable_id" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_log_image_requires_url_or_data(self) -> None:
+        from nebo.mcp.tools import log_image
+        result = await log_image({"loggable_id": "x", "name": "img"})
+        assert "error" in result
+        assert "url" in result["error"] or "data" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_log_image_rejects_non_http_url(self) -> None:
+        from nebo.mcp.tools import log_image
+        # The bridge refuses file:// and other non-http(s) URLs.
+        result = await log_image(
+            {"loggable_id": "x", "name": "img", "url": "file:///etc/passwd"},
+        )
+        assert "error" in result
+        assert "http" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_log_text_accepts_single_entry(self) -> None:
+        # No live daemon → returns a daemon-write error, not a validation
+        # error. We just want to confirm the input shape was accepted.
+        from nebo.mcp.tools import log_text
+        result = await log_text(
+            {"loggable_id": "__global__", "message": "hello"},
+            server_url="http://localhost:19999",
+        )
+        assert "error" in result
+        assert "daemon write failed" in result["error"]
+
+
 class TestMCPDispatcher:
     """Tests for the MCP tool dispatcher."""
 

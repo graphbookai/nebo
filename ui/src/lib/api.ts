@@ -1,7 +1,24 @@
+import { authHeaders, setUnauthorized } from './auth'
+
 const BASE = ''
 
+function noteAuthStatus(status: number): void {
+  // 401 means the daemon enforces auth and our token (if any) didn't
+  // match. Surface it so the UI can swap the "Reconnecting" banner for
+  // a token prompt. A successful response clears the flag — covers the
+  // case where the user just submitted a fresh token.
+  if (status === 401) {
+    setUnauthorized(true)
+  } else if (status >= 200 && status < 300) {
+    setUnauthorized(false)
+  }
+}
+
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`)
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { ...authHeaders() },
+  })
+  noteAuthStatus(res.status)
   if (!res.ok) throw new Error(`GET ${path}: ${res.status}`)
   return res.json()
 }
@@ -9,9 +26,10 @@ async function get<T>(path: string): Promise<T> {
 async function post<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   })
+  noteAuthStatus(res.status)
   if (!res.ok) throw new Error(`POST ${path}: ${res.status}`)
   return res.json()
 }

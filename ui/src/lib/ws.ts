@@ -1,3 +1,5 @@
+import { getAuthToken } from './auth'
+
 export type WsEventHandler = (event: WsBatchEvent) => void
 
 export interface WsBatchEvent {
@@ -32,7 +34,17 @@ export class WebSocketManager {
   constructor(url?: string) {
     const loc = window.location
     const wsProto = loc.protocol === 'https:' ? 'wss:' : 'ws:'
-    this.url = url ?? `${wsProto}//${loc.host}/stream`
+    let resolved = url ?? `${wsProto}//${loc.host}/stream`
+    // The daemon's WS gate accepts the token via `?token=…` because
+    // browsers can't attach custom headers on a WebSocket handshake.
+    if (!url) {
+      const token = getAuthToken()
+      if (token) {
+        const sep = resolved.includes('?') ? '&' : '?'
+        resolved = `${resolved}${sep}token=${encodeURIComponent(token)}`
+      }
+    }
+    this.url = resolved
   }
 
   get connected() { return this._connected }

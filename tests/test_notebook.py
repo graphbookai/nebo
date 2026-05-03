@@ -24,36 +24,66 @@ class TestShow:
         # Doesn't render an iframe.
         assert "<iframe" not in html
 
-    def test_default_url_for_active_run(self) -> None:
+    def test_default_url_is_run_view(self) -> None:
         state = get_state()
         state._active_run_id = "abc123"
         handle = nb.show()
         assert handle.url is not None
-        assert "view=run" in handle.url
+        # Bare `?run=...` is the full-run dashboard; no extra slice flags.
         assert "run=abc123" in handle.url
+        assert "view=" not in handle.url
         assert "<iframe" in handle._repr_html_()
 
-    def test_view_node_with_filters(self) -> None:
+    def test_node_alone_is_node_detail(self) -> None:
         state = get_state()
         state._active_run_id = "r1"
-        handle = nb.show(view="node", node="train")
-        assert handle.url is not None
-        assert "view=node" in handle.url
+        handle = nb.show(node="train")
+        assert "run=r1" in handle.url
         assert "node=train" in handle.url
 
-    def test_view_metric_with_name(self) -> None:
+    def test_single_metric(self) -> None:
         state = get_state()
         state._active_run_id = "r1"
-        handle = nb.show(view="metrics", node="train", name="loss")
-        assert "view=metrics" in handle.url
+        handle = nb.show(node="train", metric="loss")
+        assert "run=r1" in handle.url
         assert "node=train" in handle.url
-        assert "name=loss" in handle.url
+        assert "metric=loss" in handle.url
 
-    def test_invalid_view_raises(self) -> None:
+    def test_metrics_gallery(self) -> None:
+        state = get_state()
+        state._active_run_id = "r1"
+        handle = nb.show(metric=True)
+        assert "run=r1" in handle.url
+        assert "metrics" in handle.url
+        # Gallery emits the bare flag, not metric=
+        assert "metric=" not in handle.url
+
+    def test_dag_flag(self) -> None:
+        state = get_state()
+        state._active_run_id = "r1"
+        handle = nb.show(dag=True)
+        assert "dag" in handle.url
+
+    def test_logs_flag_with_node_filter(self) -> None:
+        state = get_state()
+        state._active_run_id = "r1"
+        handle = nb.show(node="train", logs=True)
+        assert "logs" in handle.url
+        assert "node=train" in handle.url
+
+    def test_image_and_audio_singular(self) -> None:
+        state = get_state()
+        state._active_run_id = "r1"
+        h_img = nb.show(image="hero.png")
+        assert "image=hero.png" in h_img.url
+        h_aud = nb.show(audio="bell.wav")
+        assert "audio=bell.wav" in h_aud.url
+
+    def test_at_most_one_slice(self) -> None:
         state = get_state()
         state._active_run_id = "r1"
         with pytest.raises(ValueError):
-            nb.show(view="bogus")
+            nb.show(metric=True, logs=True)
 
     def test_explicit_run_overrides_active(self) -> None:
         state = get_state()
