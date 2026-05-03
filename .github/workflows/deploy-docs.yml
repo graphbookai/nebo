@@ -1,22 +1,20 @@
-name: Deploy docs to graphbook
+name: Trigger graphbook docs deploy
 
 on:
   push:
     branches: [main]
     paths:
       - 'docs/**'
+      - 'nebo/**'
       - 'pyproject.toml'
       - 'uv.lock'
       - '.github/workflows/deploy-docs.yml'
   workflow_dispatch:
 
 jobs:
-  build-and-deploy:
+  dispatch:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout nebo
-        uses: actions/checkout@v4
-
       - name: Mint graphbook app token
         id: graphbook_token
         uses: actions/create-github-app-token@v1
@@ -26,43 +24,14 @@ jobs:
           owner: graphbookai
           repositories: graphbook
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-
-      - name: Install dependencies
-        run: uv sync --all-groups
-
-      - name: Build docs
-        run: uv run sphinx-build -b html -d _build/doctrees docs _site
-
-      - name: Checkout graphbook
-        uses: actions/checkout@v4
-        with:
-          repository: graphbookai/graphbook
-          token: ${{ steps.graphbook_token.outputs.token }}
-          path: graphbook
-          ref: main
-
-      - name: Sync built docs into graphbook/docs/nebo
+      - name: Dispatch nebo-docs-updated to graphbook
+        env:
+          GH_TOKEN: ${{ steps.graphbook_token.outputs.token }}
+          NEBO_SHA: ${{ github.sha }}
         run: |
-          rm -rf graphbook/docs/nebo
-          mkdir -p graphbook/docs/nebo
-          cp -r _site/. graphbook/docs/nebo/
-
-      - name: Commit and push
-        working-directory: graphbook
-        run: |
-          git config user.name "nebo-docs-bot"
-          git config user.email "nebo-docs-bot@users.noreply.github.com"
-          git add docs/nebo
-          if git diff --cached --quiet; then
-            echo "No doc changes to commit."
-            exit 0
-          fi
-          git commit -m "docs(nebo): sync from nebo@${{ github.sha }}"
-          git push origin main
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            /repos/graphbookai/graphbook/dispatches \
+            -f "event_type=nebo-docs-updated" \
+            -f "client_payload[nebo_sha]=${NEBO_SHA}"
