@@ -1,10 +1,29 @@
 import { useStore } from '@/store'
 import { useRunDuration } from '@/hooks/useRunDuration'
 import { SettingsPanel } from './SettingsPanel'
-import { ArrowLeft, Wifi, WifiOff } from 'lucide-react'
+import { ArrowLeft, Link2, Link2Off } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { RunStatusBadge } from '@/components/runs/RunStatusBadge'
+
+function ConnectionIndicator({ connected }: { connected: boolean }) {
+  return connected ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Link2 className="h-4 w-4 text-green-500" />
+      </TooltipTrigger>
+      <TooltipContent align="start">Connected</TooltipContent>
+    </Tooltip>
+  ) : (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Link2Off className="h-4 w-4 text-muted-foreground" />
+      </TooltipTrigger>
+      <TooltipContent align="start">Disconnected</TooltipContent>
+    </Tooltip>
+  )
+}
 
 export function MobileNav() {
   const selectedRunId = useStore(s => s.selectedRunId)
@@ -42,11 +61,7 @@ export function MobileNav() {
           </TabsList>
         </Tabs>
         <div className="flex items-center gap-1">
-          {connected ? (
-            <Wifi className="h-4 w-4 text-green-500" />
-          ) : (
-            <WifiOff className="h-4 w-4 text-muted-foreground" />
-          )}
+          <ConnectionIndicator connected={connected} />
           <SettingsPanel />
         </div>
       </div>
@@ -57,11 +72,7 @@ export function MobileNav() {
     <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-background">
       <h1 className="text-lg font-semibold">Nebo</h1>
       <div className="flex items-center gap-1">
-        {connected ? (
-          <Wifi className="h-4 w-4 text-green-500" />
-        ) : (
-          <WifiOff className="h-4 w-4 text-muted-foreground" />
-        )}
+        <ConnectionIndicator connected={connected} />
         <SettingsPanel />
       </div>
     </div>
