@@ -352,22 +352,100 @@ def cmd_mcp(args: argparse.Namespace) -> None:
     print(json.dumps(config, indent=2))
 
 
-def cmd_load(args: argparse.Namespace) -> None:
-    """Load a .nebo file into the daemon."""
-    import httpx
+def _replay_nebo_file_to_remote(filepath: str, base_url: str, api_token: str | None) -> None:
+    """Read a .nebo file locally and POST its events to a remote daemon.
 
-    port = args.port
+    The daemon's `POST /load` accepts a server-side filepath, which
+    doesn't exist when the daemon is on a Hugging Face Space and the
+    file is on the user's machine. This walks the file with the
+    existing reader and pushes events through `/events` instead — same
+    wire shape, same auth header, just a different ingress.
+    """
+    import json as _json
+    import urllib.request
+    from nebo.core.fileformat import NeboFileReader
+
+    headers = {"Content-Type": "application/json"}
+    if api_token:
+        headers["X-Nebo-Token"] = api_token
+
+    with open(filepath, "rb") as f:
+        reader = NeboFileReader(f)
+        meta = reader.read_header()
+        run_id = meta["run_id"]
+
+        # Open the run on the remote side. `store=False` so the remote
+        # daemon doesn't write a fresh .nebo copy alongside its other
+        # runs — the source-of-truth is the file we're uploading.
+        events: list[dict] = [{
+            "type": "run_start",
+            "data": {
+                "script_path": meta.get("script_path", os.path.basename(filepath)),
+                "store": False,
+            },
+        }]
+        while True:
+            entry = reader.read_next_entry()
+            if entry is None:
+                break
+            events.append({"type": entry["type"], **entry["payload"]})
+
+    # Chunk by encoded byte size so a single POST never balloons past
+    # what proxies / WAFs accept. 1 MB matches the SDK's own ceiling.
+    chunk_limit = 1024 * 1024
+    chunks: list[list[dict]] = [[]]
+    chunk_size = 0
+    for evt in events:
+        encoded_size = len(_json.dumps(evt))
+        if chunks[-1] and chunk_size + encoded_size > chunk_limit:
+            chunks.append([])
+            chunk_size = 0
+        chunks[-1].append(evt)
+        chunk_size += encoded_size
+
+    target = f"{base_url.rstrip('/')}/events?run_id={urllib.parse.quote(run_id)}"
+    sent = 0
+    for chunk in chunks:
+        if not chunk:
+            continue
+        data = _json.dumps(chunk).encode("utf-8")
+        req = urllib.request.Request(target, data=data, method="POST", headers=headers)
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            if resp.status != 200:
+                raise RuntimeError(f"HTTP {resp.status} from {target}")
+        sent += len(chunk)
+
+    print(f"Loaded: {filepath} → {base_url} (run_id={run_id}, {sent} events in {len(chunks)} batch(es))")
+
+
+def cmd_load(args: argparse.Namespace) -> None:
+    """Load a .nebo file into the daemon (local or remote)."""
     filepath = os.path.abspath(args.file)
     if not os.path.exists(filepath):
         print(f"Error: File not found: {filepath}")
         sys.exit(1)
 
+    url = getattr(args, "url", None) or os.environ.get("NEBO_URL")
+    api_token = getattr(args, "api_token", None) or os.environ.get("NEBO_API_TOKEN")
+
+    if url:
+        try:
+            _replay_nebo_file_to_remote(filepath, url, api_token)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+        return
+
+    import httpx
+    port = args.port
     if not _is_alive(port):
         print(f"Nebo daemon is not running on port {port}.")
         sys.exit(1)
-
-    url = f"http://localhost:{port}/load"
-    resp = httpx.post(url, json={"filepath": filepath}, timeout=10.0)
+    resp = httpx.post(
+        f"http://localhost:{port}/load",
+        json={"filepath": filepath},
+        timeout=10.0,
+    )
     data = resp.json()
     if "error" in data:
         print(f"Error: {data['error']}")
@@ -438,7 +516,9 @@ def main() -> None:
     # load
     p_load = subparsers.add_parser("load", help="Load a .nebo file into the daemon")
     p_load.add_argument("file", help="Path to .nebo file")
-    p_load.add_argument("--port", type=int, default=7861)
+    p_load.add_argument("--port", type=int, default=7861, help="Local daemon port (ignored if --url is set)")
+    p_load.add_argument("--url", help="Remote daemon URL (e.g. an HF Space). Reads file locally and replays events. Defaults to NEBO_URL env.")
+    p_load.add_argument("--api-token", help="Token for the remote daemon. Defaults to NEBO_API_TOKEN env.")
 
     # mcp
     p_mcp = subparsers.add_parser("mcp", help="Print MCP config for Claude Code")
