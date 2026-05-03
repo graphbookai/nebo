@@ -41,16 +41,16 @@ RUN groupadd --gid 1000 nebo \
 USER nebo
 WORKDIR /data
 
-ENV NEBO_DAEMON_PORT=2048 \
+ENV NEBO_DAEMON_PORT=7861 \
     PYTHONUNBUFFERED=1
 
-EXPOSE 2048
+EXPOSE 7861
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:2048/health', timeout=2).status == 200 else 1)" || exit 1
+    CMD python -c "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:7861/health', timeout=2).status == 200 else 1)" || exit 1
 
 CMD ["uvicorn", "nebo.server.daemon:create_daemon_app", \
      "--factory", \
      "--host", "0.0.0.0", \
-     "--port", "2048", \
+     "--port", "7861", \
      "--log-level", "warning"]
