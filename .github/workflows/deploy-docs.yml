@@ -17,6 +17,15 @@ jobs:
       - name: Checkout nebo
         uses: actions/checkout@v4
 
+      - name: Mint graphbook app token
+        id: graphbook_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.NEBO_DOCS_APP_ID }}
+          private-key: ${{ secrets.NEBO_DOCS_APP_PRIVATE_KEY }}
+          owner: graphbookai
+          repositories: graphbook
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -35,7 +44,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: graphbookai/graphbook
-          token: ${{ secrets.GRAPHBOOK_DOCS_TOKEN }}
+          token: ${{ steps.graphbook_token.outputs.token }}
           path: graphbook
           ref: main
 
