@@ -14,9 +14,12 @@ Nebo offers function-level logging capturing metrics, images, audio, and text at
 * Captured log types: text, metrics, images, audio, progress
 * Automatically infers a DAG from your call graph
 * CLI, MCP and agent skill for AI agent query support
+* MCP write tools so external agents can push metrics, images, audio, and text into a run
 * Fully self-contained log file per run
 * Rich terminal UI
 * Mobile-first web UI
+* Notebook embedding via `nb.show()` (Jupyter-renderable iframe of any slice of a run)
+* One-command deploy to a Hugging Face Space (`nebo deploy`) with public/private read+write modes
 
 Nebo is in active development and features will roll out according to its [core principles](https://docs.graphbook.ai).
 
@@ -251,10 +254,13 @@ def review(predictions):
 ### Start the daemon server
 
 ```bash
-nebo serve                  # foreground
-nebo serve -d               # background (daemon mode)
-nebo serve --port 3000      # custom port
-nebo serve --no-store       # disable .nebo file storage
+nebo serve                              # foreground
+nebo serve -d                           # background (daemon mode)
+nebo serve --port 3000                  # custom port
+nebo serve --no-store                   # disable .nebo file storage
+nebo serve --store-dir /data            # write .nebo files into /data
+nebo serve --api-token nb_…             # require a token on API requests
+nebo serve --read public --write private  # default access modes when token is set
 ```
 
 ### Run a pipeline
@@ -267,7 +273,32 @@ nebo run my_pipeline.py --name "experiment-1"
 ### Load a .nebo file
 
 ```bash
+# local daemon
 nebo load .nebo/2026-04-06_143000_run-1.nebo
+
+# remote daemon (e.g. an HF Space) — events read locally, replayed via /events
+nebo load run.nebo --url https://user-space.hf.space --api-token nb_…
+```
+
+### Deploy the daemon to a Hugging Face Space
+
+```bash
+pip install 'nebo[deploy]'
+huggingface-cli login
+
+# Public dashboard, private writes (defaults). Random token printed once.
+nebo deploy --space-id <user>/nebo-test --from-source
+
+# Fully private (read + write require token)
+nebo deploy --space-id <user>/private-dash --read private --write private
+```
+
+After the Space builds, point the SDK at it:
+
+```python
+import nebo as nb
+nb.init(url="https://<user>-nebo-test.hf.space", api_token="nb_…")
+# or set NEBO_URL / NEBO_API_TOKEN in the environment.
 ```
 
 ### Check status, logs, errors
@@ -294,16 +325,16 @@ nebo mcp   # print Claude Code MCP config
 
 ## MCP Tools for AI Agents
 
-Nebo exposes 15 MCP tools for querying and controlling pipelines from an AI agent (e.g., Claude). The daemon server must be running.
+Nebo exposes 21 MCP tools for querying, controlling, and writing data into pipelines from an AI agent (e.g., Claude). The daemon server must be running.
 
 ### Observation Tools
 
 | Tool | Description |
 |------|-------------|
 | `nebo_get_graph` | Full DAG structure: nodes, edges, execution counts |
-| `nebo_get_node_status` | Detailed status for one node: logs, metrics, errors, params |
-| `nebo_get_logs` | Recent log entries, filterable by node and run |
-| `nebo_get_metrics` | Metric time series for a node |
+| `nebo_get_loggable_status` | Detailed status for one loggable: logs, metrics, errors, params |
+| `nebo_get_logs` | Recent log entries, filterable by loggable and run |
+| `nebo_get_metrics` | Metric time series for a loggable |
 | `nebo_get_errors` | All errors with full tracebacks and node context |
 | `nebo_get_description` | Workflow description and all node docstrings |
 
@@ -314,12 +345,25 @@ Nebo exposes 15 MCP tools for querying and controlling pipelines from an AI agen
 | `nebo_run_pipeline` | Start a pipeline script, returns a run ID |
 | `nebo_stop_pipeline` | Stop a running pipeline by run ID |
 | `nebo_restart_pipeline` | Stop and re-run a pipeline with same args |
-| `nebo_get_run_status` | Status of a specific run (running/completed/crashed) |
+| `nebo_get_run_status` | Status of a specific run (running/completed/crashed) plus `metrics_index` for one-call metric discovery |
 | `nebo_get_run_history` | List all runs with outcomes and timestamps |
 | `nebo_get_source_code` | Read a pipeline source file |
 | `nebo_write_source_code` | Write or patch a pipeline source file |
 | `nebo_ask_user` | Send a question to the user via the terminal |
 | `nebo_wait_for_event` | Block until a pipeline event occurs or timeout elapses |
+| `nebo_load_file` | Load a `.nebo` file into the daemon for viewing and Q&A |
+| `nebo_chat` | Ask a question about a run (delegates to Claude Code CLI) |
+
+### Write Tools
+
+These mirror the SDK's `nb.log_*` helpers so an external agent can push data into a run without owning the SDK process. Each accepts a single entry or a list. URL-based media is fetched server-side and persisted alongside the run.
+
+| Tool | Description |
+|------|-------------|
+| `nebo_log_metric` | Push metric points (`line` / `bar` / `pie` / `scatter` / `histogram`) |
+| `nebo_log_image` | Push images by `url` or `data` (base64) |
+| `nebo_log_audio` | Push audio recordings by `url` or `data`, with optional `sr` |
+| `nebo_log_text` | Push text log entries (defaults to the global loggable) |
 
 ## .nebo File Format
 
@@ -342,6 +386,8 @@ Two execution modes:
 - **Local mode** (default): In-process only. No daemon needed.
 - **Server mode**: Events stream to a persistent daemon via HTTP. Use `nebo serve` to start the daemon, then `nebo run` to execute pipelines.
 
+The daemon can run on your laptop, in CI, or on a Hugging Face Space (`nebo deploy`). The same SDK code works against any of them — set `NEBO_URL` and `NEBO_API_TOKEN` to point at the target. When the daemon enforces auth, every API request must carry the token via the `X-Nebo-Token` header (HTTP) or the `?token=…` query param (browsers / WebSocket).
+
 ## API Reference
 
 ### Module: `nebo`
@@ -361,7 +407,8 @@ Two execution modes:
 | `track` | `track(iterable, name=None, total=None)` | Progress tracking |
 | `md` | `md(description: str)` | Set workflow description |
 | `ui` | `ui(layout, view, collapsed, minimap, theme)` | Set run-level UI defaults |
-| `init` | `init(port, host, mode, terminal, dag_strategy, flush_interval, store)` | Manual initialization |
+| `init` | `init(port, host, mode, terminal, dag_strategy, flush_interval, store, url=None, api_token=None)` | Manual initialization. Pass `url`+`api_token` (or set `NEBO_URL`/`NEBO_API_TOKEN` env vars) to target a remote daemon |
 | `ask` | `ask(question, options=None, timeout=None)` | Human-in-the-loop prompt |
+| `show` | `show(*, run=None, node=None, metric=None, image=None, audio=None, logs=False, dag=False, width="100%", height=600)` | Jupyter-renderable iframe of a slice of a run |
 | `get_state` | `get_state() -> SessionState` | Access the global state singleton |
 
