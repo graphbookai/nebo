@@ -469,7 +469,7 @@ def main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
         prog="nebo",
-        description="Nebo - Function-level logging for Python",
+        description="Nebo - Multi-modal logging for Python",
     )
     parser.add_argument("--port", type=int, default=7861, help="Daemon port (default: 7861)")
     subparsers = parser.add_subparsers(dest="command")
