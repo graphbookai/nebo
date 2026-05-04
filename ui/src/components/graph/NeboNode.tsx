@@ -2,7 +2,7 @@ import { memo, useCallback, useContext, useEffect, type CSSProperties } from 're
 import { Handle, NodeResizer, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react'
 import { useStore } from '@/store'
 import { cn } from '@/lib/utils'
-import { Maximize2 } from 'lucide-react'
+import { Maximize2, ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
 import { LoggableTabContainer } from '@/components/node-tabs/LoggableTabContainer'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useContextMenu } from '@/hooks/useContextMenu'
@@ -38,6 +38,8 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
   const resizingNodeId = useStore(s => s.resizingNodeId)
   const toggleNodeResize = useStore(s => s.toggleNodeResize)
   const updateNodeSize = useStore(s => s.updateNodeSize)
+  const collapseOverride = useStore(s => s.collapsedNodes.get(runId)?.get(nodeId))
+  const toggleNodeCollapsed = useStore(s => s.toggleNodeCollapsed)
   const hideTabsOnDrag = useStore(s => s.settings.hideTabsOnDrag)
   const draggingNodeId = useContext(DragContext)
   const isDragging = draggingNodeId === id
@@ -69,9 +71,12 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
   // as an explicit border color override so the hint has a visible effect
   // in the graph. Status colors (errors/running/ask) still win because they
   // are derived from live run state.
-  const uiHints = (nodeInfo.ui_hints ?? null) as { color?: string } | null
+  const uiHints = (nodeInfo.ui_hints ?? null) as { color?: string; collapsed?: boolean } | null
   const hintColor = uiHints?.color
   const hasStatusColor = hasErrors || hasPendingAsk || isRunning
+  // Collapsed = explicit user toggle if present, otherwise the SDK's
+  // ui_hints.collapsed seed.
+  const isCollapsed = collapseOverride ?? uiHints?.collapsed === true
   // The store already carries both width and height (set by NodeResizer's
   // onResize callback). Earlier we only applied `width` to nodeStyle, so
   // dragging the south handle bumped the stored height but the DOM never
@@ -81,8 +86,12 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
       ? {
           width: storedSize.width,
           minWidth: storedSize.width,
-          height: storedSize.height,
-          minHeight: storedSize.height,
+          // When collapsed, drop the stored height so the card naturally
+          // shrinks to header height instead of leaving a tall empty
+          // gap below the title.
+          ...(isCollapsed
+            ? {}
+            : { height: storedSize.height, minHeight: storedSize.height }),
         }
       : {}),
     ...(hintColor && !hasStatusColor ? { borderColor: hintColor } : {}),
@@ -101,14 +110,22 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
       style={nodeStyle}
       {...contextMenu.handlers}
     >
-      {isResizing && (
+      {isResizing && !isCollapsed && (
         <NodeResizer minWidth={200} minHeight={80} onResize={onResize} />
       )}
       <ContextMenu isOpen={contextMenu.isOpen} position={contextMenu.position} onClose={contextMenu.close}>
         <ContextMenuItem
           label="Resize"
           icon={<Maximize2 className="w-4 h-4" />}
+          disabled={isCollapsed}
           onClick={() => { toggleNodeResize(id); contextMenu.close() }}
+        />
+        <ContextMenuItem
+          label={isCollapsed ? 'Expand' : 'Collapse'}
+          icon={isCollapsed
+            ? <ChevronsUpDown className="w-4 h-4" />
+            : <ChevronsDownUp className="w-4 h-4" />}
+          onClick={() => { toggleNodeCollapsed(runId, nodeId); contextMenu.close() }}
         />
       </ContextMenu>
       {!nodeInfo.is_source && (
@@ -171,15 +188,17 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
       </div>
 
       {/* Tab content — rendered only when this node has data to show, and
-          temporarily hidden during drag for performance. */}
-      {hasContent && !(isDragging && hideTabsOnDrag) && (
+          temporarily hidden during drag for performance. The collapsed
+          state (from the node context menu, or seeded by ui_hints.collapsed)
+          fully suppresses the tab strip too. */}
+      {hasContent && !isCollapsed && !(isDragging && hideTabsOnDrag) && (
         <div className="border-t border-border" onWheelCapture={e => e.stopPropagation()}>
           <ErrorBoundary label={`Node ${nodeId}`}>
             <LoggableTabContainer runId={runId} loggableId={nodeId} />
           </ErrorBoundary>
         </div>
       )}
-      {hasContent && isDragging && hideTabsOnDrag && (
+      {hasContent && !isCollapsed && isDragging && hideTabsOnDrag && (
         <div className="border-t border-border h-[40px]" />
       )}
 

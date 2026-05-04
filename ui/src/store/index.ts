@@ -204,6 +204,13 @@ interface NeboStore {
   toggleNodeResize: (nodeId: string) => void
   updateNodeSize: (runId: string, nodeId: string, size: { width: number; height: number }) => void
 
+  // User overrides for node collapsed state, per (run, node). Absence
+  // means "fall back to the ui_hints.collapsed value the SDK sent for
+  // that node" — so `@nb.fn(ui={"collapsed": True})` seeds the initial
+  // state but a manual toggle takes precedence.
+  collapsedNodes: Map<string, Map<string, boolean>>
+  toggleNodeCollapsed: (runId: string, nodeId: string) => void
+
   // View mode (desktop preference; mobile defaults to 'grid' at render time)
   viewMode: 'graph' | 'grid'
   setViewMode: (mode: 'graph' | 'grid') => void
@@ -400,6 +407,28 @@ export const useStore = create<NeboStore>((set, get) => ({
     inner.set(nodeId, size)
     outer.set(runId, inner)
     return { nodeSizes: outer }
+  }),
+
+  collapsedNodes: new Map(),
+  toggleNodeCollapsed: (runId, nodeId) => set(state => {
+    const outer = new Map(state.collapsedNodes)
+    const inner = new Map(outer.get(runId) ?? [])
+    const current = inner.get(nodeId)
+    let next: boolean
+    if (current === undefined) {
+      // No prior override — pull the hint default off the registered
+      // node and flip it, so the first toggle always changes the
+      // visible state regardless of what the SDK seeded.
+      const hint = state.runs.get(runId)?.graph?.nodes[nodeId]?.ui_hints
+      const hintCollapsed = !!(hint && (hint as { collapsed?: unknown }).collapsed === true)
+      next = !hintCollapsed
+    } else {
+      next = !current
+    }
+    inner.set(nodeId, next)
+    outer.set(runId, inner)
+    // Node height is changing — re-flow the DAG.
+    return { collapsedNodes: outer, layoutTrigger: state.layoutTrigger + 1 }
   }),
 
   // Default mobile to grid (rendered as "List") since DAG panning is awkward
