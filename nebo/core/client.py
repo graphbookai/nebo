@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import atexit
 import json
+import logging
 import os
 import queue
 import sys
@@ -20,6 +21,9 @@ import urllib.request
 import urllib.error
 from dataclasses import dataclass
 from typing import Any, Optional
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -244,6 +248,45 @@ class DaemonClient:
             chunks.append(current)
         return chunks
 
+    def _partition_serializable(
+        self, batch: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Split events into (good, bad) by whether `json.dumps` succeeds.
+
+        Quarantines events that JSON can't encode (most commonly a set
+        value snuck into a payload) so that one bad event cannot poison
+        every subsequent flush. Bad events MUST be dropped at the call
+        site — re-buffering them re-triggers the same TypeError forever.
+        """
+        good: list[dict[str, Any]] = []
+        bad: list[dict[str, Any]] = []
+        for event in batch:
+            try:
+                json.dumps(event)
+            except (TypeError, ValueError):
+                bad.append(event)
+                continue
+            good.append(event)
+        return good, bad
+
+    def _warn_unserializable(self, bad: list[dict[str, Any]]) -> None:
+        """Log a warning summarising dropped un-serializable events."""
+        if not bad:
+            return
+        sample = bad[0]
+        if isinstance(sample, dict):
+            event_type = sample.get("type", "<unknown>")
+            keys = list(sample.keys())
+        else:
+            event_type = type(sample).__name__
+            keys = []
+        logger.warning(
+            "nebo: dropping %d un-serializable event(s) — most often a "
+            "`set` value (e.g. `@nb.fn(ui={\"a\", \"b\"})` instead of a "
+            "dict). First offender type=%r keys=%s.",
+            len(bad), event_type, keys,
+        )
+
     def _drain_with_retry(self, deadline: float) -> DrainResult:
         """Drain queue + buffer to the daemon, retrying until deadline.
 
@@ -263,6 +306,15 @@ class DaemonClient:
 
             pending = self._buffer[:]
             self._buffer.clear()
+
+            # Partition before chunking — `_chunk_buffer` itself runs
+            # `json.dumps` per event and would raise uncaught on poison.
+            pending, bad = self._partition_serializable(pending)
+            if bad:
+                self._warn_unserializable(bad)
+            if not pending:
+                continue
+
             chunks = self._chunk_buffer(pending, self._MAX_CHUNK_BYTES)
 
             failed_at: Optional[int] = None
@@ -333,6 +385,14 @@ class DaemonClient:
 
         batch = self._buffer[:]
         self._buffer.clear()
+
+        # Drop un-serializable events before posting. Re-buffering them
+        # would re-poison every subsequent flush — see issue.md.
+        batch, bad = self._partition_serializable(batch)
+        if bad:
+            self._warn_unserializable(bad)
+        if not batch:
+            return True
 
         ok, _ = self._post_batch(batch)
         if not ok:

@@ -92,6 +92,16 @@ def fn(
     Returns:
         The decorated function or class.
     """
+    # Reject non-dict `ui` at decoration time. The most common form of
+    # this typo — `ui={"default_tab", "metrics"}` (a set, no colon) —
+    # otherwise reaches the wire as an un-encodable `loggable_register`
+    # event and silently drops every later event in the run.
+    if ui is not None and not isinstance(ui, dict):
+        raise TypeError(
+            f"@nb.fn(ui=...) expects a dict, got {type(ui).__name__}. "
+            f'Did you mean ui={{"default_tab": "metrics"}} (note the colon)?'
+        )
+
     def decorator(f):
         if inspect.isclass(f):
             return _decorate_class(f, depends_on, pausable)

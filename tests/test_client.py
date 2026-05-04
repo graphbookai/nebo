@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any
 
@@ -131,6 +132,175 @@ class TestDrainQueueIntoBuffer:
     def test_no_op_on_empty_queue(self) -> None:
         client = DaemonClient()
         client._drain_queue_into_buffer()
+        assert client._buffer == []
+
+
+class TestPartitionSerializable:
+    """`_partition_serializable` underpins the poison-batch quarantine.
+
+    Without it, a single un-serializable event (e.g. a `set` value snuck
+    into a payload via `@nb.fn(ui={"a", "b"})`) re-buffers forever and
+    every subsequent event is buried behind it.
+    """
+
+    def test_all_serializable_passes_through(self) -> None:
+        client = DaemonClient()
+        events = [{"e": 1}, {"e": 2}, {"e": 3}]
+        good, bad = client._partition_serializable(events)
+        assert good == events
+        assert bad == []
+
+    def test_separates_set_value(self) -> None:
+        client = DaemonClient()
+        events = [
+            {"type": "log", "id": 1},
+            {"type": "loggable_register", "ui_hints": {"default_tab", "metrics"}},
+            {"type": "log", "id": 2},
+        ]
+        good, bad = client._partition_serializable(events)
+        assert good == [{"type": "log", "id": 1}, {"type": "log", "id": 2}]
+        assert len(bad) == 1
+        assert bad[0]["ui_hints"] == {"default_tab", "metrics"}
+
+
+class TestDoFlushQuarantine:
+    """Regression tests for the poison-batch bug.
+
+    Prior behaviour: `_post_batch` raised TypeError on `json.dumps`,
+    `_do_flush` re-buffered the entire batch via `self._buffer = batch +
+    self._buffer`, the next flush failed identically, and every event
+    queued after the bad one was lost forever — no warning, no error.
+    """
+
+    def test_unserializable_event_does_not_block_good_events(self) -> None:
+        client = DaemonClient()
+        client._buffer = [
+            {"type": "log", "id": 1},
+            {"type": "loggable_register", "ui_hints": {"a", "b"}},
+            {"type": "log", "id": 2},
+        ]
+        sent_batches: list[list[dict[str, Any]]] = []
+
+        def fake_post(batch):
+            sent_batches.append(batch)
+            return True, None
+
+        client._post_batch = fake_post  # type: ignore[method-assign]
+
+        ok = client._do_flush()
+
+        assert ok is True
+        flat = [e for b in sent_batches for e in b]
+        assert flat == [
+            {"type": "log", "id": 1},
+            {"type": "log", "id": 2},
+        ]
+        assert client._buffer == []
+
+    def test_all_unserializable_returns_success_without_post(self) -> None:
+        client = DaemonClient()
+        client._buffer = [{"type": "x", "v": {"a"}}]
+        called: list[Any] = []
+
+        def fake_post(batch):
+            called.append(batch)
+            return True, None
+
+        client._post_batch = fake_post  # type: ignore[method-assign]
+
+        ok = client._do_flush()
+
+        assert ok is True
+        assert called == []
+        assert client._buffer == []
+
+    def test_warning_logged_when_dropping_unserializable(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        client = DaemonClient()
+        client._buffer = [{"type": "loggable_register", "v": {"a"}}]
+        client._post_batch = lambda batch: (True, None)  # type: ignore[method-assign]
+
+        with caplog.at_level(logging.WARNING, logger="nebo.core.client"):
+            client._do_flush()
+
+        assert any(
+            "un-serializable" in rec.getMessage() for rec in caplog.records
+        ), f"expected un-serializable warning, got {[r.getMessage() for r in caplog.records]}"
+
+    def test_network_failure_re_buffers_only_good_events(self) -> None:
+        """Bad events MUST NOT be re-buffered on network failure — that's
+        exactly how the poison loop happens.
+        """
+        client = DaemonClient()
+        client._buffer = [
+            {"type": "log", "id": 1},
+            {"type": "x", "v": {"a"}},
+            {"type": "log", "id": 2},
+        ]
+        client._post_batch = lambda batch: (False, RuntimeError("net"))  # type: ignore[method-assign]
+
+        ok = client._do_flush()
+
+        assert ok is False
+        assert client._buffer == [
+            {"type": "log", "id": 1},
+            {"type": "log", "id": 2},
+        ]
+
+
+class TestDrainWithRetryQuarantine:
+    """`_drain_with_retry` is the shutdown / explicit-flush path. It must
+    also keep moving past un-serializable events. Prior behaviour was
+    even worse than `_do_flush`: `_chunk_buffer` calls `json.dumps` per
+    event with no exception handling, so a poisoned buffer would raise
+    uncaught from inside the atexit drain.
+    """
+
+    def test_drains_around_unserializable_event(self) -> None:
+        client = DaemonClient()
+        client._buffer = [
+            {"type": "log", "id": 1},
+            {"type": "x", "v": {"a", "b"}},
+            {"type": "log", "id": 2},
+        ]
+        sent: list[list[dict[str, Any]]] = []
+
+        def fake_post(batch):
+            sent.append(batch)
+            return True, None
+
+        client._post_batch = fake_post  # type: ignore[method-assign]
+
+        deadline = time.monotonic() + 5.0
+        result = client._drain_with_retry(deadline)
+
+        flat = [e for batch in sent for e in batch]
+        assert flat == [
+            {"type": "log", "id": 1},
+            {"type": "log", "id": 2},
+        ]
+        assert result.sent == 2
+        assert result.dropped == 0
+        assert client._buffer == []
+
+    def test_all_unserializable_buffer_drains_to_empty(self) -> None:
+        client = DaemonClient()
+        client._buffer = [{"v": {"a"}}, {"v": frozenset()}]
+        called: list[Any] = []
+
+        def fake_post(batch):
+            called.append(batch)
+            return True, None
+
+        client._post_batch = fake_post  # type: ignore[method-assign]
+
+        deadline = time.monotonic() + 5.0
+        result = client._drain_with_retry(deadline)
+
+        assert called == []
+        assert result.sent == 0
+        assert result.dropped == 0
         assert client._buffer == []
 
 
