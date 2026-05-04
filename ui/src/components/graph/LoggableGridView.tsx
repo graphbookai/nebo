@@ -88,22 +88,11 @@ function MetricCardBody({
   inModal: boolean
 }) {
   const runColor = useStore(s => s.runColors.get(runId)) ?? DEFAULT_RUN_COLOR
-  const timelineFilter = useTimelineFilter()
-  // Line metrics ignore the scrubber — same as the DAG view. The whole
-  // value of a line chart is seeing the trajectory across steps, so
-  // collapsing to one step would just leave a single dot. Bar/pie/
-  // scatter/histogram still filter, since each emission is its own
-  // chart and scrubbing picks the right snapshot.
-  const filteredSeries = useMemo<LoggableMetricSeries>(() => {
-    if (!timelineFilter || series.type === 'line') return series
-    return {
-      ...series,
-      entries: series.entries.filter(e =>
-        timelineFilter.matchEntry({ timestamp: e.timestamp, step: e.step }),
-      ),
-    }
-  }, [series, timelineFilter])
-  if (filteredSeries.entries.length === 0) return <EmptyForRange />
+  // The step scrubber doesn't filter metric entries here. Line/scatter
+  // are accumulating and their renderers mark the active step inline
+  // (vertical guideline / dimmed non-matching points); bar/pie/histogram
+  // are stepless snapshots. Filtering would only ever hide context.
+  if (series.entries.length === 0) return <EmptyForRange />
 
   // `MetricBlock fill` resolves the chart height against its parent's
   // height. The grid card pins that to CARD_HEIGHT_PX, so it works
@@ -114,11 +103,11 @@ function MetricCardBody({
   if (inModal) {
     return (
       <div className="h-[60vh] flex flex-col min-h-0">
-        <MetricBlock name={name} series={filteredSeries} color={runColor} fill />
+        <MetricBlock name={name} series={series} color={runColor} fill />
       </div>
     )
   }
-  return <MetricBlock name={name} series={filteredSeries} color={runColor} fill />
+  return <MetricBlock name={name} series={series} color={runColor} fill />
 }
 
 function ImageCardBody({

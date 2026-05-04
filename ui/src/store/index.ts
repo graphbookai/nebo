@@ -645,12 +645,12 @@ export const useStore = create<NeboStore>((set, get) => ({
       const existing = run.loggableMetrics[loggableId][name]
       if (!existing) {
         run.loggableMetrics[loggableId][name] = { type, entries: [entry] }
-      } else if (type === 'line') {
+      } else if (type === 'line' || type === 'scatter') {
         existing.entries = [...existing.entries, entry]
       } else {
-        // Bar / pie / scatter / histogram are snapshots — re-emitting
-        // the same name replaces the prior value rather than stacking
-        // another entry, mirroring the daemon's persistence model.
+        // Bar / pie / histogram are snapshots — re-emitting the same
+        // name replaces the prior value rather than stacking another
+        // entry, mirroring the daemon's persistence model.
         existing.entries = [entry]
       }
     }

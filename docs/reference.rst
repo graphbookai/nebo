@@ -55,10 +55,9 @@ Logging Functions
 
 .. function:: nb.log_line(name, value, *, step=None, tags=None)
 
-   Log a scalar line-chart datapoint. Line is the only chart type
-   that **accumulates** — repeated calls with the same name append
-   another point to the series. ``step`` auto-increments per
-   ``(loggable, name)`` when omitted.
+   Log a scalar line-chart datapoint. Line **accumulates** — repeated
+   calls with the same name append another point to the series.
+   ``step`` auto-increments per ``(loggable, name)`` when omitted.
 
    :param name: Metric name.
    :param value: A scalar ``int | float`` (NumPy/PyTorch scalars are accepted).
@@ -75,13 +74,19 @@ Logging Functions
    Log a pie-chart snapshot. ``value`` is a dict ``{label: number}``.
    Repeated calls with the same name **overwrite** the prior value.
 
-.. function:: nb.log_scatter(name, value, *, colors=False)
+.. function:: nb.log_scatter(name, value, *, step=None, tags=None, colors=False)
 
-   Log a labeled scatter snapshot. ``value`` is a dict
+   Log a labeled scatter emission. ``value`` is a dict
    ``{label: list[(x, y)]}`` — every label becomes its own series on
-   the same chart and is toggleable via the UI chip row. Repeated
-   calls with the same name **overwrite** the prior value.
+   the same chart and is toggleable via the UI chip row. Scatter
+   **accumulates**: repeated calls with the same name append more
+   points to the same plot. ``step`` auto-increments per
+   ``(loggable, name)`` when omitted, so each emission can be
+   correlated to a moment in the run (e.g. clicking a point in the UI
+   filters logs/images/audio to that step).
 
+   :param step: Optional step counter for this emission.
+   :param tags: List of strings attached to this emission for UI filtering.
    :param colors: When ``True``, distinguish labels by palette color
        (in addition to the per-label shape). Default ``False``
        (every label uses the run color, distinguished by shape only).
@@ -108,16 +113,26 @@ The chart type locks on first emission per ``(loggable, name)`` pair —
 mixing ``log_line`` and ``log_bar`` for the same metric name raises
 ``ValueError``.
 
-Steps and tags only apply to ``log_line``. The four snapshot helpers
-ignore them; passing ``step=`` or ``tags=`` to ``log_bar`` /
-``log_pie`` / ``log_scatter`` / ``log_histogram`` is a ``TypeError``.
+Steps and tags apply to the accumulating helpers (``log_line`` and
+``log_scatter``) only. The snapshot helpers ignore them; passing
+``step=`` or ``tags=`` to ``log_bar`` / ``log_pie`` / ``log_histogram``
+is a ``TypeError``.
+
+Clicking any point on a line or scatter chart in the web UI sets a
+global step filter: the timeline scrubber switches to step mode, the
+clicked step is highlighted on every line/scatter chart (vertical
+guideline + value bubble for line, dimmed non-matching points for
+scatter), and the per-node logs/images/audio panels filter to entries
+whose ``step`` matches. Click the same point again or double-click the
+scrubber to clear the filter.
 
 Example::
 
     nb.log_line("loss", 0.5)
     nb.log_bar("counts", {"cat": 3, "dog": 5})
-    nb.log_scatter("embed_2d", {"inliers": [(0.1, 0.2), (0.3, 0.4)],
-                                 "outliers": [(2.0, -1.0)]})
+    # Accumulating scatter — call once per emission; step auto-advances.
+    for x, y in points:
+        nb.log_scatter("embed_2d", {"inliers": [(x, y)]})
     nb.log_histogram(
         "latencies",
         {"p50": [...], "p95": [...], "p99": [...]},

@@ -353,10 +353,10 @@ class DaemonState:
             }
             if "colors" in event:
                 new_entry["colors"] = bool(event["colors"])
-            # Line metrics accumulate over time; every other chart type
-            # is a snapshot — re-emitting the same name overwrites the
+            # Line and scatter accumulate over time; bar/pie/histogram
+            # are snapshots — re-emitting the same name overwrites the
             # prior value rather than stacking another entry.
-            if mtype == "line":
+            if mtype in ("line", "scatter"):
                 series["entries"].append(new_entry)
             else:
                 series["entries"] = [new_entry]

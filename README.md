@@ -160,7 +160,7 @@ def train(data):
 
 One function per chart type. The chart type locks on first emission per `(loggable, name)` pair — reusing a name with a different `log_*` function raises `ValueError`.
 
-`log_line` is the only chart type that **accumulates** over time (every call appends another step). The other four are **snapshots** — re-emitting the same name overwrites the prior value, and they don't take `step` or `tags` kwargs.
+`log_line` and `log_scatter` **accumulate** over time — every call appends another emission with an auto-incrementing `step`. `log_bar` / `log_pie` / `log_histogram` are **snapshots** — re-emitting the same name overwrites the prior value, and they don't take `step` or `tags` kwargs.
 
 ```python
 @nb.fn()
@@ -171,13 +171,13 @@ def train(model, data):
         nb.log_line("loss", loss)                                  # scalar
         nb.log_line("lr", 3e-4, tags=["main"])                     # tagged for UI filter
 
+    # Scatter — accumulates too; one or more {label: [(x, y), ...]} per call
+    for i, (point, cluster) in enumerate(detections):
+        nb.log_scatter("embed_2d", {cluster: [point]})             # step auto-advances
+
     # Snapshots — overwrite on re-emission, no step / tags
     nb.log_bar("counts", {"cat": 3, "dog": 5})                     # {label: number}
     nb.log_pie("budget", {"prompt": 800, "completion": 200})       # {label: number}
-    nb.log_scatter("embed_2d", {                                   # {label: list[(x, y)]}
-        "inliers":  [(0.1, 0.2), (0.3, 0.4)],
-        "outliers": [(2.0, -1.0)],
-    })
     nb.log_histogram(                                              # {label: list[number]}
         "latencies",
         {"p50": [...], "p95": [...], "p99": [...]},
@@ -186,6 +186,8 @@ def train(model, data):
 ```
 
 `log_scatter` and `log_histogram` accept `colors: bool = False`. With `colors=True` the UI distinguishes labels using the shared palette (in addition to per-label shapes for scatter); not recommended in comparison views, where the palette is reserved for run identity.
+
+Clicking any datapoint on a line or scatter chart in the web UI sets a global step filter — the timeline scrubber switches to Step mode, the active step is marked on every line/scatter chart, and the per-node logs/images/audio panels filter to entries whose `step` matches. Click the same point again or double-click the scrubber to clear.
 
 ### `nb.log_cfg(cfg)` -- Configuration logging
 
@@ -399,7 +401,7 @@ The daemon can run on your laptop, in CI, or on a Hugging Face Space (`nebo depl
 | `log_line` | `log_line(name, value, *, step=None, tags=None)` | Log a scalar line-chart datapoint |
 | `log_bar` | `log_bar(name, value)` | Bar-chart snapshot (`{label: number}`); overwrites |
 | `log_pie` | `log_pie(name, value)` | Pie-chart snapshot (`{label: number}`); overwrites |
-| `log_scatter` | `log_scatter(name, value, *, colors=False)` | Labeled scatter snapshot (`{label: list[(x, y)]}`); overwrites |
+| `log_scatter` | `log_scatter(name, value, *, step=None, tags=None, colors=False)` | Labeled scatter (`{label: list[(x, y)]}`); accumulates, step auto-increments |
 | `log_histogram` | `log_histogram(name, value, *, colors=False)` | Labeled histogram snapshot (`{label: list[number]}`); overwrites |
 | `log_cfg` | `log_cfg(cfg: dict)` | Log node configuration |
 | `log_image` | `log_image(image, *, name=None, step=None, points=None, boxes=None, circles=None, polygons=None, bitmask=None)` | Log an image (optionally with geometric labels) |

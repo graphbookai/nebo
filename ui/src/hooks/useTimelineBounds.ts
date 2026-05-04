@@ -32,6 +32,7 @@ export function useTimelineBounds(runId: string | null): TimelineBounds {
   const logs = run?.logs
   const loggableImages = run?.loggableImages
   const loggableAudio = run?.loggableAudio
+  const loggableMetrics = run?.loggableMetrics
 
   return useMemo(() => {
     let minTime = Infinity
@@ -101,6 +102,21 @@ export function useTimelineBounds(runId: string | null): TimelineBounds {
       }
     }
 
+    // Accumulating metrics (line, scatter) also contribute steps so the
+    // scrubber's step track covers any step a user can click into from a
+    // chart. We don't push metric emissions into `events` — those dots
+    // are reserved for log/image/audio markers.
+    if (loggableMetrics) {
+      for (const series of Object.values(loggableMetrics)) {
+        for (const m of Object.values(series)) {
+          if (m.type !== 'line' && m.type !== 'scatter') continue
+          for (const e of m.entries) {
+            trackStep(e.step)
+          }
+        }
+      }
+    }
+
     if (minTime === Infinity) minTime = 0
     if (maxTime === -Infinity) maxTime = 0
     if (minStep === Infinity) minStep = 0
@@ -112,5 +128,5 @@ export function useTimelineBounds(runId: string | null): TimelineBounds {
     }
 
     return { minTime, maxTime, minStep, maxStep, hasSteps, events: rawEvents }
-  }, [logs, loggableImages, loggableAudio])
+  }, [logs, loggableImages, loggableAudio, loggableMetrics])
 }

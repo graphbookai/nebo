@@ -156,9 +156,9 @@ distributions, ``nb.log_histogram`` for labeled distributions, and
 on first emission per ``(loggable, name)`` pair, so reusing a name
 with a different ``log_*`` function raises ``ValueError``.
 
-``log_line`` is the only chart type that accumulates over time.
-Re-emitting it with the same name appends another step; ``step``
-auto-increments if omitted:
+``log_line`` and ``log_scatter`` **accumulate** over time —
+re-emitting with the same name appends to the series. Both auto-
+increment ``step`` per ``(loggable, name)`` when omitted:
 
 .. code-block:: python
 
@@ -170,18 +170,20 @@ auto-increments if omitted:
             nb.log_line("loss", loss)
             nb.log_line("accuracy", accuracy)
 
-``log_bar``, ``log_pie``, ``log_scatter``, and ``log_histogram`` are
-**snapshots** — every re-emission overwrites the prior value. They
-don't accept ``step`` or ``tags`` (those concepts only make sense for
-line). ``log_scatter`` takes a labeled point dict and lets the UI
-toggle each label on or off:
+``log_scatter`` takes a labeled point dict and lets the UI toggle each
+label on or off via the chip row above the chart. Repeated calls add
+more points to the same plot, with each emission's points tagged with
+the auto-incrementing step:
 
 .. code-block:: python
 
-    nb.log_scatter("embed_2d", {
-        "inliers":  [(0.1, 0.2), (0.3, 0.4)],
-        "outliers": [(2.0, -1.0)],
-    })
+    for i, (point, cluster) in enumerate(detections):
+        nb.log_scatter("embed_2d", {cluster: [point]})  # step auto-advances
+
+``log_bar``, ``log_pie``, and ``log_histogram`` are **snapshots** —
+every re-emission overwrites the prior value. They don't accept
+``step`` or ``tags`` (those concepts apply to the accumulating
+helpers).
 
 ``log_histogram`` accepts ``{label: list[number]}`` — every label is
 its own distribution, all binned against a shared range so overlaps
@@ -190,6 +192,19 @@ line up. ``log_scatter`` and ``log_histogram`` also accept
 by palette color (in addition to per-label shapes for scatter), but
 is not recommended in comparison views where the palette is reserved
 for run identity.
+
+Step filtering across panels
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Clicking any datapoint on a line or scatter chart in the web UI sets
+a global step filter. The timeline scrubber switches from Time mode
+to Step mode automatically, the active step is marked on every
+line/scatter chart (a vertical guideline + value bubble for line,
+dimmed non-matching points for scatter), and the per-node logs,
+images, and audio panels filter to entries whose ``step`` matches.
+Click the same point again, or double-click the scrubber, to clear
+the filter. Bar/pie/histogram are stepless and stay visible when the
+filter is active.
 
 Images
 ------

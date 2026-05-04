@@ -3,13 +3,14 @@
 Demonstrates ``nb.log_line``, ``nb.log_bar``, ``nb.log_pie``,
 ``nb.log_scatter``, and ``nb.log_histogram``.
 
-* ``log_line`` is the only chart type that accumulates over time —
-  every call appends another step to the series, and the ``tags`` /
-  ``step`` kwargs partition the emissions for chip-based UI filtering.
+* ``log_line`` and ``log_scatter`` **accumulate** over time — every
+  call appends another emission; ``step`` auto-increments per
+  ``(loggable, name)`` and ``tags`` partition emissions for
+  chip-based UI filtering.
 
-* ``log_bar``, ``log_pie``, ``log_scatter``, and ``log_histogram`` are
-  **snapshots**: re-emitting the same metric name overwrites the
-  prior value. They have no concept of step or tags.
+* ``log_bar``, ``log_pie``, and ``log_histogram`` are **snapshots**:
+  re-emitting the same metric name overwrites the prior value. They
+  have no concept of step or tags.
 
 * ``log_scatter`` and ``log_histogram`` accept a ``colors`` kwarg
   (default ``False``). When ``True`` the UI colors labels using the
@@ -90,20 +91,25 @@ def pie_demo() -> None:
 
 @nb.fn(ui={"default_tab": "metrics"})
 def scatter_demo() -> None:
-    """Scatter: one labeled-cluster snapshot.
+    """Scatter: an accumulating labeled-cluster plot.
 
-    The value is ``{label: list[(x, y)]}`` — every label becomes its
-    own series on the same chart, distinguished by shape, and
-    toggleable via the UI chip row.
+    Each emission's value is ``{label: list[(x, y)]}`` — every label
+    becomes its own series on the same chart, distinguished by shape,
+    and toggleable via the UI chip row. Repeated calls accumulate
+    points on the same plot, with ``step`` auto-incrementing per
+    emission so each point can be correlated to logs/images at the
+    same step (clicking a point in the UI filters the rest of the
+    panels accordingly).
     """
     rng = _rng(4)
-    clusters = {}
-    for label in ("inliers", "outliers"):
-        slope = float(rng.uniform(0.1, 1.0))
-        xs = rng.normal(0, 1, size=40).tolist()
-        ys = [x * slope + float(rng.normal(0, 0.3)) for x in xs]
-        clusters[label] = list(zip(xs, ys))
-    nb.log_scatter("embed_2d", clusters, colors=True)
+    slopes = {label: float(rng.uniform(0.1, 1.0)) for label in ("inliers", "outliers")}
+    for _ in range(40):
+        emission: dict[str, list[tuple[float, float]]] = {}
+        for label, slope in slopes.items():
+            x = float(rng.normal(0, 1))
+            y = x * slope + float(rng.normal(0, 0.3))
+            emission[label] = [(x, y)]
+        nb.log_scatter("embed_2d", emission, colors=True)
 
 
 @nb.fn(ui={"default_tab": "metrics"})
@@ -131,15 +137,13 @@ def histogram_demo() -> None:
 def main() -> None:
     nb.md(
         "# Metrics gallery\n\n"
-        "`log_line` is the only chart type that accumulates over "
-        "steps; the four snapshot helpers (`log_bar`, `log_pie`, "
-        "`log_scatter`, `log_histogram`) overwrite on re-emission and "
-        "have no concept of step or tags.\n\n"
+        "`log_line` and `log_scatter` accumulate over steps; the "
+        "snapshot helpers (`log_bar`, `log_pie`, `log_histogram`) "
+        "overwrite on re-emission and have no concept of step or "
+        "tags. Click any line/scatter datapoint to filter the rest "
+        "of the UI to that step.\n\n"
         "`log_scatter` / `log_histogram` accept `colors=True` to "
-        "distinguish labels using the shared palette. The histogram "
-        "demo uses `colors=True` to make the three percentiles legible; "
-        "scatter sticks with `colors=False` (the default) so shape "
-        "alone carries the label distinction."
+        "distinguish labels using the shared palette."
     )
     nb.ui(tracker="step")
     line_demo()

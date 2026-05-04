@@ -264,7 +264,7 @@ def _emit_metric(
             f"first; cannot change to type={mtype!r}"
         )
 
-    if mtype == "line":
+    if mtype in ("line", "scatter"):
         if step is None:
             step = cur.next_step
         # The next auto-step always advances past the highest step seen,
@@ -272,9 +272,9 @@ def _emit_metric(
         # rather than reverting to the cursor's previous count.
         cur.next_step = max(cur.next_step, step + 1)
     else:
-        # Snapshot types ignore step/tags entirely — those concepts only
-        # make sense for line metrics. Send `None` so old replay paths
-        # don't accidentally honor stale values.
+        # Snapshot types (bar/pie/histogram) ignore step/tags entirely —
+        # those concepts only make sense for accumulating metrics. Send
+        # `None` so old replay paths don't accidentally honor stale values.
         step = None
         tags = None
 
@@ -330,14 +330,23 @@ def log_pie(name: str, value: dict) -> None:
     _emit_metric(name, _normalize_categorical(value, "log_pie"), "pie")
 
 
-def log_scatter(name: str, value: dict, *, colors: bool = False) -> None:
-    """Log a labeled scatter snapshot.
+def log_scatter(
+    name: str,
+    value: dict,
+    *,
+    step: Optional[int] = None,
+    tags: Optional[list[str]] = None,
+    colors: bool = False,
+) -> None:
+    """Log a labeled scatter emission.
 
     ``value`` is a dict ``{label: list[(x, y)]}`` — every label
     becomes its own series on the same chart and is toggleable via
-    the UI chip row. Scatter emissions are snapshots; calling
-    ``log_scatter`` again with the same name overwrites the prior
-    value.
+    the UI chip row. Scatter emissions accumulate: calling
+    ``log_scatter`` repeatedly with the same name appends more points
+    to the same plot, and each emission carries an auto-incrementing
+    ``step`` (per ``(loggable, name)``) so points can later be
+    filtered or correlated to other step-tagged events.
 
     ``colors`` (default ``False``) controls how the UI distinguishes
     labels:
@@ -351,7 +360,14 @@ def log_scatter(name: str, value: dict, *, colors: bool = False) -> None:
       differently-colored point belongs to a different run or a
       different label within the same run.
     """
-    _emit_metric(name, _normalize_scatter(value), "scatter", colors=colors)
+    _emit_metric(
+        name,
+        _normalize_scatter(value),
+        "scatter",
+        step=step,
+        tags=tags,
+        colors=colors,
+    )
 
 
 def log_histogram(name: str, value: dict, *, colors: bool = False) -> None:

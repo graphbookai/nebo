@@ -254,6 +254,45 @@ class TestDaemonEventIngestion:
         assert counts["entries"][-1]["value"] == {"a": 1, "b": 2}
 
     @pytest.mark.asyncio
+    async def test_ingest_metric_scatter_accumulates(self) -> None:
+        """Scatter is accumulating like line: repeated emissions append
+        rather than overwrite."""
+        run = self.state.create_run("s.py", run_id="r1")
+        await self.state.ingest_events([
+            {"type": "loggable_register", "data": {"loggable_id": "n", "func_name": "n"}},
+            {"type": "metric", "loggable_id": "n", "name": "embed",
+             "metric_type": "scatter",
+             "value": {"dog": {"x": [0], "y": [8]}}, "step": 0, "tags": []},
+            {"type": "metric", "loggable_id": "n", "name": "embed",
+             "metric_type": "scatter",
+             "value": {"cat": {"x": [1], "y": [4]}}, "step": 1, "tags": []},
+        ], "r1")
+        embed = run.loggables["n"].metrics["embed"]
+        assert embed["type"] == "scatter"
+        assert len(embed["entries"]) == 2
+        assert embed["entries"][0]["step"] == 0
+        assert embed["entries"][0]["value"] == {"dog": {"x": [0], "y": [8]}}
+        assert embed["entries"][1]["step"] == 1
+        assert embed["entries"][1]["value"] == {"cat": {"x": [1], "y": [4]}}
+
+    @pytest.mark.asyncio
+    async def test_ingest_metric_snapshots_overwrite(self) -> None:
+        """Bar/pie/histogram remain snapshots: re-emitting overwrites the
+        prior entry rather than appending."""
+        run = self.state.create_run("s.py", run_id="r1")
+        await self.state.ingest_events([
+            {"type": "loggable_register", "data": {"loggable_id": "n", "func_name": "n"}},
+            {"type": "metric", "loggable_id": "n", "name": "counts",
+             "metric_type": "bar", "value": {"a": 1}, "step": None, "tags": []},
+            {"type": "metric", "loggable_id": "n", "name": "counts",
+             "metric_type": "bar", "value": {"a": 2, "b": 3}, "step": None, "tags": []},
+        ], "r1")
+        counts = run.loggables["n"].metrics["counts"]
+        assert counts["type"] == "bar"
+        assert len(counts["entries"]) == 1
+        assert counts["entries"][0]["value"] == {"a": 2, "b": 3}
+
+    @pytest.mark.asyncio
     async def test_ingest_creates_implicit_run(self) -> None:
         """Should create an implicit run if none exists."""
         await self.state.ingest_events([

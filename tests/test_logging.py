@@ -348,7 +348,8 @@ def test_log_line_tags_attached_to_emission(capturing_client):
 
 
 def test_log_bar_does_not_accept_tags():
-    """Tags are line-only; bar/pie/scatter/histogram reject them."""
+    """Tags only apply to accumulating metrics (line, scatter); the
+    snapshot helpers (bar/pie/histogram) reject them."""
     import nebo as nb
     nb.get_state().reset()
     with pytest.raises(TypeError):
@@ -387,22 +388,22 @@ def test_log_histogram_rejects_legacy_flat_list():
 
 
 def test_log_bar_rejects_step_kwarg():
-    """Step is line-only; bar/pie/scatter/histogram don't accept it."""
+    """Step is for accumulating metrics (line, scatter) only;
+    bar/pie/histogram don't accept it."""
     import nebo as nb
     nb.get_state().reset()
     with pytest.raises(TypeError):
         nb.log_bar("counts", {"a": 1}, step=2)  # type: ignore[call-arg]
 
 
-def test_non_line_metrics_strip_step_and_tags_on_wire(capturing_client):
-    """log_bar / log_pie / log_scatter / log_histogram never carry step
-    or tags on the wire — those concepts only apply to line."""
+def test_snapshot_metrics_strip_step_and_tags_on_wire(capturing_client):
+    """log_bar / log_pie / log_histogram never carry step or tags on
+    the wire — those concepts only apply to accumulating metrics."""
     import nebo as nb
     nb.log_bar("b", {"a": 1})
     nb.log_pie("p", {"a": 1})
-    nb.log_scatter("s", {"c": [(0.0, 0.0)]})
     nb.log_histogram("h", {"d": [1.0, 2.0]})
-    for mname in ("b", "p", "s", "h"):
+    for mname in ("b", "p", "h"):
         ev = capturing_client.metrics_named(mname)[-1]
         assert ev["step"] is None
         assert ev["tags"] == []
@@ -493,6 +494,41 @@ def test_log_line_auto_step_uses_cursor(capturing_client):
     steps = [e["step"] for e in capturing_client.metrics_named("x")]
     assert steps == [0, 1, 2, 3, 4]
     assert nb.get_state()._metric_cursors["__global__"]["x"].next_step == 5
+
+
+def test_log_scatter_accumulates_with_auto_step(capturing_client):
+    """Scatter is accumulating: every call appends another emission to
+    the same series, with step auto-incrementing per (loggable, name).
+    """
+    import nebo as nb
+    nb.log_scatter("sex_vs_age", {"dog": [(0, 8)]})
+    nb.log_scatter("sex_vs_age", {"cat": [(1, 4)]})
+    nb.log_scatter("sex_vs_age", {"dog": [(0, 9)], "cat": [(1, 5)]})
+    events = capturing_client.metrics_named("sex_vs_age")
+    assert [e["step"] for e in events] == [0, 1, 2]
+    assert all(e["metric_type"] == "scatter" for e in events)
+    assert nb.get_state()._metric_cursors["__global__"]["sex_vs_age"].next_step == 3
+
+
+def test_log_scatter_explicit_step_advances_cursor(capturing_client):
+    """An explicit step jumps the cursor; the next auto-step picks up
+    after the highest step seen."""
+    import nebo as nb
+    nb.log_scatter("e", {"a": [(0, 0)]})           # auto -> step 0
+    nb.log_scatter("e", {"a": [(1, 1)]}, step=10)  # explicit
+    nb.log_scatter("e", {"a": [(2, 2)]})           # auto -> step 11
+    steps = [e["step"] for e in capturing_client.metrics_named("e")]
+    assert steps == [0, 10, 11]
+
+
+def test_log_scatter_tags_attached_to_emission(capturing_client):
+    """Scatter accepts tags now; they ride on each emission like line."""
+    import nebo as nb
+    nb.log_scatter("e", {"a": [(0, 0)]}, tags=["warmup"])
+    nb.log_scatter("e", {"a": [(1, 1)]}, tags=["main"])
+    events = capturing_client.metrics_named("e")
+    assert events[0]["tags"] == ["warmup"]
+    assert events[1]["tags"] == ["main"]
 
 
 def test_log_line_auto_step_advances_past_explicit_step(capturing_client):

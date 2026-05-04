@@ -51,21 +51,25 @@ Two process-wide escape hatches let headless contexts (CI, embedders, tests) sup
 
 Edges are inferred at runtime, not declared. `nebo/core/decorators.py` wraps every `@nb.fn()` call; `nebo/core/dag.py` and `nebo/core/state.py` track which node produced each return value (`return_origins`) and which node is currently on the call stack. When a wrapped callee receives an argument that was produced by another node, a data-flow edge is added; otherwise the edge falls back to the calling parent. `depends_on=[...]` declares edges that can't be inferred (shared state, globals, class attrs). `dag_strategy` switches between `object` (data-flow, default), `stack` (caller→callee only), `both`, `linear` (chain nodes in first-execution order), or `none`.
 
-### Metrics model (line accumulates, everything else snapshots)
+### Metrics model (line + scatter accumulate, bar/pie/histogram snapshot)
 
-There is exactly one accumulating chart type — `log_line`. Every other helper (`log_bar`, `log_pie`, `log_scatter`, `log_histogram`) is a snapshot: the SDK still sends an event over the wire on each call, but the daemon (`nebo/server/daemon.py` metric handler) and the UI store (`ui/src/store/index.ts:appendMetric`) **overwrite** the prior entry instead of appending. The chart type locks on first emission per `(loggable, name)` pair via `SessionState._metric_cursors[loggable][name]` (a `MetricCursor(type, next_step)` — that's the only metric metadata the SDK keeps in process, by design).
+Two chart types accumulate — `log_line` and `log_scatter`. The other three (`log_bar`, `log_pie`, `log_histogram`) are snapshots: the SDK still sends an event over the wire on each call, but the daemon (`nebo/server/daemon.py` metric handler) and the UI store (`ui/src/store/index.ts:appendMetric`) **overwrite** the prior entry instead of appending. The chart type locks on first emission per `(loggable, name)` pair via `SessionState._metric_cursors[loggable][name]` (a `MetricCursor(type, next_step)` — that's the only metric metadata the SDK keeps in process, by design).
 
 Per chart type:
 
 - `log_line(name, value, *, step=None, tags=None)` — accumulating; `step` auto-increments via the cursor; `tags` partition emissions for the UI tag-chip filter.
 - `log_bar(name, value)`, `log_pie(name, value)` — `value` is `{label: number}`; no step, no tags. Re-emitting overwrites.
-- `log_scatter(name, value, *, colors=False)` — `value` is `{label: list[(x, y)]}`. Stored on the wire as `{label: {"x": [...], "y": [...]}}`. UI varies labels by shape (`shapeForLabel`).
+- `log_scatter(name, value, *, step=None, tags=None, colors=False)` — accumulating; each emission's `value` is `{label: list[(x, y)]}` (stored on the wire as `{label: {"x": [...], "y": [...]}}`). The chart shows the union of all emissions' points; `step` auto-increments per emission. UI varies labels by shape (`shapeForLabel`).
 - `log_histogram(name, value, *, colors=False)` — `value` is `{label: list[number]}`. UI bins all labels against a shared min/max so overlapping distributions line up.
 - `colors=False` (default) draws labels in the run color; `colors=True` switches to `RUN_COLOR_PALETTE`. Document warning: not recommended in comparison views, where the palette is reserved for run identity.
 
-Step/tags only flow on the wire for line. `_emit_metric` in `nebo/logging/logger.py` strips them to `None`/`[]` for non-line types so stale values can't leak.
+Step/tags only flow on the wire for accumulating types (line, scatter). `_emit_metric` in `nebo/logging/logger.py` strips them to `None`/`[]` for snapshot types (bar/pie/histogram) so stale values can't leak.
+
+Step filter: clicking a datapoint on a line or scatter chart sets `timeline.step` (and auto-flips `timeline.mode` to `'step'`) via the chart's `onClick`. `useTimelineFilter` then narrows logs/images/audio panels to entries whose `step` matches; metric charts ignore the entry-level filter and instead mark the active step inline (LineMetric draws a vertical guideline + value bubble via an inline chart.js plugin; ScatterMetric dims non-matching points). `useTimelineBounds` walks line/scatter entries so the scrubber's step range covers any clickable step. **Don't filter metric entries by step at the parent level** (e.g. in `LoggableGridView.MetricCardBody`) — doing so collapses the chart and breaks the in-chart highlight.
 
 UI invariant: chart components index palette colors by `allLabels.indexOf(label)` (the full vocabulary), never by the iteration index over the filtered list — otherwise toggling a label off via the chip row reshuffles the remaining colors. `ScatterMetric` and `HistogramMetric` both follow this rule.
+
+UI invariant: chart components must NOT early-return `null` for empty data while their canvas is conditionally mounted by a parent that re-mounts on data changes. `useChartJs`'s mount effect uses `[]` deps; if the canvas remounts, the Chart instance keeps a reference to the old detached canvas and subsequent `chart.update()` calls are invisible. Always render the canvas (an empty Chart.js plot is fine); guard via the parent component's "no data" placeholder if needed.
 
 ### Global state singleton
 
