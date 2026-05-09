@@ -30,6 +30,12 @@ import { HistogramMetric } from '@/components/charts/HistogramMetric'
 import { ShapeIcon } from '@/components/charts/ShapeIcon'
 import { ComparisonGrid } from '@/components/shared/ComparisonGrid'
 import { getGridDimensions } from '@/lib/grid'
+import { cn } from '@/lib/utils'
+
+// Per-row vertical allocation for the comparison-pie split-panel grid.
+// Without scaling by row count, 4+ runs (which need ≥2 rows) would
+// squeeze each pie into ~100px and the chart effectively disappears.
+const PIE_ROW_PX = 220
 import {
   UNTAGGED_KEY,
   entriesMatchingTags,
@@ -414,8 +420,8 @@ function ComparisonMetrics({
 
   const effectiveRunIds = comparisonRunIds.filter(rid => activeRuns.has(rid))
 
-  const stack = (
-    <div className="space-y-4">
+  return (
+    <div className={cn('space-y-4', fillParent && 'h-full overflow-auto')}>
       {[...metricNames.entries()].map(([name, type]) => (
         <ComparisonMetricBlock
           key={name}
@@ -432,11 +438,6 @@ function ComparisonMetrics({
       ))}
     </div>
   )
-
-  if (fillParent) {
-    return <div className="h-full overflow-auto">{stack}</div>
-  }
-  return stack
 }
 
 function ComparisonMetricBlock({
@@ -645,12 +646,10 @@ function ComparisonChart({
   // already shows the run name + color stripe, so we just render the
   // chart in the body. The outer height scales with the grid's row
   // count so each pie panel gets a consistent ~PIE_ROW_PX of vertical
-  // space — without this, 4+ runs (which need 2+ rows) would squeeze
-  // each pie into ~100px and the chart effectively disappears.
-  const PIE_ROW_PX = 220
+  // space (see PIE_ROW_PX comment at module scope).
   const { rows: pieRows } = getGridDimensions(runIds.length)
   return (
-    <div style={{ height: Math.max(PIE_ROW_PX, pieRows * PIE_ROW_PX) }}>
+    <div style={{ height: Math.max(1, pieRows) * PIE_ROW_PX }}>
       <ComparisonGrid runIds={runIds} fillParent>
         {(rid) => {
           const s = seriesFor(rid)

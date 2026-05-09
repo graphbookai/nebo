@@ -6,6 +6,12 @@ import { DEFAULT_RUN_COLOR } from '@/lib/colors'
 import type { SeriesFor } from '@/components/charts/seriesFor'
 import { useStore } from '@/store'
 
+// Each dataset carries a precomputed `_stepIndex: Map<x, y>` so the
+// plugin doesn't have to scan the data array on every redraw. This
+// matters once the timeline scrubber starts driving step changes
+// interactively — without the index, every step delta is O(N) per run.
+type StepIndexedDataset = { _stepIndex?: Map<number, number> }
+
 // Inline plugin: vertical guideline at the active step plus a dot per
 // dataset (one per run) where the curve crosses that step. Mirrors the
 // single-run LineMetric indicator but iterates every dataset so each
@@ -37,16 +43,11 @@ const activeStepLinePlugin: Plugin<'line'> = {
     ctx.stroke()
     ctx.setLineDash([])
 
-    // Per-run dot at the matching x value.
+    // Per-run dot at the matching x value (O(1) via the dataset's
+    // step-index Map).
     for (const ds of chart.data.datasets) {
-      if (!Array.isArray(ds.data)) continue
-      let yVal: number | null = null
-      for (const p of ds.data as { x?: number; y?: number }[]) {
-        if (p && p.x === opts.value && typeof p.y === 'number') {
-          yVal = p.y
-          break
-        }
-      }
+      const idx = (ds as unknown as StepIndexedDataset)._stepIndex
+      const yVal = idx?.get(opts.value)
       if (yVal == null) continue
       const y = yScale.getPixelForValue(yVal)
       ctx.fillStyle = String(ds.borderColor ?? '#888')
@@ -81,12 +82,14 @@ export const ComparisonLine = memo(function ComparisonLine({
         const s = seriesFor(rid)
         if (!s || s.type !== 'line') return null
         const data: { x: number; y: number }[] = []
+        const stepIndex = new Map<number, number>()
         for (let i = 0; i < s.entries.length; i++) {
           const e = s.entries[i]
           const step = e.step ?? i
           const v = typeof e.value === 'number' ? e.value : Number(e.value)
           if (!Number.isFinite(v)) continue
           data.push({ x: step, y: v })
+          stepIndex.set(step, v)
         }
         return {
           label: rid,
@@ -96,6 +99,8 @@ export const ComparisonLine = memo(function ComparisonLine({
           pointRadius: 0,
           tension: 0.3,
           spanGaps: true,
+          // Read by activeStepLinePlugin to avoid an O(N) scan per redraw.
+          _stepIndex: stepIndex,
         }
       })
       .filter((d): d is NonNullable<typeof d> => d !== null)

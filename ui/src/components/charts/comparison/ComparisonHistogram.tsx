@@ -4,6 +4,7 @@ import { useChartJs } from '@/components/charts/useChartJs'
 import { useChartTokens } from '@/components/charts/useChartTokens'
 import { DEFAULT_RUN_COLOR } from '@/lib/colors'
 import type { SeriesFor } from '@/components/charts/seriesFor'
+import { withAlpha } from '@/components/charts/withAlpha'
 
 const NUM_BINS = 30
 
@@ -26,21 +27,6 @@ function binCounts(samples: number[], min: number, size: number, bins: number): 
     counts[i]++
   }
   return counts
-}
-
-function withAlpha(hex: string, alpha: number): string {
-  const trimmed = hex.trim()
-  if (!trimmed.startsWith('#') || (trimmed.length !== 4 && trimmed.length !== 7)) {
-    return trimmed
-  }
-  const expanded =
-    trimmed.length === 4
-      ? `#${trimmed[1]}${trimmed[1]}${trimmed[2]}${trimmed[2]}${trimmed[3]}${trimmed[3]}`
-      : trimmed
-  const r = parseInt(expanded.slice(1, 3), 16)
-  const g = parseInt(expanded.slice(3, 5), 16)
-  const b = parseInt(expanded.slice(5, 7), 16)
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
 export const ComparisonHistogram = memo(function ComparisonHistogram({

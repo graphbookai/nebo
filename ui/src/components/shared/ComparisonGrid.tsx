@@ -19,6 +19,10 @@ export function ComparisonGrid({ runIds, children, fillParent }: ComparisonGridP
   const runNames = useStore(s => s.runNames)
   const runs = useStore(s => s.runs)
 
+  // No runs to compare → render nothing (rather than the legacy
+  // 1×1 "ghost cell" that getGridDimensions(0) would produce).
+  if (runIds.length === 0) return null
+
   const { cols, rows } = getGridDimensions(runIds.length)
   const totalCells = cols * rows
 

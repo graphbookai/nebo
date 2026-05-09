@@ -7,6 +7,7 @@ import { RUN_COLOR_PALETTE } from '@/lib/colors'
 import { useStore, DEFAULT_HISTOGRAM_BIN_COUNT } from '@/store'
 import { formatTick } from './formatTick'
 import { attachWheelHandler, buildZoomOptions } from './zoomBindings'
+import { withAlpha } from './withAlpha'
 
 function minMax(xs: number[]): { min: number; max: number } {
   let min = Infinity
@@ -27,23 +28,6 @@ function binCounts(samples: number[], min: number, size: number, bins: number): 
     counts[i]++
   }
   return counts
-}
-
-// Hex-to-rgba so we can apply 0.22 alpha to the per-label fill — the same
-// fillOpacity recharts' AreaChart used.
-function withAlpha(hex: string, alpha: number): string {
-  const trimmed = hex.trim()
-  if (!trimmed.startsWith('#') || (trimmed.length !== 4 && trimmed.length !== 7)) {
-    return trimmed
-  }
-  const expanded =
-    trimmed.length === 4
-      ? `#${trimmed[1]}${trimmed[1]}${trimmed[2]}${trimmed[2]}${trimmed[3]}${trimmed[3]}`
-      : trimmed
-  const r = parseInt(expanded.slice(1, 3), 16)
-  const g = parseInt(expanded.slice(3, 5), 16)
-  const b = parseInt(expanded.slice(5, 7), 16)
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
 // Snapshot histogram. Each emission's value is `{label: list[number]}`;
