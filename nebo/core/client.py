@@ -457,9 +457,9 @@ class DaemonClient:
         """Force-flush queued events to the daemon, blocking until done
         or `timeout` seconds elapse.
 
-        Useful for time-sensitive events (e.g. ask prompts) that
-        shouldn't wait for the next batch interval, and for fencing
-        a logging-heavy section before something irreversible.
+        Useful for fencing a logging-heavy section before something
+        irreversible (saving artifacts, sending an email, etc.) so the
+        UI shows everything that was logged before that point.
 
         Returns True if everything was sent; False if any events
         remain un-flushed when the deadline expired (those events
@@ -473,7 +473,7 @@ class DaemonClient:
         """Send a GET request to the daemon and return the JSON response.
 
         Args:
-            path: URL path (e.g. "/runs/run_1/ask/abc/respond").
+            path: URL path (e.g. "/runs/run_1/loggables/foo").
 
         Returns:
             Parsed JSON dict, or None on error.
@@ -487,18 +487,6 @@ class DaemonClient:
         except Exception:
             pass
         return None
-
-    def get_pause_state(self) -> bool:
-        """Poll the daemon for the current pause state.
-
-        Returns:
-            True if the run is paused, False otherwise.
-        """
-        path = f"/runs/{self._run_id}/pause"
-        resp = self.get(path)
-        if resp is not None:
-            return resp.get("paused", False)
-        return False
 
     def try_reconnect(self) -> bool:
         """Manually attempt reconnection."""

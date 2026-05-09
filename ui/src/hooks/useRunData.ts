@@ -3,7 +3,7 @@ import { useStore, type RunState, type ImageEntry } from '@/store'
 import { api } from '@/lib/api'
 
 function fetchSingleRun(runId: string, store: ReturnType<typeof useStore.getState>) {
-  const { setRunGraph, setRunLogs, setRunErrors, setRunMetrics, setRunImages, setRunAudio, addAskPrompt } = store
+  const { setRunGraph, setRunLogs, setRunErrors, setRunMetrics, setRunImages, setRunAudio } = store
   return Promise.all([
     api.getRunGraph(runId).then(g => setRunGraph(runId, g)),
     // Daemon returns logs with `loggable_id` while the UI's LogEntry stores
@@ -44,18 +44,6 @@ function fetchSingleRun(runId: string, store: ReturnType<typeof useStore.getStat
         mapped[nodeId] = entries.map(e => ({ node: e.node, mediaId: e.media_id, name: e.name, sr: e.sr, step: e.step, timestamp: e.timestamp }))
       }
       setRunAudio(runId, mapped)
-    }),
-    api.getRunAsks(runId).then(d => {
-      for (const ask of d.pending) {
-        addAskPrompt(runId, {
-          askId: ask.ask_id,
-          nodeName: ask.node_name ?? ask.node ?? '',
-          question: ask.question ?? '',
-          options: ask.options ?? null,
-          timeoutSeconds: ask.timeout_seconds ?? null,
-          receivedAt: new Date(),
-        })
-      }
     }),
   ]).catch((err) => { console.warn(`[useRunData] Failed to fetch data for run ${runId}:`, err) })
 }

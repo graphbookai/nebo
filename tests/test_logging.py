@@ -277,20 +277,81 @@ def test_log_image_accepts_labels_and_emits_them(capturing_client):
     nb.log_image(
         img,
         name="edges",
-        points=[[45, 80]],
-        boxes=[[10, 10, 50, 50], [60, 60, 70, 70]],
-        circles=[30, 30, 5],
-        polygons=[[[0, 0], [1, 0], [1, 1]]],
+        points=nb.labels.Points([[45, 80]], color="#facc15"),
+        boxes=nb.labels.Boxes([[10, 10, 50, 50], [60, 60, 70, 70]], color="#22d3ee"),
+        circles=nb.labels.Circles([30, 30, 5], color="#f472b6"),
+        polygons=nb.labels.Polygons([[[0, 0], [1, 0], [1, 1]]], color="#86efac"),
     )
 
     image_events = capturing_client.by_type("image")
     assert len(image_events) == 1
     labels = image_events[0]["labels"]
-    assert labels["points"] == [[45, 80]]
-    assert labels["boxes"] == [[10, 10, 50, 50], [60, 60, 70, 70]]
-    assert labels["circles"] == [[30, 30, 5]]
-    assert labels["polygons"] == [[[0, 0], [1, 0], [1, 1]]]
-    assert "bitmask" not in labels
+    assert labels["points"] == [{"data": [[45, 80]], "color": "#facc15"}]
+    assert labels["boxes"] == [
+        {"data": [[10, 10, 50, 50], [60, 60, 70, 70]], "color": "#22d3ee"}
+    ]
+    assert labels["circles"] == [{"data": [[30, 30, 5]], "color": "#f472b6"}]
+    assert labels["polygons"] == [
+        {"data": [[[0, 0], [1, 0], [1, 1]]], "color": "#86efac", "fill": True}
+    ]
+    assert "bitmasks" not in labels
+
+
+def test_log_image_polygons_fill_flag_round_trips(capturing_client):
+    import numpy as np
+    from PIL import Image
+    import nebo as nb
+
+    img = Image.fromarray(np.zeros((8, 8, 3), dtype=np.uint8))
+    nb.log_image(
+        img,
+        name="outline_only",
+        polygons=nb.labels.Polygons(
+            [[[0, 0], [1, 0], [1, 1]]],
+            color="#86efac",
+            fill=False,
+        ),
+    )
+
+    image_events = capturing_client.by_type("image")
+    labels = image_events[-1]["labels"]
+    assert labels["polygons"] == [
+        {"data": [[[0, 0], [1, 0], [1, 1]]], "color": "#86efac", "fill": False}
+    ]
+
+
+def test_log_image_accepts_list_of_groups_with_distinct_colors(capturing_client):
+    import numpy as np
+    from PIL import Image
+    import nebo as nb
+
+    img = Image.fromarray(np.zeros((8, 8, 3), dtype=np.uint8))
+    nb.log_image(
+        img,
+        name="preds_vs_gt",
+        boxes=[
+            nb.labels.Boxes([[1, 1, 2, 2]], color="#22d3ee"),
+            nb.labels.Boxes([[3, 3, 4, 4]], color="#22c55e"),
+        ],
+    )
+
+    image_events = capturing_client.by_type("image")
+    labels = image_events[0]["labels"]
+    assert labels["boxes"] == [
+        {"data": [[1, 1, 2, 2]], "color": "#22d3ee"},
+        {"data": [[3, 3, 4, 4]], "color": "#22c55e"},
+    ]
+
+
+def test_log_image_rejects_raw_list_with_helpful_error(capturing_client):
+    import numpy as np
+    import pytest
+    from PIL import Image
+    import nebo as nb
+
+    img = Image.fromarray(np.zeros((8, 8, 3), dtype=np.uint8))
+    with pytest.raises(TypeError, match="nb.labels.Boxes"):
+        nb.log_image(img, name="bad", boxes=[[10, 10, 20, 20]])
 
 
 def test_log_image_bitmask_stored_as_media_reference(capturing_client):
@@ -301,14 +362,17 @@ def test_log_image_bitmask_stored_as_media_reference(capturing_client):
     img = Image.fromarray(np.zeros((8, 8, 3), dtype=np.uint8))
     mask = np.zeros((8, 8), dtype=np.uint8)
     mask[2:5, 2:5] = 1
-    nb.log_image(img, name="seg", bitmask=mask)
+    nb.log_image(img, name="seg", bitmasks=nb.labels.Bitmasks(mask, color="#a78bfa"))
 
     image_events = capturing_client.by_type("image")
     assert len(image_events) == 1
     labels = image_events[0]["labels"]
-    assert "bitmask" in labels
-    assert len(labels["bitmask"]) == 1
-    entry = labels["bitmask"][0]
+    assert "bitmasks" in labels
+    assert len(labels["bitmasks"]) == 1
+    group = labels["bitmasks"][0]
+    assert group["color"] == "#a78bfa"
+    assert len(group["data"]) == 1
+    entry = group["data"][0]
     assert entry["width"] == 8
     assert entry["height"] == 8
     assert "data" in entry  # inline base64

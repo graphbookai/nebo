@@ -13,6 +13,7 @@
 //   - step chips (each emission's step number)
 //   - run chips (only in comparison)
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Maximize } from 'lucide-react'
 import { useStore } from '@/store'
 import type { MetricEntry, LoggableMetricSeries } from '@/lib/api'
 import { DEFAULT_RUN_COLOR, RUN_COLOR_PALETTE } from '@/lib/colors'
@@ -39,16 +40,20 @@ interface NodeMetricsProps {
   runId: string
   loggableId: string
   comparisonRunIds?: string[]
+  // When true, fill the parent's height and scroll internally rather
+  // than letting the metric stack expand naturally. Used inside
+  // fixed-height DAG nodes.
+  fillParent?: boolean
 }
 
-export function NodeMetrics({ runId, loggableId, comparisonRunIds }: NodeMetricsProps) {
+export function NodeMetrics({ runId, loggableId, comparisonRunIds, fillParent }: NodeMetricsProps) {
   if (comparisonRunIds) {
     return <ComparisonMetrics loggableId={loggableId} comparisonRunIds={comparisonRunIds} />
   }
-  return <SingleRunMetrics runId={runId} loggableId={loggableId} />
+  return <SingleRunMetrics runId={runId} loggableId={loggableId} fillParent={fillParent} />
 }
 
-function SingleRunMetrics({ runId, loggableId }: { runId: string; loggableId: string }) {
+function SingleRunMetrics({ runId, loggableId, fillParent }: { runId: string; loggableId: string; fillParent?: boolean }) {
   const metrics = useStore(s => s.runs.get(runId)?.loggableMetrics[loggableId]) ?? {}
   const runColor = useStore(s => s.runColors.get(runId)) ?? DEFAULT_RUN_COLOR
   const getOrAssignRunColor = useStore(s => s.getOrAssignRunColor)
@@ -62,6 +67,17 @@ function SingleRunMetrics({ runId, loggableId }: { runId: string; loggableId: st
     return <p className="text-xs text-muted-foreground">No metrics for this loggable</p>
   }
 
+  if (fillParent) {
+    return (
+      <div className="h-full overflow-auto">
+        <div className="space-y-4">
+          {Object.entries(metrics).map(([name, series]) => (
+            <MetricBlock key={name} name={name} series={series} color={runColor} />
+          ))}
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="space-y-4">
       {Object.entries(metrics).map(([name, series]) => (
@@ -123,9 +139,21 @@ export function MetricBlock({
     // When no tag chips exist (e.g. nothing was ever tagged on this metric),
     // skip filtering — otherwise every entry, having neither tags nor an
     // active (untagged) chip to satisfy, gets excluded.
-    () => allTags.length === 0 ? series.entries : entriesMatchingTags(series.entries, activeTags),
-    [series.entries, activeTags, allTags],
+    //
+    // For line metrics we keep all entries: deselected tags render as
+    // soft-gray datasets inside LineMetric instead of being filtered.
+    () => {
+      if (allTags.length === 0) return series.entries
+      if (series.type === 'line') return series.entries
+      return entriesMatchingTags(series.entries, activeTags)
+    },
+    [series.entries, series.type, activeTags, allTags],
   )
+
+  const inactiveTags = useMemo(() => {
+    if (series.type !== 'line' || allTags.length === 0) return undefined
+    return new Set(allTags.filter(t => !activeTags.has(t)))
+  }, [series.type, allTags, activeTags])
 
   // Drop scatter labels the user has toggled off. Histogram has its own
   // path that filters the labeled value dict at render time (so the
@@ -153,22 +181,43 @@ export function MetricBlock({
     ? series.entries[series.entries.length - 1].colors === true
     : false
 
+  // Reset-zoom plumbing for line / scatter / histogram charts. The
+  // chart components watch `resetSignal` and call chart.resetZoom()
+  // when it changes, so the button can live up here next to the tag
+  // chips instead of floating over the canvas.
+  const [resetSignal, setResetSignal] = useState(0)
+  const handleResetZoom = useCallback(() => setResetSignal(c => c + 1), [])
+  const showResetButton =
+    series.type === 'line' || series.type === 'scatter' || series.type === 'histogram'
+
   return (
     <div className={fill ? 'h-full flex flex-col min-h-0' : undefined}>
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-foreground">{name}</span>
         <span className="text-[10px] text-muted-foreground">{series.type}</span>
       </div>
-      {allTags.length > 0 && (
-        <div className="mt-1 flex flex-wrap gap-1">
-          {allTags.map(t => (
-            <Chip
-              key={`tag:${t}`}
-              label={t === UNTAGGED_KEY ? '(untagged)' : t}
-              active={activeTags.has(t)}
-              onClick={() => toggle(t)}
-            />
-          ))}
+      {(allTags.length > 0 || showResetButton) && (
+        <div className="mt-1 flex items-start justify-between gap-2">
+          <div className="flex flex-wrap gap-1 flex-1 min-w-0">
+            {allTags.map(t => (
+              <Chip
+                key={`tag:${t}`}
+                label={t === UNTAGGED_KEY ? '(untagged)' : t}
+                active={activeTags.has(t)}
+                onClick={() => toggle(t)}
+              />
+            ))}
+          </div>
+          {showResetButton && (
+            <button
+              type="button"
+              onClick={handleResetZoom}
+              title="Reset zoom"
+              className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted border border-border/60"
+            >
+              <Maximize className="h-3 w-3" />
+            </button>
+          )}
         </div>
       )}
       {allLabels.length > 0 && (
@@ -203,6 +252,8 @@ export function MetricBlock({
           color={color}
           allLabels={allLabels}
           activeLabels={series.type === 'histogram' ? activeLabels : undefined}
+          inactiveTags={inactiveTags}
+          resetSignal={resetSignal}
           fill={fill}
         />
       </div>
@@ -243,6 +294,8 @@ function SingleRunChart({
   color,
   allLabels,
   activeLabels,
+  inactiveTags,
+  resetSignal,
   fill,
 }: {
   type: string
@@ -253,9 +306,16 @@ function SingleRunChart({
   // user-selected labels' samples (the others are folded out of the
   // shared min/max as well as the per-label Areas).
   activeLabels?: Set<string>
+  // Forwarded to LineMetric so deselected tag chips dim the muted
+  // segments to soft gray instead of being filtered out of the data.
+  inactiveTags?: Set<string>
+  // Counter forwarded to LineMetric / ScatterMetric so the chip-row
+  // "Reset zoom" button can trigger chart.resetZoom() without floating
+  // over the canvas.
+  resetSignal?: number
   fill?: boolean
 }) {
-  if (type === 'line') return <LineMetric entries={entries} color={color} fill={fill} />
+  if (type === 'line') return <LineMetric entries={entries} color={color} fill={fill} inactiveTags={inactiveTags} resetSignal={resetSignal} />
   if (type === 'histogram')
     return (
       <HistogramMetric
@@ -264,9 +324,10 @@ function SingleRunChart({
         fill={fill}
         activeLabels={activeLabels}
         allLabels={allLabels}
+        resetSignal={resetSignal}
       />
     )
-  if (type === 'scatter') return <ScatterMetric entries={entries} color={color} allLabels={allLabels} fill={fill} />
+  if (type === 'scatter') return <ScatterMetric entries={entries} color={color} allLabels={allLabels} fill={fill} resetSignal={resetSignal} />
   // Bar/pie are now snapshots: only ever one entry. Render that single
   // chart full-bleed inside the card body — no step label, no stack.
   const latest = entries.length > 0 ? entries[entries.length - 1] : null

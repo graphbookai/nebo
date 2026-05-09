@@ -212,22 +212,6 @@ Set default layout and display options for the web UI:
 nb.ui(layout="horizontal", view="dag", minimap=True, theme="dark")
 ```
 
-### `nb.ask(question, options=None, timeout=None)` -- Human-in-the-loop
-
-Pause the pipeline and ask the user a question via MCP or the terminal.
-
-```python
-@nb.fn()
-def review(predictions):
-    answer = nb.ask(
-        "Model accuracy is 73%. Continue training?",
-        options=["yes", "no", "retrain with more data"]
-    )
-    if answer == "no":
-        return predictions
-    ...
-```
-
 ## CLI Reference
 
 ### Start the daemon server
@@ -300,7 +284,6 @@ Nebo exposes 15 MCP tools for querying and controlling pipelines from an AI agen
 | `nebo_get_run_history` | List all runs with outcomes and timestamps |
 | `nebo_get_source_code` | Read a pipeline source file |
 | `nebo_write_source_code` | Write or patch a pipeline source file |
-| `nebo_ask_user` | Send a question to the user via the terminal |
 | `nebo_wait_for_event` | Block until a pipeline event occurs or timeout elapses |
 
 ## .nebo File Format
@@ -347,13 +330,13 @@ Two execution modes:
 | `log_scatter` | `log_scatter(name, value, *, colors=False)` | Labeled scatter snapshot (`{label: list[(x, y)]}`); overwrites |
 | `log_histogram` | `log_histogram(name, value, *, colors=False)` | Labeled histogram snapshot (`{label: list[number]}`); overwrites |
 | `log_cfg` | `log_cfg(cfg: dict)` | Log node configuration |
-| `log_image` | `log_image(image, *, name=None, step=None, points=None, boxes=None, circles=None, polygons=None, bitmask=None)` | Log an image (optionally with geometric labels) |
+| `log_image` | `log_image(image, *, name=None, step=None, points=None, boxes=None, circles=None, polygons=None, bitmasks=None)` | Log an image (label kwargs accept `nb.labels.<Class>` instances or lists of them) |
 | `log_audio` | `log_audio(audio, sr=16000, name=None, step=None)` | Log audio data |
+| `labels` | `nb.labels.{Points, Boxes, Circles, Polygons, Bitmasks}(data, color)` | Image-label dataclasses; each pairs raw geometry with a CSS color |
 | `track` | `track(iterable, name=None, total=None)` | Progress tracking |
 | `md` | `md(description: str)` | Set workflow description |
 | `ui` | `ui(layout, view, collapsed, minimap, theme)` | Set run-level UI defaults |
 | `init` | `init(port, host, mode, terminal, dag_strategy, flush_interval, store)` | Manual initialization |
-| `ask` | `ask(question, options=None, timeout=None)` | Human-in-the-loop prompt |
 | `get_state` | `get_state() -> SessionState` | Access the global state singleton |
 
 ## Recent changes

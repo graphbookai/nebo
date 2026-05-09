@@ -297,11 +297,11 @@ async def wait_for_event(
 
     Args:
         timeout: Max seconds to wait (default 300).
-        events: Event types to wait for (default: error, completed, ask_prompt).
+        events: Event types to wait for (default: error, completed).
         run_id: Run ID. Uses latest run if omitted.
     """
     if events is None:
-        events = ["error", "completed", "ask_prompt"]
+        events = ["error", "completed"]
 
     # Resolve run_id to latest if not provided
     if not run_id:
@@ -362,22 +362,6 @@ async def chat(question: str, run_id: Optional[str] = None, server_url: str = _D
             return {"answer": full_text}
     except Exception as e:
         return {"error": f"Chat failed: {e}"}
-
-
-async def ask_user(question: str, options: Optional[list[str]] = None, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
-    """Send a question to the terminal UI for human input."""
-    try:
-        import uuid
-        event = {
-            "type": "ask_prompt",
-            "ask_id": str(uuid.uuid4()),
-            "question": question,
-            "options": options,
-            "timestamp": time.time(),
-        }
-        return _post(f"{server_url}/events", [event])
-    except Exception as e:
-        return {"error": str(e)}
 
 
 # ─── Write Tools ─────────────────────────────────────────────────────────────

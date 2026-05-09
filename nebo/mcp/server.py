@@ -172,22 +172,10 @@ MCP_TOOLS = [
                 "events": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Event types to wait for: error, completed, ask_prompt (default all three).",
+                    "description": "Event types to wait for: error, completed (default both).",
                 },
                 "run_id": {"type": "string", "description": "Run ID. Uses latest run if omitted."},
             },
-        },
-    },
-    {
-        "name": "nebo_ask_user",
-        "description": "Send a question to the user via the terminal dashboard.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "question": {"type": "string", "description": "The question to ask."},
-                "options": {"type": "array", "items": {"type": "string"}, "description": "Valid response options."},
-            },
-            "required": ["question"],
         },
     },
     {
@@ -337,7 +325,6 @@ async def handle_tool_call(name: str, arguments: dict[str, Any], server_url: str
         "nebo_get_source_code": lambda a: tools.get_source_code(a["file_path"], server_url),
         "nebo_write_source_code": lambda a: tools.write_source_code(a["file_path"], a.get("content"), a.get("patches"), server_url),
         "nebo_wait_for_event": lambda a: tools.wait_for_event(a.get("timeout", 300), a.get("events"), a.get("run_id"), server_url),
-        "nebo_ask_user": lambda a: tools.ask_user(a["question"], a.get("options"), server_url),
         "nebo_load_file": lambda a: tools.load_file(a["filepath"], server_url),
         "nebo_chat": lambda a: tools.chat(a["question"], a.get("run_id"), server_url),
         # Write

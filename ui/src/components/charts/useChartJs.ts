@@ -21,6 +21,10 @@ export interface UseChartJsParams<TType extends keyof ChartTypeRegistry> {
   formatTooltip?: (
     model: TooltipModel<TType>,
   ) => Pick<TooltipState, 'title' | 'items'>
+  // Runs once after the chart instance is constructed. Returned cleanup
+  // (if any) runs at chart-destroy time. Used by LineMetric / ScatterMetric
+  // to attach the trackpad-aware wheel handler from zoomBindings.ts.
+  onChartReady?: (chart: Chart<TType>) => void | (() => void)
 }
 
 // Single hook that owns Chart.js lifecycle for a per-type chart component.
@@ -36,6 +40,8 @@ export function useChartJs<TType extends keyof ChartTypeRegistry>(
   // mount) always sees the latest version without re-creating the chart.
   const formatRef = useRef(params.formatTooltip)
   formatRef.current = params.formatTooltip
+  const onChartReadyRef = useRef(params.onChartReady)
+  onChartReadyRef.current = params.onChartReady
 
   // Mount once. Two non-obvious things going on here:
   //
@@ -73,7 +79,10 @@ export function useChartJs<TType extends keyof ChartTypeRegistry>(
 
     chartRef.current = new Chart(canvasRef.current, cfgNoExternal)
 
+    const cleanup = onChartReadyRef.current?.(chartRef.current)
+
     return () => {
+      if (typeof cleanup === 'function') cleanup()
       chartRef.current?.destroy()
       chartRef.current = null
       setTooltip(chartId, null)
@@ -147,7 +156,7 @@ export function useChartJs<TType extends keyof ChartTypeRegistry>(
   // which causes the parent to grow to fit the canvas — the bug behind
   // the indefinite horizontal expansion of metric-bearing DAG nodes.
 
-  return { canvasRef, containerRef }
+  return { canvasRef, containerRef, chartRef }
 }
 
 function defaultFormat<TType extends keyof ChartTypeRegistry>(

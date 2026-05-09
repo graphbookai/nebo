@@ -5,14 +5,19 @@ import { useTimelineFilter } from '@/hooks/useTimelineFilter'
 import { useMedia } from '@/hooks/useMedia'
 import { formatTimestamp } from '@/lib/utils'
 import { ComparisonGrid } from '@/components/shared/ComparisonGrid'
+import { cn } from '@/lib/utils'
 
 interface NodeAudioProps {
   runId: string
   loggableId: string
   comparisonRunIds?: string[]
+  // When true, fill the parent's height and scroll internally instead
+  // of letting the audio list stack at its natural intrinsic height.
+  // Used inside fixed-height DAG nodes.
+  fillParent?: boolean
 }
 
-export function NodeAudio({ runId, loggableId, comparisonRunIds }: NodeAudioProps) {
+export function NodeAudio({ runId, loggableId, comparisonRunIds, fillParent }: NodeAudioProps) {
   if (comparisonRunIds) {
     return (
       <ComparisonGrid runIds={comparisonRunIds}>
@@ -21,7 +26,7 @@ export function NodeAudio({ runId, loggableId, comparisonRunIds }: NodeAudioProp
     )
   }
 
-  return <SingleRunAudio runId={runId} loggableId={loggableId} />
+  return <SingleRunAudio runId={runId} loggableId={loggableId} fillParent={fillParent} />
 }
 
 export function AudioItem({ runId, entry, showTimestamp }: { runId: string; entry: AudioEntry; showTimestamp?: boolean }) {
@@ -75,7 +80,7 @@ function ComparisonAudioCell({ runId, loggableId }: { runId: string; loggableId:
   )
 }
 
-function SingleRunAudio({ runId, loggableId }: { runId: string; loggableId: string }) {
+function SingleRunAudio({ runId, loggableId, fillParent }: { runId: string; loggableId: string; fillParent?: boolean }) {
   const allAudioEntries = useStore(s => s.runs.get(runId)?.loggableAudio[loggableId]) ?? []
   const timelineFilter = useTimelineFilter()
 
@@ -88,11 +93,15 @@ function SingleRunAudio({ runId, loggableId }: { runId: string; loggableId: stri
     return <p className="text-xs text-muted-foreground">No audio for this node</p>
   }
 
+  // In fillParent mode the list scrolls inside its own flex-1 box so
+  // the parent's overflow-auto doesn't double up on us.
   return (
-    <div className="space-y-3">
-      {audioEntries.map((entry) => (
-        <AudioItem key={entry.mediaId} runId={runId} entry={entry} showTimestamp />
-      ))}
+    <div className={cn(fillParent ? 'h-full overflow-auto' : undefined)}>
+      <div className="space-y-3">
+        {audioEntries.map((entry) => (
+          <AudioItem key={entry.mediaId} runId={runId} entry={entry} showTimestamp />
+        ))}
+      </div>
     </div>
   )
 }

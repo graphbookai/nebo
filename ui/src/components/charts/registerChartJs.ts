@@ -13,6 +13,7 @@ import {
   Tooltip,
   Filler,
 } from 'chart.js'
+import zoomPlugin from 'chartjs-plugin-zoom'
 
 let registered = false
 
@@ -33,6 +34,7 @@ export function registerChartJs(): void {
     CategoryScale,
     Tooltip,
     Filler,
+    zoomPlugin,
   )
 
   // Match recharts' isAnimationActive={false} on every chart in the codebase.

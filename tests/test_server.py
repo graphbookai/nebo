@@ -49,7 +49,6 @@ class TestProtocol:
         assert MessageType.METRIC.value == "metric"
         assert MessageType.PROGRESS.value == "progress"
         assert MessageType.ERROR.value == "error"
-        assert MessageType.ASK.value == "ask_prompt"
 
 
 class TestDaemonIngest:

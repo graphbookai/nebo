@@ -1,16 +1,99 @@
-import { ImageIcon } from 'lucide-react'
+import { ImageIcon, LineChart as LineIcon, BarChart3 } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
-import { useStore } from '@/store'
+import { useStore, type Settings as SettingsType } from '@/store'
+
+function ChartSlider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  format,
+  onChange,
+}: {
+  label: string
+  value: number
+  min: number
+  max: number
+  step: number
+  format?: (v: number) => string
+  onChange: (next: number) => void
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-xs">
+        <span>{label}</span>
+        <span className="text-muted-foreground tabular-nums">
+          {format ? format(value) : value}
+        </span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full h-1 accent-primary cursor-pointer"
+      />
+    </div>
+  )
+}
 
 // Per-run settings surface that lives in the right panel alongside
-// Trace and Chat. For now this just hosts the image-label controls.
+// Trace and Chat. Hosts image-label controls plus the global chart
+// knobs (line/histogram smoothing and bin count).
 export function RightPanelSettings() {
   const labelKeySettings = useStore(s => s.labelKeySettings)
   const setLabelKeyVisible = useStore(s => s.setLabelKeyVisible)
   const setLabelKeyOpacity = useStore(s => s.setLabelKeyOpacity)
+  const settings = useStore(s => s.settings)
+  const updateSetting = useStore(s => s.updateSetting)
 
   return (
     <div className="h-full overflow-auto p-4 space-y-6">
+      <section>
+        <div className="flex items-center gap-2 mb-3">
+          <LineIcon className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-medium">Line charts</h3>
+        </div>
+        <ChartSlider
+          label="Smoothing"
+          value={settings.lineSmoothing}
+          min={0}
+          max={1}
+          step={0.05}
+          format={(v) => v.toFixed(2)}
+          onChange={(v) => updateSetting<keyof SettingsType>('lineSmoothing', v)}
+        />
+      </section>
+
+      <section>
+        <div className="flex items-center gap-2 mb-3">
+          <BarChart3 className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-medium">Histogram charts</h3>
+        </div>
+        <div className="space-y-3">
+          <ChartSlider
+            label="Smoothing"
+            value={settings.histogramSmoothing}
+            min={0}
+            max={1}
+            step={0.05}
+            format={(v) => v.toFixed(2)}
+            onChange={(v) => updateSetting<keyof SettingsType>('histogramSmoothing', v)}
+          />
+          <ChartSlider
+            label="Bins"
+            value={settings.histogramBinCount}
+            min={5}
+            max={100}
+            step={1}
+            onChange={(v) => updateSetting<keyof SettingsType>('histogramBinCount', v)}
+          />
+        </div>
+      </section>
+
       <section>
         <div className="flex items-center gap-2 mb-3">
           <ImageIcon className="h-4 w-4 text-muted-foreground" />
@@ -33,7 +116,7 @@ export function RightPanelSettings() {
             /
             <code className="mx-1">polygons</code>
             /
-            <code className="mx-1">bitmask</code>.
+            <code className="mx-1">bitmasks</code>.
           </p>
         ) : (
           <div className="space-y-4">

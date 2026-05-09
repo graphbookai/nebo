@@ -2,17 +2,20 @@ import { useEffect, useState } from 'react'
 import { useStore } from '@/store'
 import type { LabelsPayload } from '@/lib/api'
 
+// Fallback only — the SDK now requires a color on every label group via
+// nb.labels.* dataclasses. Used defensively if a group somehow ships
+// without a color (legacy file, hand-built event).
 const DEFAULT_COLORS: Record<string, string> = {
   points: '#facc15',
   boxes: '#22d3ee',
   circles: '#f472b6',
   polygons: '#86efac',
-  bitmask: '#a78bfa',
+  bitmasks: '#a78bfa',
 }
 
-type LabelKey = 'points' | 'boxes' | 'circles' | 'polygons' | 'bitmask'
+type LabelKey = 'points' | 'boxes' | 'circles' | 'polygons' | 'bitmasks'
 
-const ALL_KEYS: LabelKey[] = ['points', 'boxes', 'circles', 'polygons', 'bitmask']
+const ALL_KEYS: LabelKey[] = ['points', 'boxes', 'circles', 'polygons', 'bitmasks']
 
 export function ImageWithLabels({
   src,
@@ -39,7 +42,7 @@ export function ImageWithLabels({
     if (!labels) return
     for (const key of ALL_KEYS) {
       const v = labels[key]
-      if (v && (Array.isArray(v) ? v.length > 0 : true)) {
+      if (v && v.length > 0) {
         registerLabelKey(loggableName, imageName, key)
       }
     }
@@ -54,6 +57,12 @@ export function ImageWithLabels({
   function opacity(k: LabelKey): number {
     return (setting(k)?.opacity ?? 70) / 100
   }
+  function colorFor(k: LabelKey, group: { color?: string }): string {
+    return group.color || DEFAULT_COLORS[k]
+  }
+
+  const stroke = Math.max(1, (dims?.w ?? 200) / 200)
+  const pointR = Math.max(1.5, (dims?.w ?? 200) / 200)
 
   return (
     <div className={`relative inline-block ${className ?? ''}`}>
@@ -72,21 +81,22 @@ export function ImageWithLabels({
           viewBox={`0 0 ${dims.w} ${dims.h}`}
           preserveAspectRatio="none"
         >
-          {labels.points && visible('points') && (
-            <g opacity={opacity('points')} fill={DEFAULT_COLORS.points}>
-              {labels.points.map(([x, y], i) => (
-                <circle key={i} cx={x} cy={y} r={Math.max(1.5, dims.w / 200)} />
+          {labels.points && visible('points') && labels.points.map((group, gi) => (
+            <g key={`p-${gi}`} opacity={opacity('points')} fill={colorFor('points', group)}>
+              {group.data.map(([x, y], i) => (
+                <circle key={i} cx={x} cy={y} r={pointR} />
               ))}
             </g>
-          )}
-          {labels.boxes && visible('boxes') && (
+          ))}
+          {labels.boxes && visible('boxes') && labels.boxes.map((group, gi) => (
             <g
+              key={`b-${gi}`}
               opacity={opacity('boxes')}
-              stroke={DEFAULT_COLORS.boxes}
+              stroke={colorFor('boxes', group)}
               fill="none"
-              strokeWidth={Math.max(1, dims.w / 200)}
+              strokeWidth={stroke}
             >
-              {labels.boxes.map(([x1, y1, x2, y2], i) => (
+              {group.data.map(([x1, y1, x2, y2], i) => (
                 <rect
                   key={i}
                   x={x1}
@@ -96,45 +106,77 @@ export function ImageWithLabels({
                 />
               ))}
             </g>
-          )}
-          {labels.circles && visible('circles') && (
+          ))}
+          {labels.circles && visible('circles') && labels.circles.map((group, gi) => (
             <g
+              key={`c-${gi}`}
               opacity={opacity('circles')}
-              stroke={DEFAULT_COLORS.circles}
+              stroke={colorFor('circles', group)}
               fill="none"
-              strokeWidth={Math.max(1, dims.w / 200)}
+              strokeWidth={stroke}
             >
-              {labels.circles.map(([x, y, r], i) => (
+              {group.data.map(([x, y, r], i) => (
                 <circle key={i} cx={x} cy={y} r={r} />
               ))}
             </g>
-          )}
-          {labels.polygons && visible('polygons') && (
-            <g
-              opacity={opacity('polygons')}
-              stroke={DEFAULT_COLORS.polygons}
-              fill="none"
-              strokeWidth={Math.max(1, dims.w / 200)}
-            >
-              {labels.polygons.map((poly, i) => (
-                <polygon
-                  key={i}
-                  points={poly.map(p => `${p[0]},${p[1]}`).join(' ')}
-                />
-              ))}
-            </g>
-          )}
+          ))}
+          {labels.polygons && visible('polygons') && labels.polygons.map((group, gi) => {
+            const c = colorFor('polygons', group)
+            const filled = group.fill !== false
+            return (
+              <g
+                key={`pg-${gi}`}
+                opacity={opacity('polygons')}
+                stroke={c}
+                fill={filled ? c : 'none'}
+                strokeWidth={stroke}
+              >
+                {group.data.map((poly, i) => (
+                  <polygon
+                    key={i}
+                    points={poly.map(p => `${p[0]},${p[1]}`).join(' ')}
+                  />
+                ))}
+              </g>
+            )
+          })}
         </svg>
       )}
-      {labels?.bitmask && visible('bitmask') && labels.bitmask.map((m, i) => (
-        <img
-          key={i}
-          src={`data:image/png;base64,${m.data}`}
-          alt=""
-          className="absolute inset-0 w-full h-full pointer-events-none"
-          style={{ opacity: opacity('bitmask'), mixBlendMode: 'screen' }}
-        />
-      ))}
+      {labels?.bitmasks && visible('bitmasks') && labels.bitmasks.flatMap((group, gi) =>
+        group.data.map((m, i) => {
+          const url = `url(data:image/png;base64,${m.data})`
+          // The wire bitmask is a single-channel grayscale PNG (PIL mode
+          // "L"): 0 where the mask is off, 255 where it's on. CSS
+          // `mask-image` defaults to `mask-mode: match-source` which for
+          // a PNG resolves to `alpha` — and a grayscale PNG has no alpha
+          // channel, so the browser treats every pixel as fully opaque
+          // and the background color covers the whole image. Force
+          // `mask-mode: luminance` so 0=hide and 255=show.
+          // `maskMode` is missing from React's CSSProperties typing
+          // even though every modern browser (and Safari ≥15.4)
+          // implements it; the `as React.CSSProperties` cast keeps the
+          // rest of the style object strictly typed while letting the
+          // mask-mode declarations land in the DOM.
+          const style: React.CSSProperties = {
+            opacity: opacity('bitmasks'),
+            backgroundColor: colorFor('bitmasks', group),
+            WebkitMaskImage: url,
+            maskImage: url,
+            WebkitMaskSize: '100% 100%',
+            maskSize: '100% 100%',
+            WebkitMaskRepeat: 'no-repeat',
+            maskRepeat: 'no-repeat',
+            ...({ WebkitMaskMode: 'luminance', maskMode: 'luminance' } as React.CSSProperties),
+          }
+          return (
+            <div
+              key={`bm-${gi}-${i}`}
+              className="absolute inset-0 w-full h-full pointer-events-none"
+              style={style}
+            />
+          )
+        })
+      )}
     </div>
   )
 }

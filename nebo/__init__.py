@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import os
 import sys
-import threading
-import time
 import uuid
 import logging as _stdlib_logging
 from typing import Any, Literal, Optional, TypeVar
@@ -22,9 +20,10 @@ from typing import Any, Literal, Optional, TypeVar
 from nebo.core.decorators import fn
 from nebo.core.tracker import track
 from nebo.core.config import log_cfg
-from nebo.core.state import _current_node, get_state
+from nebo.core.state import get_state
 from nebo.alerts import AlertLevel, alert
 from nebo.notebook import show
+from nebo import labels
 from nebo.logging.logger import (
     log,
     log_line,
@@ -40,30 +39,7 @@ from nebo.logging.logger import (
 T = TypeVar("T")
 
 _auto_init_done = False
-_pause_poll_thread: Optional[threading.Thread] = None
 logger = _stdlib_logging.getLogger(__name__)
-
-def _start_pause_poll() -> None:
-    """Start a background thread that polls the daemon for pause state changes."""
-    global _pause_poll_thread
-    state = get_state()
-    if not state._has_pausable or state._client is None:
-        return
-    if _pause_poll_thread is not None and _pause_poll_thread.is_alive():
-        return
-
-    def _poll_loop() -> None:
-        client = state._client
-        while client is not None and client.is_connected():
-            try:
-                paused = client.get_pause_state()
-                state.set_paused(paused)
-            except Exception:
-                pass
-            time.sleep(0.5)
-
-    _pause_poll_thread = threading.Thread(target=_poll_loop, daemon=True)
-    _pause_poll_thread.start()
 
 
 def _ensure_init() -> None:
@@ -298,85 +274,6 @@ def init(
         if nebo_logger.level == _stdlib_logging.NOTSET:
             nebo_logger.setLevel(_stdlib_logging.INFO)
 
-    # Start pause polling if we have pausable nodes and are in server mode
-    if state._client is not None:
-        _start_pause_poll()
-
-
-def ask(
-    question: str,
-    options: Optional[list[str]] = None,
-    timeout: Optional[float] = None,
-) -> str:
-    """Ask a question via the web UI or terminal fallback.
-
-    In server mode, sends an ask_prompt event to the daemon and polls
-    for a response from the web UI.  In local mode, falls back to a
-    Rich terminal prompt.
-
-    Args:
-        question: The question to ask.
-        options: Optional list of valid responses.
-        timeout: Optional timeout in seconds.
-
-    Returns:
-        The response string.
-
-    Raises:
-        TimeoutError: If timeout expires with no response (server mode only).
-    """
-    state = get_state()
-    client = getattr(state, "_client", None)
-
-    # Server mode: send event and poll for web UI response
-    if client and client.is_connected():
-        ask_id = str(uuid.uuid4())
-        node_name = _current_node.get() or ""
-        run_id = getattr(client, "_run_id", None) or ""
-
-        client.send_event({
-            "type": "ask_prompt",
-            "ask_id": ask_id,
-            "loggable_id": node_name,
-            "node_name": node_name,
-            "question": question,
-            "options": options,
-            "timeout_seconds": timeout,
-        })
-        client.flush()
-
-        poll_path = f"/runs/{run_id}/ask/{ask_id}/respond"
-        poll_interval = 0.5
-        deadline = time.monotonic() + timeout if timeout else None
-
-        while True:
-            if deadline and time.monotonic() >= deadline:
-                raise TimeoutError(
-                    f"No response to ask '{question}' within {timeout}s"
-                )
-            time.sleep(poll_interval)
-            resp = client.get(poll_path)
-            if resp and resp.get("status") == "answered":
-                return resp["response"]
-
-    # Local mode: terminal fallback
-    display = getattr(state, "_display", None)
-    if display is not None:
-        display.pause()
-
-    try:
-        from rich.prompt import Prompt
-        if options:
-            return Prompt.ask(question, choices=options)
-        return Prompt.ask(question)
-    except (ImportError, EOFError):
-        if options:
-            return options[0]
-        return ""
-    finally:
-        if display is not None:
-            display.resume()
-
 
 def flush(timeout: float = 5.0) -> bool:
     """Block until queued events are sent to the daemon.
@@ -575,7 +472,7 @@ __all__ = [
     "log_image",
     "log_audio",
     "md",
-    "ask",
+    "labels",
     "ui",
     "start_run",
     "get_state",

@@ -12,9 +12,12 @@ interface NodeImagesProps {
   runId: string
   loggableId: string
   comparisonRunIds?: string[]
+  // When true, the image list fills the parent's height instead of
+  // capping at a fixed pixel value. Used inside fixed-height DAG nodes.
+  fillParent?: boolean
 }
 
-export function NodeImages({ runId, loggableId, comparisonRunIds }: NodeImagesProps) {
+export function NodeImages({ runId, loggableId, comparisonRunIds, fillParent }: NodeImagesProps) {
   if (comparisonRunIds) {
     return (
       <ComparisonGrid runIds={comparisonRunIds}>
@@ -23,7 +26,7 @@ export function NodeImages({ runId, loggableId, comparisonRunIds }: NodeImagesPr
     )
   }
 
-  return <SingleRunImages runId={runId} loggableId={loggableId} />
+  return <SingleRunImages runId={runId} loggableId={loggableId} fillParent={fillParent} />
 }
 
 export function ImageItem({ runId, loggableId, img, showTimestamp }: { runId: string; loggableId: string; img: ImageEntry; showTimestamp?: boolean }) {
@@ -75,7 +78,10 @@ export function VirtualizedImageList({
   loggableId: string
   images: ImageEntry[]
   showTimestamp?: boolean
-  maxHeight: number
+  // When set, caps the scroll container at this pixel height. When
+  // omitted, the list uses `h-full` instead so it fills its flex
+  // parent (used in fixed-height DAG nodes).
+  maxHeight?: number
   itemGap?: number
   estimateSize?: number
 }) {
@@ -89,7 +95,11 @@ export function VirtualizedImageList({
   })
 
   return (
-    <div ref={scrollRef} className="overflow-auto" style={{ maxHeight }}>
+    <div
+      ref={scrollRef}
+      className={maxHeight !== undefined ? 'overflow-auto' : 'overflow-auto h-full'}
+      style={maxHeight !== undefined ? { maxHeight } : undefined}
+    >
       <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
         {virtualizer.getVirtualItems().map(vi => {
           const img = images[vi.index]
@@ -139,7 +149,7 @@ function ComparisonImageCell({ runId, loggableId }: { runId: string; loggableId:
   )
 }
 
-function SingleRunImages({ runId, loggableId }: { runId: string; loggableId: string }) {
+function SingleRunImages({ runId, loggableId, fillParent }: { runId: string; loggableId: string; fillParent?: boolean }) {
   const allImages = useStore(s => s.runs.get(runId)?.loggableImages[loggableId]) ?? []
   const timelineFilter = useTimelineFilter()
 
@@ -158,7 +168,10 @@ function SingleRunImages({ runId, loggableId }: { runId: string; loggableId: str
       loggableId={loggableId}
       images={images}
       showTimestamp
-      maxHeight={380}
+      // In fillParent mode (fixed-height DAG node) drop the cap so the
+      // list grows to the flex-allotted height instead of leaving empty
+      // space below.
+      maxHeight={fillParent ? undefined : 380}
     />
   )
 }

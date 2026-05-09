@@ -9,6 +9,12 @@ import { useComparisonContext } from '@/hooks/useComparisonContext'
 interface LoggableTabContainerProps {
   runId: string
   loggableId: string
+  // When true the container fills its parent (flex-col, h-full) and the
+  // tab-content area scrolls internally so the tab strip stays pinned.
+  // Used inside DAG nodes which now have a fixed total height. Default
+  // (false) keeps the legacy block-layout with a max-h-[420px] cap on
+  // the content area, used by EmbeddedView's natural-flow scroll.
+  fillParent?: boolean
 }
 
 const allTabs: { key: NodeTab; label: string; alwaysShow: boolean }[] = [
@@ -16,12 +22,11 @@ const allTabs: { key: NodeTab; label: string; alwaysShow: boolean }[] = [
   { key: 'metrics', label: 'Metrics', alwaysShow: false },
   { key: 'images', label: 'Images', alwaysShow: false },
   { key: 'audio', label: 'Audio', alwaysShow: false },
-  { key: 'ask', label: 'Ask', alwaysShow: false },
 ]
 
-const VALID_TABS: readonly NodeTab[] = ['logs', 'metrics', 'images', 'audio', 'ask']
+const VALID_TABS: readonly NodeTab[] = ['logs', 'metrics', 'images', 'audio']
 
-export function LoggableTabContainer({ runId, loggableId }: LoggableTabContainerProps) {
+export function LoggableTabContainer({ runId, loggableId, fillParent = false }: LoggableTabContainerProps) {
   const pinTab = useStore(s => s.pinTab)
   const run = useStore(s => s.runs.get(runId))
   const runs = useStore(s => s.runs)
@@ -42,13 +47,6 @@ export function LoggableTabContainer({ runId, loggableId }: LoggableTabContainer
   useEffect(() => {
     if (!userChoseTab.current) setActiveTab(defaultTab)
   }, [defaultTab])
-
-  const hasPendingAsk = useMemo(() => {
-    const asks = run?.pendingAsks
-    if (!asks || asks.size === 0) return false
-    for (const a of asks.values()) { if (a.nodeName === loggableId) return true }
-    return false
-  }, [run?.pendingAsks, loggableId])
 
   // In comparison mode, aggregate data availability across all runs
   const hasLogs = useMemo(() => {
@@ -99,11 +97,10 @@ export function LoggableTabContainer({ runId, loggableId }: LoggableTabContainer
         case 'metrics': return hasMetrics
         case 'images': return hasImages
         case 'audio': return hasAudio
-        case 'ask': return hasPendingAsk
         default: return false
       }
     })
-  }, [hasLogs, hasMetrics, hasImages, hasAudio, hasPendingAsk])
+  }, [hasLogs, hasMetrics, hasImages, hasAudio])
 
   // Nothing to show — let parents collapse the surrounding chrome (no
   // empty bordered tab strip on nodes that haven't logged anything).
@@ -125,9 +122,12 @@ export function LoggableTabContainer({ runId, loggableId }: LoggableTabContainer
       : fallbackTab
 
   return (
-    <div>
+    <div className={fillParent ? 'flex flex-col h-full min-h-0' : undefined}>
       {/* Tab bar */}
-      <div className="flex items-center border-b border-border">
+      <div className={cn(
+        'flex items-center border-b border-border',
+        fillParent && 'shrink-0',
+      )}>
         <div className="flex flex-1">
           {visibleTabs.map(tab => (
             <button
@@ -145,9 +145,6 @@ export function LoggableTabContainer({ runId, loggableId }: LoggableTabContainer
               }}
             >
               {tab.label}
-              {tab.key === 'ask' && hasPendingAsk && (
-                <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-amber-500 rounded-full" />
-              )}
             </button>
           ))}
         </div>
@@ -166,8 +163,21 @@ export function LoggableTabContainer({ runId, loggableId }: LoggableTabContainer
       </div>
 
       {/* Tab content */}
-      <div className="p-3 max-h-[420px] overflow-auto" onClick={e => e.stopPropagation()}>
-        <LoggableTabContent runId={runId} loggableId={loggableId} tab={resolvedTab} comparisonRunIds={isComparison ? comparisonRunIds : undefined} />
+      {/*
+        In fillParent mode every tab body owns its own scroll container
+        (NodeLogs / NodeImages / NodeMetrics / NodeAudio all switch to
+        `h-full overflow-auto` when fillParent is set), so we drop the
+        wrapper's overflow to avoid nested scrollbars. Default mode
+        keeps the legacy max-h cap with overflow on the wrapper.
+      */}
+      <div
+        className={cn(
+          'p-3',
+          fillParent ? 'flex-1 min-h-0' : 'max-h-[420px] overflow-auto',
+        )}
+        onClick={e => e.stopPropagation()}
+      >
+        <LoggableTabContent runId={runId} loggableId={loggableId} tab={resolvedTab} comparisonRunIds={isComparison ? comparisonRunIds : undefined} fillParent={fillParent} />
       </div>
     </div>
   )

@@ -19,13 +19,12 @@ The top-level module provides all the public functions you need. Import it as:
 Decorators
 ----------
 
-.. function:: nb.fn(func=None, depends_on=None, pausable=False, ui=None)
+.. function:: nb.fn(func=None, depends_on=None, ui=None)
 
     Register a function or class for observability. When applied to a function, it sets up scope tracking — the node materializes (becomes visible in the DAG) as soon as the decorated function is executed, regardless of whether it calls a log function. When applied to a class, all methods are wrapped with scope tracking and the class becomes a visual grouping container in the DAG.
 
     :param func: The function or class to decorate (when used without parentheses).
     :param depends_on: Optional list of decorated functions or node ID strings that this node depends on.
-    :param pausable: If True, the function blocks before execution when paused via the web UI.
     :param ui: Optional dict of per-node UI display hints (e.g., ``{"color": "#34d399", "default_tab": "metrics"}``).
     :returns: The decorated function or class (unchanged behavior, with observability added).
 
@@ -140,30 +139,39 @@ Example::
     )
     nb.log_line("lr", 3e-4, tags=["main"])
 
-.. function:: nb.log_image(image, *, name=None, step=None, points=None, boxes=None, circles=None, polygons=None, bitmask=None)
+.. function:: nb.log_image(image, *, name=None, step=None, points=None, boxes=None, circles=None, polygons=None, bitmasks=None)
 
    Log an image with optional geometric labels overlaid.
 
    :param image: PIL.Image, numpy ndarray, or torch.Tensor.
    :param name: Display label for the image.
    :param step: Optional step counter.
-   :param points: Single ``[x, y]`` or list ``[[x, y], ...]``.
-   :param boxes: Single ``[x1, y1, x2, y2]`` (xyxy) or a list of them.
-   :param circles: Single ``[x, y, r]`` or a list of them.
-   :param polygons: Single polygon ``[[x, y], ...]`` or a list of polygons.
-   :param bitmask: 2D mask (HxW), 3D stack (NxHxW), or a list of 2D masks.
+   :param points: ``nb.labels.Points`` instance or list of them.
+   :param boxes: ``nb.labels.Boxes`` instance or list of them (xyxy format).
+   :param circles: ``nb.labels.Circles`` instance or list of them.
+   :param polygons: ``nb.labels.Polygons`` instance or list of them.
+       ``Polygons`` takes an extra ``fill: bool = True`` flag — set
+       ``fill=False`` to stroke the outline only.
+   :param bitmasks: ``nb.labels.Bitmasks`` instance or list of them.
 
-   Tensors and ndarrays are normalized to plain Python lists; bitmasks are
-   PNG-encoded and transmitted inline. The UI's Settings pane > "Image
-   labels" section exposes per-(loggable, image, key) visibility and
-   opacity controls.
+   Each label dataclass pairs the raw geometry (list / ndarray / tensor)
+   with a color string ("#hex" or any CSS color name). Pass a list to
+   draw multiple groups of the same kind in different colors —
+   ``boxes=[Boxes(preds, color="#22d3ee"), Boxes(gt, color="#22c55e")]``.
+   Raw lists / tensors are rejected with a ``TypeError`` pointing at the
+   matching ``nb.labels.*`` class.
+
+   Tensors and ndarrays are normalized to plain Python lists; bitmasks
+   are PNG-encoded and transmitted inline. The UI's Settings pane >
+   "Image labels" section exposes per-(loggable, image, key) visibility
+   and opacity controls.
 
    Example::
 
        nb.log_image(
            img, name="pred",
-           boxes=[[10, 10, 50, 50]],
-           points=[[30, 30]],
+           boxes=nb.labels.Boxes([[10, 10, 50, 50]], color="#22d3ee"),
+           points=nb.labels.Points([[30, 30]], color="red"),
        )
 
 .. function:: nb.log_audio(audio: Any, sr: int = 16000, *, name: str | None = None, step: int | None = None) -> None
@@ -303,19 +311,6 @@ Add ``&node=Y`` to any of the slice forms to filter to one node.
 Append ``&token=…`` to authenticate with a token-protected daemon —
 the dashboard captures it once, persists it in localStorage, and
 strips it from the visible URL.
-
-
-Human-in-the-Loop
-------------------
-
-.. function:: nb.ask(question: str, options: list[str] | None = None, timeout: float | None = None) -> str
-
-    Ask the user a question. In server mode, the question appears in the web UI. In local mode, falls back to a Rich terminal prompt.
-
-    :param question: The question to ask.
-    :param options: Optional list of valid response choices.
-    :param timeout: Optional timeout in seconds.
-    :returns: The user's response string.
 
 
 State Access
@@ -580,14 +575,8 @@ Action Tools
     Block until a pipeline event occurs or the timeout elapses.
 
     :param timeout: Max seconds to wait (default: 300).
-    :param events: Event types to wait for (default: ``error``, ``completed``, ``ask_prompt``).
+    :param events: Event types to wait for (default: ``error``, ``completed``).
     :param run_id: Optional run ID. Uses the latest run if omitted.
-
-``nebo_ask_user``
-    Send a question to the user via the terminal dashboard.
-
-    :param question: The question to ask (required).
-    :param options: Valid response options.
 
 ``nebo_load_file``
     Load a ``.nebo`` log file into the daemon for viewing and Q&A.
@@ -728,6 +717,6 @@ Nebo persists runs as append-only binary files using MessagePack.
       size: u32 big-endian (payload size in bytes)
       payload: msgpack map (entry-specific data)
 
-Entry types: log (0), metric (1), image (2), audio (3), node_register (4), edge (5), error (6), ask (7), ui_config (8), text (9), progress (10), config (11), description (12), node_executed (13), ask_response (14), run_start (15), run_completed (16), pause_state (17).
+Entry types: log (0), metric (1), image (2), audio (3), node_register (4), edge (5), error (6), ui_config (8), text (9), progress (10), config (11), description (12), node_executed (13), run_start (15), run_completed (16), run_config (18), loggable_register (19). Codes 7, 14, and 17 are reserved (formerly ask, ask_response, pause_state — removed).
 
 Media assets (images, audio) are embedded as raw bytes inside the msgpack payload, avoiding base64 overhead.

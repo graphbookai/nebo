@@ -12,11 +12,15 @@ interface NodeLogsProps {
   runId: string
   loggableId: string
   comparisonRunIds?: string[]
+  // When true, fill the parent's height instead of capping the
+  // virtualized log list at 200px. Used inside fixed-height DAG
+  // nodes so the log feed doesn't leave empty space below.
+  fillParent?: boolean
 }
 
 const levels = ['All', 'Info', 'Warn', 'Error'] as const
 
-export function NodeLogs({ runId, loggableId, comparisonRunIds }: NodeLogsProps) {
+export function NodeLogs({ runId, loggableId, comparisonRunIds, fillParent }: NodeLogsProps) {
   const [search, setSearch] = useState('')
   const [levelFilter, setLevelFilter] = useState<string>('All')
 
@@ -73,6 +77,7 @@ export function NodeLogs({ runId, loggableId, comparisonRunIds }: NodeLogsProps)
       setSearch={setSearch}
       levelFilter={levelFilter}
       setLevelFilter={setLevelFilter}
+      fillParent={fillParent}
     />
   )
 }
@@ -149,9 +154,10 @@ interface SingleRunLogsProps {
   setSearch: (v: string) => void
   levelFilter: string
   setLevelFilter: (v: string) => void
+  fillParent?: boolean
 }
 
-function SingleRunLogs({ runId, loggableId, search, setSearch, levelFilter, setLevelFilter }: SingleRunLogsProps) {
+function SingleRunLogs({ runId, loggableId, search, setSearch, levelFilter, setLevelFilter, fillParent }: SingleRunLogsProps) {
   const logs = useStore(s => s.runs.get(runId)?.logs ?? [])
   const errors = useStore(s => s.runs.get(runId)?.errors ?? [])
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -193,6 +199,7 @@ function SingleRunLogs({ runId, loggableId, search, setSearch, levelFilter, setL
       scrollRef={scrollRef}
       autoScroll={autoScroll}
       setAutoScroll={setAutoScroll}
+      fillParent={fillParent}
     />
   )
 }
@@ -207,6 +214,7 @@ interface NodeLogsInnerProps {
   scrollRef: React.RefObject<HTMLDivElement | null>
   autoScroll: boolean
   setAutoScroll: (v: boolean) => void
+  fillParent?: boolean
 }
 
 function NodeLogsInner({
@@ -219,6 +227,7 @@ function NodeLogsInner({
   scrollRef,
   autoScroll,
   setAutoScroll,
+  fillParent,
 }: NodeLogsInnerProps) {
   const virtualizer = useVirtualizer({
     count: nodeLogs.length,
@@ -241,9 +250,14 @@ function NodeLogsInner({
   }, [scrollRef, setAutoScroll])
 
   return (
-    <div className="space-y-2">
+    <div
+      className={cn(
+        'space-y-2',
+        fillParent && 'flex flex-col h-full min-h-0',
+      )}
+    >
       {/* Search and filter */}
-      <div className="flex items-center gap-2">
+      <div className={cn('flex items-center gap-2', fillParent && 'shrink-0')}>
         <div className="flex items-center gap-1 flex-1 bg-muted rounded-md px-2">
           <Search className="h-3 w-3 text-muted-foreground shrink-0" />
           <input
@@ -271,7 +285,14 @@ function NodeLogsInner({
       </div>
 
       {/* Virtualized log entries */}
-      <div ref={scrollRef} className="max-h-[200px] overflow-auto" onScroll={handleScroll}>
+      <div
+        ref={scrollRef}
+        className={cn(
+          'overflow-auto',
+          fillParent ? 'flex-1 min-h-0' : 'max-h-[200px]',
+        )}
+        onScroll={handleScroll}
+      >
         <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
           {virtualizer.getVirtualItems().map(virtualItem => {
             const log = nodeLogs[virtualItem.index]

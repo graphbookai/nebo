@@ -1,11 +1,12 @@
-import { memo, useMemo } from 'react'
-import type { ChartConfiguration } from 'chart.js'
+import { memo, useEffect, useMemo, useRef } from 'react'
+import type { Chart, ChartConfiguration } from 'chart.js'
 import type { MetricEntry } from '@/lib/api'
 import { useChartJs } from './useChartJs'
 import { useChartTokens } from './useChartTokens'
 import { RUN_COLOR_PALETTE } from '@/lib/colors'
-
-const NUM_BINS = 30
+import { useStore, DEFAULT_HISTOGRAM_BIN_COUNT } from '@/store'
+import { formatTick } from './formatTick'
+import { attachWheelHandler, buildZoomOptions } from './zoomBindings'
 
 function minMax(xs: number[]): { min: number; max: number } {
   let min = Infinity
@@ -62,6 +63,7 @@ export const HistogramMetric = memo(function HistogramMetric({
   fill,
   activeLabels,
   allLabels,
+  resetSignal,
 }: {
   entries: MetricEntry[]
   color: string
@@ -73,10 +75,15 @@ export const HistogramMetric = memo(function HistogramMetric({
   // label's color doesn't shift when other labels are toggled off via
   // the chip row.
   allLabels?: string[]
+  // Counter the parent increments to trigger `chart.resetZoom()`. The
+  // reset button itself lives in the parent's chip row.
+  resetSignal?: number
 }) {
   const tokens = useChartTokens()
   const latest = entries.length > 0 ? entries[entries.length - 1] : null
   const colorsByLabel = latest?.colors === true
+  const binCount = useStore(s => s.settings.histogramBinCount ?? DEFAULT_HISTOGRAM_BIN_COUNT)
+  const histogramSmoothing = useStore(s => s.settings.histogramSmoothing ?? 0)
 
   const view = useMemo(() => {
     if (!latest) return null
@@ -101,11 +108,24 @@ export const HistogramMetric = memo(function HistogramMetric({
     }
     if (!Number.isFinite(min) || !Number.isFinite(max)) return null
     const range = max - min || 1
-    const size = range / NUM_BINS
+    const size = range / binCount
 
     const datasets = labels.map((label) => {
-      const counts = binCounts(samplesByLabel[label], min, size, NUM_BINS)
-      const data = counts.map((c, i) => ({ x: min + (i + 0.5) * size, y: c }))
+      const counts = binCounts(samplesByLabel[label], min, size, binCount)
+      // Apply EMA over the bin counts when smoothing is on. Per-label so
+      // overlapping distributions stay distinguishable.
+      let smoothed = counts
+      if (histogramSmoothing > 0) {
+        smoothed = new Array(counts.length)
+        let prev = counts[0]
+        smoothed[0] = prev
+        for (let i = 1; i < counts.length; i++) {
+          const v = histogramSmoothing * prev + (1 - histogramSmoothing) * counts[i]
+          smoothed[i] = v
+          prev = v
+        }
+      }
+      const data = smoothed.map((c, i) => ({ x: min + (i + 0.5) * size, y: c }))
       const paletteIdx = allLabels ? allLabels.indexOf(label) : labels.indexOf(label)
       const labelColor = colorsByLabel
         ? RUN_COLOR_PALETTE[(paletteIdx < 0 ? 0 : paletteIdx) % RUN_COLOR_PALETTE.length]
@@ -122,7 +142,7 @@ export const HistogramMetric = memo(function HistogramMetric({
       }
     })
     return { datasets, min, max }
-  }, [latest, activeLabels, color, colorsByLabel, allLabels])
+  }, [latest, activeLabels, color, colorsByLabel, allLabels, binCount, histogramSmoothing])
 
   const config: ChartConfiguration<'line'> | null = useMemo(() => {
     if (!view) return null
@@ -139,18 +159,27 @@ export const HistogramMetric = memo(function HistogramMetric({
             ticks: {
               color: tokens.axisTickColor,
               font: { size: 10 },
-              callback: (value) => Number(value).toFixed(2),
+              callback: (value) => formatTick(value as number),
             },
             grid: { color: tokens.gridStroke, drawTicks: false },
             border: { display: false },
           },
           y: {
-            ticks: { color: tokens.axisTickColor, font: { size: 10 } },
+            ticks: {
+              color: tokens.axisTickColor,
+              font: { size: 10 },
+              callback: (value) => formatTick(value as number),
+            },
             grid: { color: tokens.gridStroke, drawTicks: false },
             border: { display: false },
           },
         },
-        plugins: { legend: { display: false } },
+        plugins: {
+          legend: { display: false },
+          zoom: buildZoomOptions('x'),
+        } as unknown as ChartConfiguration<'line'>['options'] extends { plugins?: infer P }
+          ? P
+          : never,
         // Hover anywhere along x picks the nearest bin across all labels —
         // matches recharts' AreaChart cursor behavior. Without this,
         // Chart.js's default 'nearest'+'intersect: true' only fires when the
@@ -160,8 +189,9 @@ export const HistogramMetric = memo(function HistogramMetric({
     }
   }, [view, tokens.axisTickColor, tokens.gridStroke])
 
-  const { canvasRef, containerRef } = useChartJs<'line'>({
+  const { canvasRef, containerRef, chartRef } = useChartJs<'line'>({
     config: config ?? { type: 'line', data: { datasets: [] } },
+    onChartReady: (chart) => attachWheelHandler(chart, 'x'),
     formatTooltip: (tooltip) => ({
       title: tooltip.dataPoints?.[0]
         ? `x≈${(tooltip.dataPoints[0].parsed as { x: number }).x.toFixed(2)}`
@@ -176,6 +206,15 @@ export const HistogramMetric = memo(function HistogramMetric({
       }),
     }),
   })
+
+  const lastResetRef = useRef<number | undefined>(resetSignal)
+  useEffect(() => {
+    if (resetSignal === undefined) return
+    if (lastResetRef.current === resetSignal) return
+    lastResetRef.current = resetSignal
+    const chart = chartRef.current as Chart<'line'> | null
+    chart?.resetZoom()
+  }, [resetSignal, chartRef])
 
   if (!view) return null
 

@@ -170,40 +170,97 @@ def _normalize_bitmask(value: Any) -> list:
     return [value]
 
 
-def _serialize_labels(
-    *, points=None, boxes=None, circles=None, polygons=None, bitmask=None,
-) -> dict:
-    """Build the wire-event `labels` dict from the five label kwargs.
+_NORMALIZERS = {
+    "Points": _normalize_points,
+    "Boxes": _normalize_boxes,
+    "Circles": _normalize_circles,
+    "Polygons": _normalize_polygons,
+}
 
-    Geometric coords are normalized to plain nested lists. Bitmasks are
-    binarized (any nonzero → 255), PNG-encoded, and base64'd. Missing
-    (None) kwargs are omitted from the returned dict entirely.
+
+def _coerce_groups(value: Any, expected_cls_name: str, kwarg_name: str) -> list:
+    """Validate the user passed a label dataclass (or list of them).
+
+    Returns a list of the matching dataclass instances. Raises TypeError
+    on raw lists/tensors so users get a clear pointer at nb.labels.X
+    instead of a downstream serialization error.
     """
-    import base64
+    from nebo import labels as _labels
 
+    expected_cls = getattr(_labels, expected_cls_name)
+    if isinstance(value, expected_cls):
+        return [value]
+    if isinstance(value, list) and all(isinstance(g, expected_cls) for g in value):
+        return list(value)
+    raise TypeError(
+        f"nb.log_image(..., {kwarg_name}=...) expects nb.labels.{expected_cls_name} "
+        f"(or list[nb.labels.{expected_cls_name}]); got {type(value).__name__}. "
+        f"Wrap your data: {kwarg_name}=nb.labels.{expected_cls_name}(data, color=\"#hex\")."
+    )
+
+
+def _encode_bitmask_group(bitmasks_obj: Any) -> dict:
+    """Encode a Bitmasks(data=..., color=...) instance to wire form."""
+    import base64
+    import numpy as np
+    from PIL import Image as _PIL
+
+    masks = []
+    for m in _normalize_bitmask(bitmasks_obj.data):
+        arr = np.asarray(m)
+        # Binarize: any nonzero → 255. Works for bool, uint8, float, etc.
+        binary = (arr > 0).astype(np.uint8) * 255
+        img = _PIL.fromarray(binary, mode="L")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        masks.append({
+            "width": int(binary.shape[1]),
+            "height": int(binary.shape[0]),
+            "data": base64.b64encode(buf.getvalue()).decode("ascii"),
+        })
+    return {"data": masks, "color": bitmasks_obj.color}
+
+
+def _serialize_labels(
+    *, points=None, boxes=None, circles=None, polygons=None, bitmasks=None,
+) -> dict:
+    """Build the wire-event `labels` dict from label dataclass instances.
+
+    Each kwarg accepts either a single dataclass instance from
+    nb.labels.* or a list of them, so an image can carry multiple
+    groups of the same kind in different colors. Geometric coords are
+    normalized to plain nested lists; bitmasks are binarized + PNG +
+    base64'd. Each group serializes to ``{"data": <normalized>,
+    "color": <css>}``. Missing (None) kwargs are omitted.
+    """
     out: dict = {}
-    if points is not None:
-        out["points"] = _normalize_points(points)
-    if boxes is not None:
-        out["boxes"] = _normalize_boxes(boxes)
-    if circles is not None:
-        out["circles"] = _normalize_circles(circles)
-    if polygons is not None:
-        out["polygons"] = _normalize_polygons(polygons)
-    if bitmask is not None:
-        import numpy as np
-        from PIL import Image as _PIL
-        out["bitmask"] = []
-        for m in _normalize_bitmask(bitmask):
-            arr = np.asarray(m)
-            # Binarize: any nonzero → 255. Works for bool, uint8, float, etc.
-            binary = (arr > 0).astype(np.uint8) * 255
-            img = _PIL.fromarray(binary, mode="L")
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            out["bitmask"].append({
-                "width": int(binary.shape[1]),
-                "height": int(binary.shape[0]),
-                "data": base64.b64encode(buf.getvalue()).decode("ascii"),
-            })
+
+    geometric = (
+        ("points", points, "Points"),
+        ("boxes", boxes, "Boxes"),
+        ("circles", circles, "Circles"),
+        ("polygons", polygons, "Polygons"),
+    )
+    for key, value, cls_name in geometric:
+        if value is None:
+            continue
+        groups = _coerce_groups(value, cls_name, key)
+        if cls_name == "Polygons":
+            # Polygons carry an extra `fill` flag so the UI can stroke
+            # the outline only (fill=False) instead of filling the
+            # interior. Other label kinds don't have an analogue.
+            out[key] = [
+                {"data": _NORMALIZERS[cls_name](g.data), "color": g.color, "fill": bool(g.fill)}
+                for g in groups
+            ]
+        else:
+            out[key] = [
+                {"data": _NORMALIZERS[cls_name](g.data), "color": g.color}
+                for g in groups
+            ]
+
+    if bitmasks is not None:
+        groups = _coerce_groups(bitmasks, "Bitmasks", "bitmasks")
+        out["bitmasks"] = [_encode_bitmask_group(g) for g in groups]
+
     return out

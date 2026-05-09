@@ -32,8 +32,6 @@ class TerminalDisplay:
         self._refresh_rate = refresh_rate
         self._server_url = server_url
         self._running = False
-        self._paused = threading.Event()
-        self._paused.set()  # starts unpaused
         self._thread: Optional[threading.Thread] = None
         self._live = None
 
@@ -54,21 +52,8 @@ class TerminalDisplay:
         if not self._running:
             return
         self._running = False
-        self._paused.set()  # unblock if paused so the thread can exit
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2.0)
-
-    def pause(self) -> None:
-        """Pause live rendering so the terminal is free for user input."""
-        if not self._running:
-            return
-        self._paused.clear()
-        # Give the display loop time to exit its Live context
-        time.sleep(0.15)
-
-    def resume(self) -> None:
-        """Resume live rendering after a pause."""
-        self._paused.set()
 
     def _display_loop(self) -> None:
         """Main display loop."""
@@ -78,20 +63,14 @@ class TerminalDisplay:
         console = Console()
         interval = 1.0 / self._refresh_rate
 
-        while self._running:
-            # Wait until unpaused (or stop is called)
-            self._paused.wait()
-            if not self._running:
-                break
-
-            with Live(self._render(), console=console, refresh_per_second=self._refresh_rate) as live:
-                self._live = live
-                while self._running and self._paused.is_set():
-                    live.update(self._render())
-                    time.sleep(interval)
-                # Final update so Live.__exit__ prints the true final state
+        with Live(self._render(), console=console, refresh_per_second=self._refresh_rate) as live:
+            self._live = live
+            while self._running:
                 live.update(self._render())
-                self._live = None
+                time.sleep(interval)
+            # Final update so Live.__exit__ prints the true final state
+            live.update(self._render())
+            self._live = None
 
     def _get_state_data(self) -> dict:
         """Get state data from server or in-process state."""

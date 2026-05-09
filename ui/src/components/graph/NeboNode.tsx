@@ -26,12 +26,6 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
   const nodeInfo = useStore(s => s.runs.get(runId)?.graph?.nodes[nodeId] ?? null)
   const hasErrors = useStore(s => (s.runs.get(runId)?.errors ?? []).some(e => e.node_name === nodeId))
   const runStatus = useStore(s => s.runs.get(runId)?.summary.status ?? null)
-  const hasPendingAsk = useStore(s => {
-    const asks = s.runs.get(runId)?.pendingAsks
-    if (!asks || asks.size === 0) return false
-    for (const a of asks.values()) { if (a.nodeName === nodeId) return true }
-    return false
-  })
   const dagDirection = useStore(s => s.dagDirection)
   const updateNodeInternals = useUpdateNodeInternals()
   useEffect(() => { updateNodeInternals(id) }, [dagDirection, id, updateNodeInternals])
@@ -59,8 +53,6 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
 
   const borderColor = hasErrors
     ? 'border-red-500'
-    : hasPendingAsk
-    ? 'border-amber-500'
     : isRunning
     ? 'border-blue-500'
     : !inDag
@@ -69,30 +61,35 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
 
   // Per-node ui_hints (from @nb.fn(ui=...)) — currently we honor `color`
   // as an explicit border color override so the hint has a visible effect
-  // in the graph. Status colors (errors/running/ask) still win because they
+  // in the graph. Status colors (errors/running) still win because they
   // are derived from live run state.
   const uiHints = (nodeInfo.ui_hints ?? null) as { color?: string; collapsed?: boolean } | null
   const hintColor = uiHints?.color
-  const hasStatusColor = hasErrors || hasPendingAsk || isRunning
+  const hasStatusColor = hasErrors || isRunning
   // Collapsed = explicit user toggle if present, otherwise the SDK's
   // ui_hints.collapsed seed.
   const isCollapsed = collapseOverride ?? uiHints?.collapsed === true
-  // The store already carries both width and height (set by NodeResizer's
-  // onResize callback). Earlier we only applied `width` to nodeStyle, so
-  // dragging the south handle bumped the stored height but the DOM never
-  // grew — height appeared "stuck". Apply both axes here.
+  // Fixed default dimensions. The width is always applied (so children
+  // can't push the card wider than the layout intends); the height is
+  // applied only when there's content to show and the node isn't
+  // collapsed — for header-only or collapsed cards we let the height
+  // shrink to the header naturally instead of leaving a tall empty gap.
+  // Stored sizes (from a manual resize) override the defaults. This
+  // prevents the "snap on Resize click" behavior where opening the
+  // resize handles previously dropped a max-w cap and let the chart
+  // contents balloon the node to whatever width they wanted.
+  const DEFAULT_WIDTH = 360
+  const DEFAULT_HEIGHT = 440
+  const showsContentArea = hasContent && !isCollapsed
+  const effectiveWidth = storedSize?.width ?? DEFAULT_WIDTH
+  const effectiveHeight = showsContentArea
+    ? storedSize?.height ?? DEFAULT_HEIGHT
+    : null
   const nodeStyle: CSSProperties = {
-    ...(storedSize
-      ? {
-          width: storedSize.width,
-          minWidth: storedSize.width,
-          // When collapsed, drop the stored height so the card naturally
-          // shrinks to header height instead of leaving a tall empty
-          // gap below the title.
-          ...(isCollapsed
-            ? {}
-            : { height: storedSize.height, minHeight: storedSize.height }),
-        }
+    width: effectiveWidth,
+    minWidth: effectiveWidth,
+    ...(effectiveHeight !== null
+      ? { height: effectiveHeight, minHeight: effectiveHeight }
       : {}),
     ...(hintColor && !hasStatusColor ? { borderColor: hintColor } : {}),
   }
@@ -100,12 +97,14 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
   return (
     <div
       className={cn(
-        'bg-card rounded-lg border-2 shadow-sm transition-all',
-        !storedSize && !isResizing && 'min-w-[240px] max-w-[320px]',
+        // Animate only colors / shadow / border so live size changes
+        // (drag-resize, default-vs-stored swap) feel immediate.
+        // `transition-all` would smooth width/height too and made
+        // resizing look laggy.
+        'bg-card rounded-lg border-2 shadow-sm transition-colors transition-shadow flex flex-col',
         borderColor,
         hasErrors && 'animate-shake',
         isRunning && !hasErrors && 'shadow-blue-500/20',
-        hasPendingAsk && 'shadow-amber-500/30',
       )}
       style={nodeStyle}
       {...contextMenu.handlers}
@@ -133,7 +132,7 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
       )}
 
       {/* Node header */}
-      <div className="px-3 py-2 select-none">
+      <div className="px-3 py-2 select-none shrink-0">
         <div className="flex items-center gap-1.5">
           <span className="text-sm font-medium truncate flex-1">{nodeInfo.func_name}</span>
           {nodeInfo.exec_count > 0 && (
@@ -192,14 +191,28 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
           state (from the node context menu, or seeded by ui_hints.collapsed)
           fully suppresses the tab strip too. */}
       {hasContent && !isCollapsed && !(isDragging && hideTabsOnDrag) && (
-        <div className="border-t border-border" onWheelCapture={e => e.stopPropagation()}>
+        // React Flow opt-outs:
+        //   `nowheel` — wheel events stay with us (chart zoom + pan)
+        //                instead of zooming the DAG viewport.
+        //   `nopan`   — left-drag on a chart pans the chart, not the
+        //                DAG viewport. Without this, ReactFlow grabs
+        //                pointerdown→pointermove and chartjs-plugin-zoom
+        //                never sees the drag.
+        // Both are class-based so React Flow can detect them by walking
+        // the event target's ancestors; using `stopPropagation` here
+        // would also kill the chart's native listeners.
+        //
+        // `flex-1 min-h-0` makes this section absorb the remaining
+        // height of the fixed-height node so the LoggableTabContainer
+        // can scroll internally instead of growing the card.
+        <div className="border-t border-border nowheel nopan flex-1 min-h-0">
           <ErrorBoundary label={`Node ${nodeId}`}>
-            <LoggableTabContainer runId={runId} loggableId={nodeId} />
+            <LoggableTabContainer runId={runId} loggableId={nodeId} fillParent />
           </ErrorBoundary>
         </div>
       )}
       {hasContent && !isCollapsed && isDragging && hideTabsOnDrag && (
-        <div className="border-t border-border h-[40px]" />
+        <div className="border-t border-border flex-1 min-h-0" />
       )}
 
       <Handle type="source" position={dagDirection === 'TB' ? Position.Bottom : Position.Right} className="!bg-muted-foreground !w-2 !h-2" />

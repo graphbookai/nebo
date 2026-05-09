@@ -405,14 +405,16 @@ def log_image(
     boxes: Any = None,
     circles: Any = None,
     polygons: Any = None,
-    bitmask: Any = None,
+    bitmasks: Any = None,
 ) -> None:
     """Log an image, optionally with geometric labels overlaid.
 
-    Labels accept either a single geometry or a list of geometries.
-    See docs/reference.rst for each label's schema. Tensors / ndarrays
-    are converted to plain Python lists. Bitmasks are PNG-encoded and
-    travel inline as base64.
+    Each label kwarg accepts either a single ``nb.labels.<Class>``
+    instance or a list of them so a single image can carry multiple
+    groups of the same kind in different colors (e.g. predictions vs.
+    ground truth boxes). See ``nb.labels`` for the dataclass shapes.
+    Raw lists / tensors are rejected with a TypeError pointing at the
+    matching nb.labels.* class.
     """
     _ensure_initialized()
     from nebo.logging.serializers import serialize_image, _serialize_labels
@@ -428,7 +430,7 @@ def log_image(
     image_bytes = serialize_image(image)
     labels = _serialize_labels(
         points=points, boxes=boxes, circles=circles,
-        polygons=polygons, bitmask=bitmask,
+        polygons=polygons, bitmasks=bitmasks,
     )
 
     entry: dict = {

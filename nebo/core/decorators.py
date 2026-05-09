@@ -21,7 +21,6 @@ def fn(func: F) -> F: ...
 @overload
 def fn(
     depends_on: Optional[list[Any]] = None,
-    pausable: bool = False,
     ui: Optional[dict] = None,
 ) -> Callable[[F], F]: ...
 
@@ -29,7 +28,6 @@ def fn(
 def fn(
     func: Optional[Any] = None,
     depends_on: Optional[list[Any]] = None,
-    pausable: bool = False,
     ui: Optional[dict] = None,
 ) -> Any:
     """Decorator that registers a function or class as a DAG node.
@@ -45,7 +43,6 @@ def fn(
         @nb.fn
         @nb.fn()
         @nb.fn(depends_on=[other_fn])
-        @nb.fn(pausable=True)
 
     When applied to a class, all methods are wrapped with scope tracking
     and the class name becomes a visual group container.
@@ -68,8 +65,6 @@ def fn(
         func: The function or class to decorate (when used without parentheses).
         depends_on: Optional list of decorated functions or node ID strings
             that this node depends on. Creates explicit edges.
-        pausable: If True, the function will block before execution when
-            the web client sends a pause event. Default is False.
         ui: Optional per-node display hints surfaced to the web UI as
             ``ui_hints``. Supported keys:
 
@@ -78,8 +73,8 @@ def fn(
             - ``color`` (str): badge / border accent color for the node.
             - ``default_tab`` (str): which tab opens by default when the
               card is expanded. One of ``"info"`` (default), ``"logs"``,
-              ``"metrics"``, ``"images"``, ``"audio"``, ``"ask"``. User
-              clicks on a different tab always override this preference.
+              ``"metrics"``, ``"images"``, ``"audio"``. User clicks on a
+              different tab always override this preference.
 
             Unknown keys are forwarded verbatim for forward-compatibility
             with future UI features.
@@ -104,8 +99,8 @@ def fn(
 
     def decorator(f):
         if inspect.isclass(f):
-            return _decorate_class(f, depends_on, pausable)
-        return _decorate_function(f, depends_on, pausable, ui_hints=ui)
+            return _decorate_class(f, depends_on)
+        return _decorate_function(f, depends_on, ui_hints=ui)
 
     # Handle @fn, @fn()
     if func is None:
@@ -118,7 +113,7 @@ def fn(
     )
 
 
-def _decorate_class(cls, depends_on, pausable):
+def _decorate_class(cls, depends_on):
     """Wrap all methods of a class with scope tracking."""
     class_name = cls.__name__
 
@@ -136,12 +131,12 @@ def _decorate_class(cls, depends_on, pausable):
             )
             original = attr._nb_original
             wrapped = _decorate_function(
-                original, depends_on=None, pausable=pausable, group=class_name,
+                original, depends_on=None, group=class_name,
             )
             setattr(cls, attr_name, wrapped)
         else:
             wrapped = _decorate_function(
-                attr, depends_on=None, pausable=pausable, group=class_name,
+                attr, depends_on=None, group=class_name,
             )
             setattr(cls, attr_name, wrapped)
 
@@ -151,7 +146,7 @@ def _decorate_class(cls, depends_on, pausable):
     return cls
 
 
-def _decorate_function(f, depends_on, pausable, group=None, ui_hints=None):
+def _decorate_function(f, depends_on, group=None, ui_hints=None):
     """Wrap a single function with scope tracking."""
     # Use ClassName.method_name for methods in decorated classes
     if group:
@@ -190,21 +185,10 @@ def _decorate_function(f, depends_on, pausable, group=None, ui_hints=None):
                 node_id=node_id,
                 func_name=f.__name__,
                 docstring=f.__doc__,
-                pausable=pausable,
                 group=effective_group,
                 ui_hints=ui_hints,
             )
             registered = True
-            # If this is the first pausable node to be registered and we're
-            # in server mode, kick off the pause-poll thread now. It cannot
-            # be started inside nb.init() because _has_pausable only flips
-            # True here — long after init() has returned (Bug 9).
-            if pausable and state._client is not None:
-                try:
-                    from nebo import _start_pause_poll
-                    _start_pause_poll()
-                except ImportError:
-                    pass
         elif effective_group:
             # Update group if this function is being called within a class context
             node = state.loggables.get(node_id)
@@ -268,10 +252,6 @@ def _decorate_function(f, depends_on, pausable, group=None, ui_hints=None):
                         state.add_edge(producer, node_id)
                 elif parent is not None and not depends_on_ids:
                     state.add_edge(parent, node_id)
-
-            # Block if paused (only for pausable functions)
-            if pausable:
-                state.wait_if_paused()
 
             state.increment_count(node_id)
             result = f(*args, **kwargs)

@@ -13,21 +13,11 @@ export interface NodeState {
   isSource: boolean
   progress: { current: number; total: number; name?: string } | null
   inDag: boolean
-  hasPendingAsk: boolean
 }
 
 export interface LoggableState extends NodeState {
   kind: 'node' | 'global'
   loggableId: string
-}
-
-export interface AskPrompt {
-  askId: string
-  nodeName: string
-  question: string
-  options: string[] | null
-  timeoutSeconds: number | null
-  receivedAt: Date
 }
 
 export interface Settings {
@@ -36,9 +26,18 @@ export interface Settings {
   showControls: boolean
   hideTabsOnDrag: boolean
   hideUncalledFunctions: boolean
+  // EMA factor in [0, 1]. 0 = no smoothing, → 1 = heavy smoothing.
+  // Applied per-dataset on every line chart at render time; raw values
+  // in the store are unchanged.
+  lineSmoothing: number
+  histogramSmoothing: number
+  // Number of bins shared across labels in every histogram chart.
+  histogramBinCount: number
 }
 
 const SETTINGS_KEY = 'gb_settings'
+
+export const DEFAULT_HISTOGRAM_BIN_COUNT = 30
 
 const DEFAULT_SETTINGS: Settings = {
   theme: 'dark',
@@ -46,6 +45,9 @@ const DEFAULT_SETTINGS: Settings = {
   showControls: true,
   hideTabsOnDrag: false,
   hideUncalledFunctions: true,
+  lineSmoothing: 0,
+  histogramSmoothing: 0,
+  histogramBinCount: DEFAULT_HISTOGRAM_BIN_COUNT,
 }
 
 function loadSettings(): Settings {
@@ -70,7 +72,7 @@ const initialSettings = loadSettings()
 // Apply persisted theme on load
 document.documentElement.classList.toggle('dark', initialSettings.theme === 'dark')
 
-export type NodeTab = 'logs' | 'metrics' | 'images' | 'audio' | 'ask'
+export type NodeTab = 'logs' | 'metrics' | 'images' | 'audio'
 
 export type RightPanelTab = 'trace' | 'chat' | 'settings'
 
@@ -151,9 +153,7 @@ export interface RunState {
   loggableMetrics: Record<string, Record<string, LoggableMetricSeries>>
   loggableImages: Record<string, ImageEntry[]>
   loggableAudio: Record<string, AudioEntry[]>
-  pendingAsks: Map<string, AskPrompt>
   chatMessages: ChatMessage[]
-  paused: boolean
   loaded: boolean
   globalLoggable?: { loggableId: string; kind: 'global' }
 }
@@ -265,51 +265,12 @@ interface NeboStore {
   updateNodePosition: (runId: string, nodeId: string, pos: { x: number; y: number }) => void
   resetLayout: (runId: string) => void
 
-  addAskPrompt: (runId: string, prompt: AskPrompt) => void
-  removeAskPrompt: (runId: string, askId: string) => void
-  setPaused: (runId: string, paused: boolean) => void
-
   updateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void
 
   // Chat
   sendChatMessage: (runId: string, question: string) => Promise<void>
 
   processWsEvents: (runId: string, events: WsEvent[]) => void
-}
-
-function ensureRun(state: NeboStore, runId: string): RunState {
-  let run = state.runs.get(runId)
-  if (!run) {
-    run = {
-      summary: {
-        id: runId,
-        script_path: 'direct',
-        args: [],
-        status: 'running',
-        started_at: new Date().toISOString(),
-        ended_at: null,
-        exit_code: null,
-        node_count: 0,
-        edge_count: 0,
-        log_count: 0,
-        error_count: 0,
-        run_name: null,
-      },
-      graph: null,
-      logs: [],
-      errors: [],
-      loggableMetrics: {},
-      loggableImages: {},
-      loggableAudio: {},
-      pendingAsks: new Map(),
-      chatMessages: [],
-      paused: false,
-      loaded: false,
-      globalLoggable: undefined,
-    }
-    state.runs.set(runId, run)
-  }
-  return run
 }
 
 export const useStore = create<NeboStore>((set, get) => ({
@@ -488,9 +449,7 @@ export const useStore = create<NeboStore>((set, get) => ({
           loggableMetrics: {},
           loggableImages: {},
           loggableAudio: {},
-          pendingAsks: new Map(),
           chatMessages: [],
-          paused: false,
           loaded: false,
           globalLoggable: undefined,
         })
@@ -518,7 +477,6 @@ export const useStore = create<NeboStore>((set, get) => ({
     const run = runs.get(runId)
     if (run) {
       run.graph = graph
-      run.paused = graph.paused ?? false
       run.loaded = true
     }
 
@@ -761,37 +719,6 @@ export const useStore = create<NeboStore>((set, get) => ({
     return { nodePositions: positions }
   }),
 
-  addAskPrompt: (runId, prompt) => set(state => {
-    const runs = new Map(state.runs)
-    const run = runs.get(runId)
-    if (run) {
-      const asks = new Map(run.pendingAsks)
-      asks.set(prompt.askId, prompt)
-      run.pendingAsks = asks
-    }
-    return { runs }
-  }),
-
-  removeAskPrompt: (runId, askId) => set(state => {
-    const runs = new Map(state.runs)
-    const run = runs.get(runId)
-    if (run) {
-      const asks = new Map(run.pendingAsks)
-      asks.delete(askId)
-      run.pendingAsks = asks
-    }
-    return { runs }
-  }),
-
-  setPaused: (runId, paused) => set(state => {
-    const runs = new Map(state.runs)
-    const run = runs.get(runId)
-    if (run) {
-      run.paused = paused
-    }
-    return { runs }
-  }),
-
   updateSetting: (key, value) => set(state => {
     const next = { ...state.settings, [key]: value }
     saveSettings(next)
@@ -900,9 +827,7 @@ export const useStore = create<NeboStore>((set, get) => ({
           loggableMetrics: {},
           loggableImages: {},
           loggableAudio: {},
-          pendingAsks: new Map(),
           chatMessages: [],
-          paused: false,
           loaded: false,
           globalLoggable: undefined,
         }
@@ -998,14 +923,12 @@ export const useStore = create<NeboStore>((set, get) => ({
               }
             } else {
               if (!run.graph) {
-                run.graph = { nodes: {}, edges: [], workflow_description: null, has_pausable: false, paused: false }
+                run.graph = { nodes: {}, edges: [], workflow_description: null }
               }
-              const isPausable = !!(data.pausable as boolean)
               if (!run.graph.nodes[lid]) {
                 // Structural change — new graph object
                 run.graph = {
                   ...run.graph,
-                  has_pausable: run.graph.has_pausable || isPausable,
                   nodes: {
                     ...run.graph.nodes,
                     [lid]: {
@@ -1014,7 +937,6 @@ export const useStore = create<NeboStore>((set, get) => ({
                       docstring: (data.docstring as string) || null,
                       exec_count: 0,
                       is_source: true,
-                      pausable: isPausable,
                       params: {},
                       progress: null,
                       group: (data.group as string) || null,
@@ -1125,21 +1047,6 @@ export const useStore = create<NeboStore>((set, get) => ({
             }
             break
 
-          case 'ask_prompt': {
-            const asks = new Map(run.pendingAsks)
-            const askId = (data.ask_id as string) ?? `ask_${Date.now()}`
-            asks.set(askId, {
-              askId,
-              nodeName: (data.node_name as string) ?? loggableId ?? '',
-              question: (data.question as string) ?? '',
-              options: (data.options as string[]) ?? null,
-              timeoutSeconds: (data.timeout_seconds as number) ?? null,
-              receivedAt: new Date(),
-            })
-            run.pendingAsks = asks
-            break
-          }
-
           case 'run_start': {
             const scriptPath = (data.script_path as string) ?? ''
             const runName = (data.run_name as string) ?? null
@@ -1164,15 +1071,6 @@ export const useStore = create<NeboStore>((set, get) => ({
               status: exitCode === 0 ? 'completed' : 'crashed',
               exit_code: exitCode,
               ended_at: new Date().toISOString(),
-            }
-            break
-          }
-
-          case 'pause_state': {
-            const paused = !!(data.paused as boolean)
-            run.paused = paused
-            if (run.graph) {
-              run.graph = { ...run.graph, paused }
             }
             break
           }

@@ -102,8 +102,11 @@ def detect_edges(images: list[Image.Image]) -> list[Image.Image]:
             edges,
             name="edges",
             step=i,
-            boxes=[[cx - w // 4, cy - h // 4, cx + w // 4, cy + h // 4]],
-            points=[[cx, cy]],
+            boxes=nb.labels.Boxes(
+                [[cx - w // 4, cy - h // 4, cx + w // 4, cy + h // 4]],
+                color="#22d3ee",
+            ),
+            points=nb.labels.Points([[cx, cy]], color="#facc15"),
         )
 
         mean_intensity = float(arr.mean())

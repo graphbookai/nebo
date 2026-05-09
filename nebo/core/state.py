@@ -53,7 +53,6 @@ class NodeInfo(LoggableInfo):
     docstring: Optional[str] = None
     exec_count: int = 0
     is_source: bool = True
-    pausable: bool = False
     params: dict = field(default_factory=dict)
     materialized: bool = False
     group: Optional[str] = None
@@ -85,7 +84,6 @@ class _RunSnapshot:
     node_parents: dict
     workflow_description: Optional[str]
     ui_config: Optional[dict]
-    has_pausable: bool
     linear_last: Optional[str]
     metric_cursors: dict
 
@@ -133,10 +131,6 @@ class SessionState:
         self._linear_last: Optional[str] = None
         self.dag_strategy: str = "object"
         self._lock_state = threading.Lock()
-        # Pause support: Event is set (unblocked) by default; cleared when paused
-        self._pause_event = threading.Event()
-        self._pause_event.set()  # starts unpaused
-        self._has_pausable = False
         self.ui_config: Optional[dict] = None  # Run-level UI defaults
         # Multi-run support
         self._run_snapshots: dict[str, _RunSnapshot] = {}
@@ -166,7 +160,6 @@ class SessionState:
         node_id: str,
         func_name: str,
         docstring: Optional[str] = None,
-        pausable: bool = False,
         group: Optional[str] = None,
         ui_hints: Optional[dict] = None,
     ) -> NodeInfo:
@@ -183,12 +176,9 @@ class SessionState:
                     name=node_id,
                     func_name=func_name,
                     docstring=docstring,
-                    pausable=pausable,
                     group=group,
                     ui_hints=ui_hints,
                 )
-                if pausable:
-                    self._has_pausable = True
             elif group is not None and existing.group is None:
                 existing.group = group
         return self.loggables[node_id]  # type: ignore[return-value]
@@ -218,7 +208,6 @@ class SessionState:
                 "kind": node.kind,
                 "func_name": node.func_name,
                 "docstring": node.docstring,
-                "pausable": node.pausable,
                 "group": node.group,
                 "ui_hints": node.ui_hints,
             },
@@ -227,23 +216,6 @@ class SessionState:
     def get_loggable(self, loggable_id: str) -> Optional[LoggableInfo]:
         """Return the loggable with the given id, or None if not present."""
         return self.loggables.get(loggable_id)
-
-    def wait_if_paused(self) -> None:
-        """Block until unpaused. Used by pausable @fn nodes.
-
-        Unblocks when:
-        - An unpause (play) event is received
-        - A KeyboardInterrupt occurs
-        - The program is killed
-        """
-        self._pause_event.wait()
-
-    def set_paused(self, paused: bool) -> None:
-        """Set the pause state."""
-        if paused:
-            self._pause_event.clear()
-        else:
-            self._pause_event.set()
 
     def add_edge(self, source: str, target: str) -> None:
         """Add a DAG edge. Marks target as non-source."""
@@ -371,7 +343,6 @@ class SessionState:
                 node_parents=dict(self._node_parents),
                 workflow_description=self.workflow_description,
                 ui_config=self.ui_config,
-                has_pausable=self._has_pausable,
                 linear_last=self._linear_last,
                 metric_cursors={
                     lid: dict(cursors)
@@ -393,7 +364,6 @@ class SessionState:
             self._node_parents = dict(snap.node_parents)
             self.workflow_description = snap.workflow_description
             self.ui_config = snap.ui_config
-            self._has_pausable = snap.has_pausable
             self._linear_last = snap.linear_last
             self._metric_cursors = {
                 lid: dict(cursors)
@@ -414,7 +384,6 @@ class SessionState:
             self._metric_cursors.clear()
             self.workflow_description = None
             self.ui_config = None
-            self._has_pausable = False
             self._linear_last = None
 
     def reset(self) -> None:
@@ -435,8 +404,6 @@ class SessionState:
             self._initialized_server = False
             self._client = None
             self._mode = "local"
-            self._pause_event.set()
-            self._has_pausable = False
             self.ui_config = None
             self._run_snapshots.clear()
             self._active_run_id = None

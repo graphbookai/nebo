@@ -2,9 +2,8 @@ import { useCallback, useState } from 'react'
 import { useReactFlow } from '@xyflow/react'
 import { useStore } from '@/store'
 import { Button } from '@/components/ui/button'
-import { Maximize, GitFork, ArrowDownUp, ArrowLeftRight, Pause, Play, Download } from 'lucide-react'
+import { Maximize, GitFork, ArrowDownUp, ArrowLeftRight, Download } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { api } from '@/lib/api'
 import { exportAsPng, exportAsJpg, exportAsPdf, exportAsSvg, exportAsDrawio } from '@/lib/export'
 
 interface GraphToolbarProps {
@@ -17,24 +16,9 @@ export function GraphToolbar({ onResetLayout, runId }: GraphToolbarProps) {
   const dagDirection = useStore(s => s.dagDirection)
   const toggleDagDirection = useStore(s => s.toggleDagDirection)
   const runState = useStore(s => s.runs.get(runId))
-  const setPaused = useStore(s => s.setPaused)
   const graph = runState?.graph
   const [exporting, setExporting] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
-
-  const hasPausable = runState?.graph?.has_pausable ?? false
-  const isPaused = runState?.paused ?? false
-  const isRunning = runState?.summary.status === 'running'
-
-  const togglePause = useCallback(async () => {
-    if (isPaused) {
-      await api.unpauseRun(runId)
-      setPaused(runId, false)
-    } else {
-      await api.pauseRun(runId)
-      setPaused(runId, true)
-    }
-  }, [runId, isPaused, setPaused])
 
   // Captures the React Flow viewport including all visible nodes/edges. We
   // grab the inner pane (transformed content) rather than the outer frame so
@@ -133,29 +117,6 @@ export function GraphToolbar({ onResetLayout, runId }: GraphToolbarProps) {
           </PopoverContent>
         </Popover>
       </div>
-      {hasPausable && isRunning && (
-        <div className="flex gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            className={`h-8 backdrop-blur-sm ${isPaused ? 'bg-yellow-500/20 border-yellow-500/50 hover:bg-yellow-500/30' : 'bg-card/80'}`}
-            onClick={togglePause}
-            title={isPaused ? 'Resume execution' : 'Pause execution'}
-          >
-            {isPaused ? (
-              <>
-                <Play className="h-3.5 w-3.5 mr-1" />
-                <span className="text-xs">Resume</span>
-              </>
-            ) : (
-              <>
-                <Pause className="h-3.5 w-3.5 mr-1" />
-                <span className="text-xs">Pause</span>
-              </>
-            )}
-          </Button>
-        </div>
-      )}
     </div>
   )
 }

@@ -4,9 +4,9 @@ import { useComparisonContext } from '@/hooks/useComparisonContext'
 
 /**
  * True if this loggable has any content worth surfacing in a tab view —
- * logs, errors, metrics, images, audio, or a pending ask. Used to decide
- * whether to render the bordered tab area at all (an empty function node
- * or a globals-only run shouldn't show an empty tab strip).
+ * logs, errors, metrics, images, or audio. Used to decide whether to
+ * render the bordered tab area at all (an empty function node or a
+ * globals-only run shouldn't show an empty tab strip).
  */
 export function useLoggableHasContent(runId: string, loggableId: string): boolean {
   const run = useStore(s => s.runs.get(runId))
@@ -23,10 +23,6 @@ export function useLoggableHasContent(runId: string, loggableId: string): boolea
       if (m && Object.keys(m).length > 0) return true
       if ((r.loggableImages?.[loggableId]?.length ?? 0) > 0) return true
       if ((r.loggableAudio?.[loggableId]?.length ?? 0) > 0) return true
-      const asks = r.pendingAsks
-      if (asks) {
-        for (const a of asks.values()) if (a.nodeName === loggableId) return true
-      }
       return false
     }
 

@@ -38,7 +38,7 @@ def create_model(input_dim: int = 10, hidden_dim: int = 32) -> dict:
     return weights
 
 
-@nb.fn(pausable=True)
+@nb.fn()
 def train_step(model: dict, batch_X: np.ndarray, batch_y: np.ndarray, lr: float = 0.01) -> tuple:
     """Run a single forward pass and compute binary cross-entropy loss."""
     # Forward pass (simplified)
@@ -70,7 +70,7 @@ def generate_sample_image(epoch: int) -> np.ndarray:
             img[i, j, 1] = int((j / 64) * 255)                    # Green gradient
             img[i, j, 2] = int(((epoch * 25) % 255))              # Blue varies by epoch
     pil_img = Image.fromarray(img)
-    nb.log_image(pil_img, name=f"sample_epoch_{epoch}", step=epoch)
+    nb.log_image(pil_img, name="sample_images", step=epoch)
     nb.log(f"Logged sample image for epoch {epoch}")
 
 

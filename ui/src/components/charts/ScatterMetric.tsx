@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { ChartConfiguration, ChartEvent, ActiveElement, Chart } from 'chart.js'
 import type { MetricEntry } from '@/lib/api'
 import { useChartJs } from './useChartJs'
@@ -6,6 +6,8 @@ import { useChartTokens } from './useChartTokens'
 import { shapeForLabel } from './scatterShape'
 import { RUN_COLOR_PALETTE } from '@/lib/colors'
 import { useStore } from '@/store'
+import { attachWheelHandler, buildZoomOptions } from './zoomBindings'
+import { formatTick } from './formatTick'
 
 // Hex-to-rgba; mirrors HistogramMetric's withAlpha. Used to dim points that
 // don't match the active step filter.
@@ -43,12 +45,16 @@ export const ScatterMetric = memo(function ScatterMetric({
   color,
   allLabels,
   fill,
+  resetSignal,
 }: {
   entries: MetricEntry[]
   color: string
   allLabels: string[]
   // Fill the parent's height instead of the default 200px (grid card mode).
   fill?: boolean
+  // Counter the parent increments to trigger `chart.resetZoom()`. The
+  // reset button itself lives in the parent's chip row.
+  resetSignal?: number
 }) {
   const tokens = useChartTokens()
   const timelineMode = useStore(s => s.timeline.mode)
@@ -162,25 +168,39 @@ export const ScatterMetric = memo(function ScatterMetric({
         scales: {
           x: {
             type: 'linear',
-            ticks: { color: tokens.axisTickColor, font: { size: 10 } },
+            ticks: {
+              color: tokens.axisTickColor,
+              font: { size: 10 },
+              callback: (value) => formatTick(value as number),
+            },
             grid: { color: tokens.gridStroke, drawTicks: false },
             border: { display: false },
           },
           y: {
             type: 'linear',
-            ticks: { color: tokens.axisTickColor, font: { size: 10 } },
+            ticks: {
+              color: tokens.axisTickColor,
+              font: { size: 10 },
+              callback: (value) => formatTick(value as number),
+            },
             grid: { color: tokens.gridStroke, drawTicks: false },
             border: { display: false },
           },
         },
-        plugins: { legend: { display: false } },
+        plugins: {
+          legend: { display: false },
+          zoom: buildZoomOptions('xy'),
+        } as unknown as ChartConfiguration<'scatter'>['options'] extends { plugins?: infer P }
+          ? P
+          : never,
       },
     }),
     [datasets, tokens.axisTickColor, tokens.gridStroke, handleClick],
   )
 
-  const { canvasRef, containerRef } = useChartJs<'scatter'>({
+  const { canvasRef, containerRef, chartRef } = useChartJs<'scatter'>({
     config,
+    onChartReady: (chart) => attachWheelHandler(chart, 'xy'),
     formatTooltip: (tooltip) => ({
       title: undefined,
       items: (tooltip.dataPoints ?? []).map((dp) => {
@@ -201,6 +221,14 @@ export const ScatterMetric = memo(function ScatterMetric({
       }),
     }),
   })
+
+  const lastResetRef = useRef<number | undefined>(resetSignal)
+  useEffect(() => {
+    if (resetSignal === undefined) return
+    if (lastResetRef.current === resetSignal) return
+    lastResetRef.current = resetSignal
+    chartRef.current?.resetZoom()
+  }, [resetSignal, chartRef])
 
   // Keep the canvas mounted even when there are zero datasets (e.g.
   // every label chip toggled off). Returning null here would detach the

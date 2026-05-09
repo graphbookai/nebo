@@ -60,7 +60,6 @@ class LoggableState:
     docstring: Optional[str] = None
     exec_count: int = 0
     is_source: bool = True
-    pausable: bool = False
     params: dict = field(default_factory=dict)
     logs: list[dict] = field(default_factory=list)
     metrics: dict[str, list] = field(default_factory=dict)
@@ -89,12 +88,9 @@ class Run:
     logs: list[LogEntry] = field(default_factory=list)
     errors: list[ErrorEntry] = field(default_factory=list)
     metrics: dict[str, list] = field(default_factory=dict)
-    pending_asks: dict[str, dict] = field(default_factory=dict)
-    ask_responses: dict[str, str] = field(default_factory=dict)
     source_hash: Optional[str] = None
     workflow_description: Optional[str] = None
     config: dict = field(default_factory=dict)
-    paused: bool = False
     ui_config: Optional[dict] = None
     stdout_lines: list[str] = field(default_factory=list)
     stderr_lines: list[str] = field(default_factory=list)
@@ -122,7 +118,6 @@ class Run:
                     "docstring": lg.docstring,
                     "exec_count": lg.exec_count,
                     "is_source": lg.is_source,
-                    "pausable": lg.pausable,
                     "params": lg.params,
                     "progress": lg.progress,
                     "group": lg.group,
@@ -137,10 +132,6 @@ class Run:
                 and e.get("target") not in non_node_ids
             ],
             "workflow_description": self.workflow_description,
-            "has_pausable": any(
-                lg.pausable for lg in self.loggables.values() if lg.kind == "node"
-            ),
-            "paused": self.paused,
             "ui_config": self.ui_config,
             "run_config": self.run_config,
         }
@@ -399,7 +390,6 @@ class DaemonState:
                     kind=kind,
                     func_name=data.get("func_name") or "",
                     docstring=data.get("docstring"),
-                    pausable=data.get("pausable", False),
                     group=data.get("group"),
                     ui_hints=data.get("ui_hints"),
                 )
@@ -453,17 +443,6 @@ class DaemonState:
                     "sr": event.get("sr", 16000),
                     "step": event.get("step"),
                     "timestamp": event.get("timestamp", time.time()),
-                })
-
-        elif etype == "ask_prompt":
-            ask_id = event.get("ask_id") or event.get("data", {}).get("ask_id", "")
-            if ask_id:
-                run.pending_asks[ask_id] = event
-                run.significant_events.append({
-                    "type": "ask_prompt",
-                    "timestamp": event.get("timestamp", time.time()),
-                    "ask_id": ask_id,
-                    "question": event.get("question", event.get("data", {}).get("question", "")),
                 })
 
         elif etype == "description":
@@ -852,94 +831,12 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
             "metrics": lg.metrics, "progress": lg.progress,
         }
 
-    # --- Ask / respond endpoints ---
-
-    def _get_run_or_404(run_id: str):
-        if run_id not in state.runs:
-            return None, JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
-        return state.runs[run_id], None
-
-    @app.get("/runs/{run_id}/asks")
-    async def get_run_asks(run_id: str):
-        run, err = _get_run_or_404(run_id)
-        if err:
-            return err
-        return {"pending": list(run.pending_asks.values())}
-
-    @app.get("/runs/{run_id}/ask/{ask_id}/respond")
-    async def get_ask_response(run_id: str, ask_id: str):
-        run, err = _get_run_or_404(run_id)
-        if err:
-            return err
-        if ask_id in run.ask_responses:
-            return {"status": "answered", "response": run.ask_responses[ask_id]}
-        if ask_id in run.pending_asks:
-            return {"status": "pending"}
-        return JSONResponse(status_code=404, content={"error": f"Ask '{ask_id}' not found"})
-
-    @app.post("/runs/{run_id}/ask/{ask_id}/respond")
-    async def post_ask_response(run_id: str, ask_id: str, body: dict):
-        run, err = _get_run_or_404(run_id)
-        if err:
-            return err
-        response = body.get("response", "")
-        run.ask_responses[ask_id] = response
-        run.pending_asks.pop(ask_id, None)
-        return {"status": "ok"}
-
-    # --- Pause / unpause endpoints ---
-
-    @app.get("/runs/{run_id}/pause")
-    async def get_pause_state(run_id: str):
-        run, err = _get_run_or_404(run_id)
-        if err:
-            return err
-        return {"paused": run.paused}
-
-    @app.post("/runs/{run_id}/pause")
-    async def pause_run(run_id: str):
-        run, err = _get_run_or_404(run_id)
-        if err:
-            return err
-        run.paused = True
-        # Broadcast pause state to WebSocket clients
-        for ws in state._ws_clients[:]:
-            try:
-                await ws.send_json({
-                    "type": "batch",
-                    "run_id": run_id,
-                    "events": [{"type": "pause_state", "data": {"paused": True}}],
-                })
-            except Exception:
-                if ws in state._ws_clients:
-                    state._ws_clients.remove(ws)
-        return {"status": "ok", "paused": True}
-
-    @app.post("/runs/{run_id}/unpause")
-    async def unpause_run(run_id: str):
-        run, err = _get_run_or_404(run_id)
-        if err:
-            return err
-        run.paused = False
-        # Broadcast unpause state to WebSocket clients
-        for ws in state._ws_clients[:]:
-            try:
-                await ws.send_json({
-                    "type": "batch",
-                    "run_id": run_id,
-                    "events": [{"type": "pause_state", "data": {"paused": False}}],
-                })
-            except Exception:
-                if ws in state._ws_clients:
-                    state._ws_clients.remove(ws)
-        return {"status": "ok", "paused": False}
-
     # --- Event wait endpoint ---
 
     @app.get("/runs/{run_id}/events/wait")
     async def wait_for_event(
         run_id: str,
-        types: str = "error,run_completed,ask_prompt",
+        types: str = "error,run_completed",
         timeout: float = 300,
         since: float = 0,
     ):

@@ -56,7 +56,6 @@ export interface GraphData {
     docstring: string | null
     exec_count: number
     is_source: boolean
-    pausable: boolean
     params: Record<string, unknown>
     progress: { current: number; total: number; name?: string } | null
     group: string | null
@@ -64,8 +63,6 @@ export interface GraphData {
   }>
   edges: { source: string; target: string }[]
   workflow_description: string | null
-  has_pausable: boolean
-  paused: boolean
   ui_config?: UiConfig | null
   run_config?: Record<string, unknown> | null
 }
@@ -123,12 +120,23 @@ export interface LoggableMetricSeries {
   entries: MetricEntry[]
 }
 
+export interface LabelGroup<T> {
+  data: T
+  color: string
+}
+
+export interface PolygonsLabelGroup extends LabelGroup<number[][][]> {
+  // True (default): fill the interior of each polygon with `color` at
+  // the rendered opacity. False: stroke the outline only.
+  fill?: boolean
+}
+
 export interface LabelsPayload {
-  points?: number[][]       // each: [x, y]
-  boxes?: number[][]        // each: [x1, y1, x2, y2]
-  circles?: number[][]      // each: [x, y, r]
-  polygons?: number[][][]   // each: list of [x, y]
-  bitmask?: BitmaskEntry[]
+  points?: LabelGroup<number[][]>[]       // each entry: list of [x, y]
+  boxes?: LabelGroup<number[][]>[]        // each entry: list of [x1, y1, x2, y2]
+  circles?: LabelGroup<number[][]>[]      // each entry: list of [x, y, r]
+  polygons?: PolygonsLabelGroup[]         // each entry: list of polygons
+  bitmasks?: LabelGroup<BitmaskEntry[]>[]
 }
 
 export interface NodeDetail {
@@ -184,19 +192,4 @@ export const api = {
   stopRun: (id: string) => post<{ run_id: string; status: string }>(`/runs/${id}/stop`, {}),
   startRun: (scriptPath: string, args?: string[]) =>
     post<{ run_id: string; pid: number; status: string }>('/run', { script_path: scriptPath, args: args ?? [] }),
-
-  getRunAsks: (id: string) => get<{ pending: Array<{
-    ask_id: string; node?: string; node_name?: string; question?: string;
-    options?: string[] | null; timeout_seconds?: number | null;
-  }> }>(`/runs/${id}/asks`),
-
-  respondToAsk: (runId: string, askId: string, response: string) =>
-    post(`/runs/${runId}/ask/${askId}/respond`, { response }),
-
-  getPauseState: (runId: string) =>
-    get<{ paused: boolean }>(`/runs/${runId}/pause`),
-  pauseRun: (runId: string) =>
-    post<{ status: string; paused: boolean }>(`/runs/${runId}/pause`, {}),
-  unpauseRun: (runId: string) =>
-    post<{ status: string; paused: boolean }>(`/runs/${runId}/unpause`, {}),
 }

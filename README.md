@@ -211,9 +211,23 @@ def process(items):
         transform(item)
 ```
 
-### `nb.log_image(image, *, name=None, step=None, points=None, boxes=None, circles=None, polygons=None, bitmask=None)` -- Image logging
+### `nb.log_image(image, *, name=None, step=None, points=None, boxes=None, circles=None, polygons=None, bitmasks=None)` -- Image logging
 
-Log images (PIL, NumPy arrays, or PyTorch tensors) for visual inspection, with optional geometric labels overlaid. Points are `[x, y]` (or a list of them); boxes are `[x1, y1, x2, y2]` in xyxy format; circles are `[x, y, r]`; polygons are `[[x, y], ...]`; bitmasks are 2D (HxW) or stacked (NxHxW). The UI's Settings pane > "Image labels" section exposes per-(loggable, image, key) visibility and opacity controls.
+Log images (PIL, NumPy arrays, or PyTorch tensors) for visual inspection, with optional geometric labels overlaid. Each label kwarg accepts an `nb.labels.<Class>` instance — or a list of them, so the same image can carry multiple groups of the same kind in different colors (e.g. predictions vs. ground truth). Raw lists / tensors are rejected with a `TypeError` pointing at the matching `nb.labels.*` class.
+
+```python
+nb.log_image(
+    img,
+    name="predictions",
+    boxes=[
+        nb.labels.Boxes(pred_boxes, color="#22d3ee"),
+        nb.labels.Boxes(gt_boxes, color="#22c55e"),
+    ],
+    points=nb.labels.Points([[10, 20]], color="red"),
+)
+```
+
+Available classes: `nb.labels.Points` (`[[x, y], ...]`), `nb.labels.Boxes` (`[[x1, y1, x2, y2], ...]` xyxy), `nb.labels.Circles` (`[[x, y, r], ...]`), `nb.labels.Polygons` (list of `[[x, y], ...]`; takes an extra `fill: bool = True` for filled vs. outline-only), `nb.labels.Bitmasks` (2D HxW, 3D NxHxW, or list of 2D). Each pairs the geometry with a CSS color string. The UI's Settings pane > "Image labels" section exposes per-(loggable, image, key) visibility and opacity controls.
 
 ### `nb.log_audio(audio, sr=16000, name=None, step=None)` -- Audio logging
 
@@ -233,22 +247,6 @@ Set default layout and display options for the web UI:
 
 ```python
 nb.ui(layout="horizontal", view="dag", minimap=True, theme="dark")
-```
-
-### `nb.ask(question, options=None, timeout=None)` -- Human-in-the-loop
-
-Pause the pipeline and ask the user a question via MCP or the terminal.
-
-```python
-@nb.fn()
-def review(predictions):
-    answer = nb.ask(
-        "Model accuracy is 73%. Continue training?",
-        options=["yes", "no", "retrain with more data"]
-    )
-    if answer == "no":
-        return predictions
-    ...
 ```
 
 ## CLI Reference
@@ -351,7 +349,6 @@ Nebo exposes 21 MCP tools for querying, controlling, and writing data into pipel
 | `nebo_get_run_history` | List all runs with outcomes and timestamps |
 | `nebo_get_source_code` | Read a pipeline source file |
 | `nebo_write_source_code` | Write or patch a pipeline source file |
-| `nebo_ask_user` | Send a question to the user via the terminal |
 | `nebo_wait_for_event` | Block until a pipeline event occurs or timeout elapses |
 | `nebo_load_file` | Load a `.nebo` file into the daemon for viewing and Q&A |
 | `nebo_chat` | Ask a question about a run (delegates to Claude Code CLI) |
@@ -404,13 +401,13 @@ The daemon can run on your laptop, in CI, or on a Hugging Face Space (`nebo depl
 | `log_scatter` | `log_scatter(name, value, *, step=None, tags=None, colors=False)` | Labeled scatter (`{label: list[(x, y)]}`); accumulates, step auto-increments |
 | `log_histogram` | `log_histogram(name, value, *, colors=False)` | Labeled histogram snapshot (`{label: list[number]}`); overwrites |
 | `log_cfg` | `log_cfg(cfg: dict)` | Log node configuration |
-| `log_image` | `log_image(image, *, name=None, step=None, points=None, boxes=None, circles=None, polygons=None, bitmask=None)` | Log an image (optionally with geometric labels) |
+| `log_image` | `log_image(image, *, name=None, step=None, points=None, boxes=None, circles=None, polygons=None, bitmasks=None)` | Log an image (label kwargs accept `nb.labels.<Class>` instances or lists of them) |
 | `log_audio` | `log_audio(audio, sr=16000, name=None, step=None)` | Log audio data |
+| `labels` | `nb.labels.{Points, Boxes, Circles, Polygons, Bitmasks}(data, color)` | Image-label dataclasses; each pairs raw geometry with a CSS color |
 | `track` | `track(iterable, name=None, total=None)` | Progress tracking |
 | `md` | `md(description: str)` | Set workflow description |
 | `ui` | `ui(layout, view, collapsed, minimap, theme)` | Set run-level UI defaults |
 | `init` | `init(port, host, mode, terminal, dag_strategy, flush_interval, store, url=None, api_token=None)` | Manual initialization. Pass `url`+`api_token` (or set `NEBO_URL`/`NEBO_API_TOKEN` env vars) to target a remote daemon |
-| `ask` | `ask(question, options=None, timeout=None)` | Human-in-the-loop prompt |
 | `show` | `show(*, run=None, node=None, metric=None, image=None, audio=None, logs=False, dag=False, width="100%", height=600)` | Jupyter-renderable iframe of a slice of a run |
 | `get_state` | `get_state() -> SessionState` | Access the global state singleton |
 

@@ -3,26 +3,28 @@ import { NodeLogs } from './NodeLogs'
 import { NodeMetrics } from './NodeMetrics'
 import { NodeImages } from './NodeImages'
 import { NodeAudio } from './NodeAudio'
-import { NodeAsk } from './NodeAsk'
 
 interface LoggableTabContentProps {
   runId: string
   loggableId: string
   tab: NodeTab
   comparisonRunIds?: string[]
+  // When true, every tab body fills its parent's height instead of
+  // stacking naturally with its own internal cap. Used inside DAG
+  // nodes which now have a fixed height — without this the tab
+  // bodies would leave empty space below their content.
+  fillParent?: boolean
 }
 
-export function LoggableTabContent({ runId, loggableId, tab, comparisonRunIds }: LoggableTabContentProps) {
+export function LoggableTabContent({ runId, loggableId, tab, comparisonRunIds, fillParent }: LoggableTabContentProps) {
   switch (tab) {
     case 'logs':
-      return <NodeLogs runId={runId} loggableId={loggableId} comparisonRunIds={comparisonRunIds} />
+      return <NodeLogs runId={runId} loggableId={loggableId} comparisonRunIds={comparisonRunIds} fillParent={fillParent} />
     case 'metrics':
-      return <NodeMetrics runId={runId} loggableId={loggableId} comparisonRunIds={comparisonRunIds} />
+      return <NodeMetrics runId={runId} loggableId={loggableId} comparisonRunIds={comparisonRunIds} fillParent={fillParent} />
     case 'images':
-      return <NodeImages runId={runId} loggableId={loggableId} comparisonRunIds={comparisonRunIds} />
+      return <NodeImages runId={runId} loggableId={loggableId} comparisonRunIds={comparisonRunIds} fillParent={fillParent} />
     case 'audio':
-      return <NodeAudio runId={runId} loggableId={loggableId} comparisonRunIds={comparisonRunIds} />
-    case 'ask':
-      return <NodeAsk runId={runId} loggableId={loggableId} />
+      return <NodeAudio runId={runId} loggableId={loggableId} comparisonRunIds={comparisonRunIds} fillParent={fillParent} />
   }
 }

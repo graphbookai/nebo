@@ -19,13 +19,10 @@ class MessageType(str, Enum):
     ERROR = "error"
     LOGGABLE_REGISTER = "loggable_register"
     EDGE = "edge"
-    ASK = "ask_prompt"
-    ASK_RESPONSE = "ask_response"
     GRAPH_UPDATE = "graph_update"
     HEALTH = "health"
     CONFIG = "config"
     DESCRIPTION = "description"
-    PAUSE_STATE = "pause_state"
 
 
 @dataclass

@@ -286,26 +286,6 @@ Workflow Description
 Calling ``nb.md()`` multiple times appends to the description.
 
 
-Human-in-the-Loop
-==================
-
-``nb.ask(question, options, timeout)`` pauses the pipeline and prompts the user for input. In server mode, the question appears in the web UI. In local mode, it falls back to a Rich terminal prompt:
-
-.. code-block:: python
-
-    @nb.fn()
-    def review(predictions):
-        answer = nb.ask(
-            "Model accuracy is 73%. Continue training?",
-            options=["yes", "no", "retrain"]
-        )
-        if answer == "no":
-            return predictions
-        elif answer == "retrain":
-            return retrain(predictions)
-        ...
-
-
 UI Configuration from Code
 ============================
 
@@ -324,8 +304,8 @@ Per-node display hints can be set via ``@nb.fn(ui={})``. Supported keys:
 
 - ``color`` (str) — accent color for the node's badge / border.
 - ``default_tab`` (str) — which tab opens by default for the node. One of
-  ``"logs"``, ``"metrics"``, ``"images"``, ``"audio"``, ``"ask"``. The
-  user's clicks always override this preference.
+  ``"logs"``, ``"metrics"``, ``"images"``, ``"audio"``. The user's clicks
+  always override this preference.
 
 Unknown keys are forwarded verbatim for forward compatibility with
 future UI features.
@@ -439,7 +419,7 @@ The tools fall into three buckets:
   ``nebo_restart_pipeline``, ``nebo_get_run_status``,
   ``nebo_get_run_history``, ``nebo_get_source_code``,
   ``nebo_write_source_code``, ``nebo_wait_for_event``,
-  ``nebo_ask_user``, ``nebo_load_file``, ``nebo_chat``.
+  ``nebo_load_file``, ``nebo_chat``.
 - **Write** — ``nebo_log_metric``, ``nebo_log_image``,
   ``nebo_log_audio``, ``nebo_log_text``. These mirror the SDK's
   ``nb.log_*`` helpers so an external agent can push metrics, media,

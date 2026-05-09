@@ -55,17 +55,17 @@ ENTRY_TYPES = {
     "node_register": 4,  # v1-only; kept for backward read compat
     "edge": 5,
     "error": 6,
-    "ask": 7,
+    # 7 was "ask" (removed)
     "ui_config": 8,
     "text": 9,
     "progress": 10,
     "config": 11,
     "description": 12,
     "node_executed": 13,
-    "ask_response": 14,
+    # 14 was "ask_response" (removed)
     "run_start": 15,
     "run_completed": 16,
-    "pause_state": 17,
+    # 17 was "pause_state" (removed)
     "run_config": 18,
     "loggable_register": 19,  # v2: replaces node_register
 }

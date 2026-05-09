@@ -59,9 +59,9 @@ def create_dataset(n=1000):
     nb.log(f"Created dataset: {n} samples")
     return X, y
 
-@nb.fn(pausable=True)
+@nb.fn()
 def train_step(model, batch_X, batch_y):
-    """Single forward/backward pass. Pausable via web UI."""
+    """Single forward/backward pass."""
     loss, acc = forward_backward(model, batch_X, batch_y)
     return float(loss), float(acc)
 
@@ -97,7 +97,6 @@ def run_experiment():
 - `nb.log_image(img, step=)` — sample outputs, weight visualizations
 - `nb.log_cfg(dict)` — hyperparameters shown in info tab
 - `nb.track(range(epochs))` — epoch progress bar
-- `@nb.fn(pausable=True)` — pause training from web UI
 - `view="grid"` — grid view suits metric-heavy training with many nodes
 - `tracker="step"` — scrubber tracks by step count, not wall time
 
@@ -204,10 +203,6 @@ class Agent:
         """Evaluate response quality."""
         score = evaluate(response)
         nb.log_line("quality_score", score)
-        if score < 0.7:
-            retry = nb.ask("Quality is low. Retry?", options=["yes", "no"])
-            if retry == "yes":
-                return None  # signal retry
         return {"score": score, "response": response}
 
 def main():
@@ -221,7 +216,6 @@ def main():
 
 **Key APIs for agents:**
 - `@nb.fn()` on class — all methods auto-wrapped; methods appear as `Agent.think`, `Agent.act` etc. in the DAG, grouped under the class name
-- `nb.ask(question, options=[...])` — pauses execution, returns the selected option as a string
 - `nb.log_line(name, value)` — per-action quality scores
 - `view="grid"` — table view suits many small method calls
 - `tracker="step"` — track by action count, not wall time
@@ -232,7 +226,6 @@ def main():
 |----------|---------|
 | `@nb.fn()` | Register function/class as DAG node |
 | `@nb.fn(depends_on=[f])` | Explicit edge when data flow can't infer |
-| `@nb.fn(pausable=True)` | Allow pausing from web UI |
 | `@nb.fn(ui={"collapsed": True})` | Per-node UI hints |
 | `nb.log(message)` | Text log to current node |
 | `nb.log_line(name, value, step=, tags=)` | Scalar metric — accumulates over steps |
@@ -246,7 +239,6 @@ def main():
 | `nb.track(iterable, name=, total=)` | Progress bar |
 | `nb.md(description)` | Workflow-level markdown |
 | `nb.ui(layout=, view=, tracker=, ...)` | Run-level UI defaults |
-| `nb.ask(question, options=, timeout=)` | Human-in-the-loop prompt |
 | `nb.start_run(name=, config=, run_id=)` | Multi-run / resume support |
 | `nb.init(mode=, dag_strategy=, ...)` | Manual initialization |
 
@@ -338,8 +330,7 @@ When the nebo daemon is running (`nebo serve`), 15 MCP tools are available for q
 | `nebo_restart_pipeline` | `run_id` | Re-run with same script and args |
 | `nebo_get_source_code` | `file_path` | Read pipeline source file |
 | `nebo_write_source_code` | `file_path`, `content?`, `patches?` | Write or patch source: `patches=[{old, new}]` |
-| `nebo_wait_for_event` | `timeout?` (300), `events?`, `run_id?` | Block until error/completed/ask_prompt event |
-| `nebo_ask_user` | `question`, `options?` | Prompt user via terminal |
+| `nebo_wait_for_event` | `timeout?` (300), `events?`, `run_id?` | Block until error/completed event |
 
 ### Typical MCP Workflow
 

@@ -1,17 +1,23 @@
-import { memo, useCallback, useMemo } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import type {
   ChartConfiguration,
+  ChartDataset,
   ChartEvent,
   ActiveElement,
   Chart,
   Plugin,
+  ScriptableLineSegmentContext,
 } from 'chart.js'
 import type { MetricEntry } from '@/lib/api'
 import { useChartJs } from './useChartJs'
 import { useChartTokens } from './useChartTokens'
 import { useStore } from '@/store'
+import { UNTAGGED_KEY } from './scatterShape'
+import { attachWheelHandler, buildZoomOptions } from './zoomBindings'
+import { formatTick } from './formatTick'
 
 const MAX_DISPLAY_POINTS = 500
+const MUTED_COLOR = 'rgba(156, 163, 175, 0.45)' // tailwind text-muted-foreground feel
 
 type LinePoint = { x: number; y: number }
 
@@ -41,10 +47,24 @@ function downsample(series: LinePoint[]): LinePoint[] {
   return result
 }
 
+// Apply an exponential moving average to smooth a series.
+//   s_i = α * s_{i-1} + (1 - α) * x_i
+// `alpha` ∈ [0, 1]; 0 = no smoothing, → 1 = heavy smoothing.
+function smoothSeries(points: LinePoint[], alpha: number): LinePoint[] {
+  if (alpha <= 0 || points.length === 0) return points
+  const out: LinePoint[] = new Array(points.length)
+  let prev = points[0].y
+  out[0] = points[0]
+  for (let i = 1; i < points.length; i++) {
+    const y = alpha * prev + (1 - alpha) * points[i].y
+    out[i] = { x: points[i].x, y }
+    prev = y
+  }
+  return out
+}
+
 // Inline plugin that draws a vertical guideline at the active step plus a
 // circle + value bubble at the data point (when one exists at that step).
-// The active step is read from `chart.options.plugins.activeStepLine` so
-// it picks up updates whenever React re-renders the chart.
 const activeStepLinePlugin: Plugin<'line'> = {
   id: 'activeStepLine',
   afterDatasetsDraw(chart) {
@@ -62,7 +82,6 @@ const activeStepLinePlugin: Plugin<'line'> = {
     const ctx = chart.ctx
     ctx.save()
 
-    // Vertical guideline
     ctx.strokeStyle = opts.color ?? 'rgba(136, 136, 136, 0.6)'
     ctx.lineWidth = 1
     ctx.setLineDash([4, 4])
@@ -86,14 +105,11 @@ const activeStepLinePlugin: Plugin<'line'> = {
 
     if (yVal != null) {
       const y = yScale.getPixelForValue(yVal)
-      // Active-step dot
       ctx.fillStyle = opts.color ?? '#888'
       ctx.beginPath()
       ctx.arc(x, y, 4, 0, Math.PI * 2)
       ctx.fill()
 
-      // Value bubble — small rounded rect to the right of the dot,
-      // flipped to the left near the right edge.
       const label = yVal.toLocaleString(undefined, { maximumFractionDigits: 4 })
       ctx.font = '10px sans-serif'
       const padding = 4
@@ -126,10 +142,17 @@ const activeStepLinePlugin: Plugin<'line'> = {
   },
 }
 
+function isPointActive(tags: string[], muted: Set<string>): boolean {
+  if (tags.length === 0) return !muted.has(UNTAGGED_KEY)
+  return tags.some(t => !muted.has(t))
+}
+
 export const LineMetric = memo(function LineMetric({
   entries,
   color,
   fill,
+  inactiveTags,
+  resetSignal,
 }: {
   entries: MetricEntry[]
   color: string
@@ -137,20 +160,72 @@ export const LineMetric = memo(function LineMetric({
   // to the default 120px. Used by the grid-view card body so the chart
   // fills the card's remaining space.
   fill?: boolean
+  // Tags currently muted via the chip row. The chart still draws every
+  // emission (the line stays continuous across tag transitions) but
+  // segments whose endpoints are all-muted are drawn in soft gray.
+  inactiveTags?: Set<string>
+  // Counter the parent increments to trigger `chart.resetZoom()`. The
+  // reset button itself lives in the parent's chip row so it sits
+  // outside the chart canvas.
+  resetSignal?: number
 }) {
   const tokens = useChartTokens()
-  const data = useMemo(() => downsample(toLinePoints(entries)), [entries])
   const timelineMode = useStore(s => s.timeline.mode)
   const timelineStep = useStore(s => s.timeline.step)
   const setTimelineMode = useStore(s => s.setTimelineMode)
   const setTimelineStep = useStore(s => s.setTimelineStep)
+  const lineSmoothing = useStore(s => s.settings.lineSmoothing ?? 0)
+  const chartRefBox = useRef<Chart<'line'> | null>(null)
 
   const isFiltering = timelineMode === 'step' && timelineStep != null
 
+  // Build one combined dataset. Per-segment coloring (driven by each
+  // endpoint's tag set) keeps the line continuous across tag
+  // transitions — without this we previously split into one dataset per
+  // tag, which left a visible gap whenever the tag changed mid-series.
+  const { datasets, tagsByStep } = useMemo(() => {
+    const sorted = [...entries].sort((a, b) => (a.step ?? 0) - (b.step ?? 0))
+    const tagsByStep = new Map<number, string[]>()
+    for (let i = 0; i < sorted.length; i++) {
+      const e = sorted[i]
+      const step = e.step ?? i
+      tagsByStep.set(step, e.tags)
+    }
+    const data = smoothSeries(downsample(toLinePoints(sorted)), lineSmoothing)
+    const muted = inactiveTags ?? new Set<string>()
+    const segmentBorderColor = inactiveTags
+      ? (ctx: ScriptableLineSegmentContext) => {
+          const x0 = ctx.p0?.parsed?.x
+          const x1 = ctx.p1?.parsed?.x
+          const t0 = (x0 != null && tagsByStep.get(x0)) || []
+          const t1 = (x1 != null && tagsByStep.get(x1)) || []
+          // A segment renders gray only when BOTH endpoints are
+          // fully-muted; otherwise the active tag wins, so muting one
+          // tag doesn't bleed into adjacent segments belonging to
+          // another.
+          return isPointActive(t0, muted) || isPointActive(t1, muted)
+            ? color
+            : MUTED_COLOR
+        }
+      : undefined
+    const dataset: ChartDataset<'line'> = {
+      label: 'value',
+      data,
+      borderColor: color,
+      borderWidth: 1.5,
+      pointRadius: 0,
+      pointHitRadius: 12,
+      tension: 0.3,
+      ...(segmentBorderColor
+        ? { segment: { borderColor: segmentBorderColor } }
+        : {}),
+    }
+    return { datasets: [dataset], tagsByStep }
+  }, [entries, color, inactiveTags, lineSmoothing])
+  void tagsByStep // referenced via the segment closure; keep it pinned to deps
+
   const handleClick = useCallback(
     (_evt: ChartEvent, elements: ActiveElement[], chart: Chart) => {
-      // 'index' interaction mode (set below) returns elements for every
-      // dataset at the same index; pick the first.
       if (!elements.length) return
       const el = elements[0]
       const ds = chart.data.datasets[el.datasetIndex] as { data: LinePoint[] } | undefined
@@ -168,34 +243,19 @@ export const LineMetric = memo(function LineMetric({
   )
 
   const config: ChartConfiguration<'line'> = useMemo(() => {
-    // `activeStepLine` is a custom plugin option that Chart.js's strict
-    // PluginOptions type doesn't know about; cast through unknown so
-    // the rest of the options stay strictly typed.
     const pluginOpts = {
       legend: { display: false },
       activeStepLine: {
         value: isFiltering ? timelineStep : null,
         color,
       },
+      zoom: buildZoomOptions('x'),
     } as unknown as ChartConfiguration<'line'>['options'] extends { plugins?: infer P }
       ? P
       : never
     return {
       type: 'line',
-      data: {
-        datasets: [
-          {
-            data,
-            borderColor: color,
-            borderWidth: 1.5,
-            pointRadius: 0,
-            // Larger hit-radius so click + tooltip don't require landing on
-            // the (invisible) point itself.
-            pointHitRadius: 12,
-            tension: 0.3, // approximates recharts' type="monotone" smoothing
-          },
-        ],
-      },
+      data: { datasets },
       options: {
         animation: false,
         responsive: true,
@@ -204,45 +264,64 @@ export const LineMetric = memo(function LineMetric({
         scales: {
           x: {
             type: 'linear',
-            ticks: { color: tokens.axisTickColor, font: { size: 10 } },
+            ticks: {
+              color: tokens.axisTickColor,
+              font: { size: 10 },
+              callback: (value) => formatTick(value as number),
+            },
             grid: { color: tokens.gridStroke, drawTicks: false },
             border: { display: false },
           },
           y: {
-            ticks: { color: tokens.axisTickColor, font: { size: 10 } },
+            ticks: {
+              color: tokens.axisTickColor,
+              font: { size: 10 },
+              callback: (value) => formatTick(value as number),
+            },
             grid: { color: tokens.gridStroke, drawTicks: false },
             border: { display: false },
           },
         },
         plugins: pluginOpts,
-        // Vertical-line cursor: hover anywhere along x picks the nearest
-        // step's value. Matches recharts' default tooltip cursor; without
-        // this, Chart.js's default 'nearest'+'intersect: true' would only
-        // fire when the pointer is on a data point — invisible here since
-        // pointRadius is 0.
         interaction: { mode: 'index', intersect: false },
       },
       plugins: [activeStepLinePlugin],
     }
-  }, [data, color, tokens.axisTickColor, tokens.gridStroke, handleClick, isFiltering, timelineStep])
+  }, [datasets, color, tokens.axisTickColor, tokens.gridStroke, handleClick, isFiltering, timelineStep])
 
-  const { canvasRef, containerRef } = useChartJs<'line'>({
+  const { canvasRef, containerRef, chartRef } = useChartJs<'line'>({
     config,
     formatTooltip: (tooltip) => ({
       title: tooltip.dataPoints?.[0]
         ? `Step ${(tooltip.dataPoints[0].parsed as { x: number }).x}`
         : undefined,
       items: (tooltip.dataPoints ?? []).map((dp) => ({
-        label: 'value',
+        label: String((dp.dataset as { label?: string }).label ?? 'value'),
         value: (dp.parsed as { y: number }).y.toLocaleString(undefined, {
           maximumFractionDigits: 4,
         }),
-        color,
+        color: String((dp.dataset as { borderColor?: string }).borderColor ?? color),
       })),
     }),
+    onChartReady: (chart) => {
+      chartRefBox.current = chart
+      return attachWheelHandler(chart, 'x')
+    },
   })
 
-  if (data.length === 0) return null
+  // Reset on parent's signal change. Skip the initial value (0) so the
+  // chart isn't reset on every mount.
+  const lastResetRef = useRef<number | undefined>(resetSignal)
+  useEffect(() => {
+    if (resetSignal === undefined) return
+    if (lastResetRef.current === resetSignal) return
+    lastResetRef.current = resetSignal
+    const chart = (chartRef ?? chartRefBox).current as Chart<'line'> | null
+    chart?.resetZoom()
+  }, [resetSignal, chartRef])
+
+  const hasData = datasets.some(d => d.data.length > 0)
+  if (!hasData) return null
 
   return (
     <div ref={containerRef} className={`relative ${fill ? 'h-full' : 'h-[120px]'}`}>
