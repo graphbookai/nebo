@@ -20,8 +20,8 @@ interface NodeImagesProps {
 export function NodeImages({ runId, loggableId, comparisonRunIds, fillParent }: NodeImagesProps) {
   if (comparisonRunIds) {
     return (
-      <ComparisonGrid runIds={comparisonRunIds}>
-        {(cellRunId) => <ComparisonImageCell runId={cellRunId} loggableId={loggableId} />}
+      <ComparisonGrid runIds={comparisonRunIds} fillParent={fillParent}>
+        {(cellRunId) => <ComparisonImageCell runId={cellRunId} loggableId={loggableId} fillParent={fillParent} />}
       </ComparisonGrid>
     )
   }
@@ -126,7 +126,7 @@ export function VirtualizedImageList({
   )
 }
 
-function ComparisonImageCell({ runId, loggableId }: { runId: string; loggableId: string }) {
+function ComparisonImageCell({ runId, loggableId, fillParent }: { runId: string; loggableId: string; fillParent?: boolean }) {
   const allImages = useStore(s => s.runs.get(runId)?.loggableImages[loggableId]) ?? []
   const timelineFilter = useTimelineFilter()
 
@@ -144,7 +144,7 @@ function ComparisonImageCell({ runId, loggableId }: { runId: string; loggableId:
       runId={runId}
       loggableId={loggableId}
       images={images}
-      maxHeight={280}
+      maxHeight={fillParent ? undefined : 280}
     />
   )
 }

@@ -154,13 +154,16 @@ export const ComparisonHistogram = memo(function ComparisonHistogram({
     }),
   })
 
-  if (!view) {
-    return <p className="text-[10px] text-muted-foreground">No histogram data to compare</p>
-  }
-
+  // Keep the canvas mounted; see ComparisonLine for the useChartJs
+  // mount-effect rationale.
   return (
-    <div ref={containerRef} className="h-[200px]">
+    <div ref={containerRef} className="relative h-[200px]">
       <canvas ref={canvasRef} className="cursor-crosshair" />
+      {!view && (
+        <p className="absolute inset-0 flex items-center justify-center text-[10px] text-muted-foreground pointer-events-none">
+          No histogram data to compare
+        </p>
+      )}
     </div>
   )
 })

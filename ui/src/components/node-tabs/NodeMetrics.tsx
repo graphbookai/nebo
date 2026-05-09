@@ -28,6 +28,8 @@ import { PieMetric } from '@/components/charts/PieMetric'
 import { ScatterMetric } from '@/components/charts/ScatterMetric'
 import { HistogramMetric } from '@/components/charts/HistogramMetric'
 import { ShapeIcon } from '@/components/charts/ShapeIcon'
+import { ComparisonGrid } from '@/components/shared/ComparisonGrid'
+import { getGridDimensions } from '@/lib/grid'
 import {
   UNTAGGED_KEY,
   entriesMatchingTags,
@@ -48,7 +50,7 @@ interface NodeMetricsProps {
 
 export function NodeMetrics({ runId, loggableId, comparisonRunIds, fillParent }: NodeMetricsProps) {
   if (comparisonRunIds) {
-    return <ComparisonMetrics loggableId={loggableId} comparisonRunIds={comparisonRunIds} />
+    return <ComparisonMetrics loggableId={loggableId} comparisonRunIds={comparisonRunIds} fillParent={fillParent} />
   }
   return <SingleRunMetrics runId={runId} loggableId={loggableId} fillParent={fillParent} />
 }
@@ -353,9 +355,11 @@ function SingleRunChart({
 function ComparisonMetrics({
   loggableId,
   comparisonRunIds,
+  fillParent,
 }: {
   loggableId: string
   comparisonRunIds: string[]
+  fillParent?: boolean
 }) {
   const runs = useStore(s => s.runs)
   const runColors = useStore(s => s.runColors)
@@ -410,7 +414,7 @@ function ComparisonMetrics({
 
   const effectiveRunIds = comparisonRunIds.filter(rid => activeRuns.has(rid))
 
-  return (
+  const stack = (
     <div className="space-y-4">
       {[...metricNames.entries()].map(([name, type]) => (
         <ComparisonMetricBlock
@@ -428,6 +432,11 @@ function ComparisonMetrics({
       ))}
     </div>
   )
+
+  if (fillParent) {
+    return <div className="h-full overflow-auto">{stack}</div>
+  }
+  return stack
 }
 
 function ComparisonMetricBlock({
@@ -557,6 +566,7 @@ function ComparisonMetricBlock({
           loggableId={loggableId}
           runIds={runIds}
           activeTags={activeTags}
+          allTags={allTags}
           activeLabels={activeLabels}
           allLabels={allLabels}
         />
@@ -571,6 +581,7 @@ function ComparisonChart({
   loggableId,
   runIds,
   activeTags,
+  allTags,
   activeLabels,
   allLabels,
 }: {
@@ -579,6 +590,7 @@ function ComparisonChart({
   loggableId: string
   runIds: string[]
   activeTags: Set<string>
+  allTags: string[]
   activeLabels: Set<string>
   allLabels: string[]
 }) {
@@ -592,7 +604,17 @@ function ComparisonChart({
     (rid: string) => {
       const s = runs.get(rid)?.loggableMetrics[loggableId]?.[name]
       if (!s) return undefined
-      const tagFiltered = entriesMatchingTags(s.entries, activeTags)
+      // Skip the tag filter when no tags exist on this metric across any
+      // run (otherwise every untagged entry — which is all of them for
+      // bar/pie/histogram and tag-less scatter — gets dropped because
+      // activeTags is empty and `entriesMatchingTags` only keeps `[]`-
+      // tagged entries when activeTags contains UNTAGGED_KEY). Line
+      // metrics also bypass this filter — they use the mute-via-color
+      // path on a single combined dataset instead.
+      const skipTagFilter = allTags.length === 0 || s.type === 'line'
+      const tagFiltered = skipTagFilter
+        ? s.entries
+        : entriesMatchingTags(s.entries, activeTags)
       // Drop deselected scatter labels here so the comparison renderer
       // only sees the slots the user wants. Pie and bar values are
       // also dicts but we leave them untouched — their toggling story
@@ -611,28 +633,38 @@ function ComparisonChart({
       }
       return { ...s, entries: tagFiltered }
     },
-    [runs, loggableId, name, activeTags, activeLabels, allLabels.length],
+    [runs, loggableId, name, activeTags, allTags.length, activeLabels, allLabels.length],
   )
 
   if (type === 'line') return <ComparisonLine runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
   if (type === 'bar') return <ComparisonBar runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
   if (type === 'histogram') return <ComparisonHistogram runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
   if (type === 'scatter') return <ComparisonScatter runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
-  // pie: one pie per run (stacked)
+  // Pie: one pie per run, rendered in the standard split-panel layout
+  // (matches Logs/Images/Audio comparison styling). The cell header
+  // already shows the run name + color stripe, so we just render the
+  // chart in the body. The outer height scales with the grid's row
+  // count so each pie panel gets a consistent ~PIE_ROW_PX of vertical
+  // space — without this, 4+ runs (which need 2+ rows) would squeeze
+  // each pie into ~100px and the chart effectively disappears.
+  const PIE_ROW_PX = 220
+  const { rows: pieRows } = getGridDimensions(runIds.length)
   return (
-    <div className="space-y-2">
-      {runIds.map(rid => {
-        const s = seriesFor(rid)
-        if (!s) return null
-        const latest = s.entries[s.entries.length - 1]
-        if (!latest) return null
-        return (
-          <div key={rid}>
-            <div className="text-[10px] text-muted-foreground mb-0.5">{runNameFor(rid)}</div>
-            <PieMetric entry={latest} />
-          </div>
-        )
-      })}
+    <div style={{ height: Math.max(PIE_ROW_PX, pieRows * PIE_ROW_PX) }}>
+      <ComparisonGrid runIds={runIds} fillParent>
+        {(rid) => {
+          const s = seriesFor(rid)
+          const latest = s?.entries[s.entries.length - 1]
+          if (!latest) {
+            return <p className="text-[10px] text-muted-foreground p-2">No pie data</p>
+          }
+          return (
+            <div className="h-full p-2">
+              <PieMetric entry={latest} fill />
+            </div>
+          )
+        }}
+      </ComparisonGrid>
     </div>
   )
 }

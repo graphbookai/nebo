@@ -1,13 +1,20 @@
 import type { ReactNode } from 'react'
 import { useStore } from '@/store'
 import { getGridDimensions } from '@/lib/grid'
+import { cn } from '@/lib/utils'
 
 interface ComparisonGridProps {
   runIds: string[]
   children: (runId: string, index: number) => ReactNode
+  // When true, the grid fills its parent's height and distributes
+  // rows evenly via `grid-template-rows: 1fr`. Each cell's content
+  // area becomes a bare flex-1 box (no overflow-auto) so child tab
+  // implementations can own their own scroll, matching the
+  // single-run fillParent pattern.
+  fillParent?: boolean
 }
 
-export function ComparisonGrid({ runIds, children }: ComparisonGridProps) {
+export function ComparisonGrid({ runIds, children, fillParent }: ComparisonGridProps) {
   const runColors = useStore(s => s.runColors)
   const runNames = useStore(s => s.runNames)
   const runs = useStore(s => s.runs)
@@ -17,8 +24,11 @@ export function ComparisonGrid({ runIds, children }: ComparisonGridProps) {
 
   return (
     <div
-      className="grid gap-px bg-border"
-      style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}
+      className={cn('grid gap-px bg-border', fillParent && 'h-full')}
+      style={{
+        gridTemplateColumns: `repeat(${cols}, 1fr)`,
+        ...(fillParent ? { gridTemplateRows: `repeat(${rows}, 1fr)` } : {}),
+      }}
     >
       {Array.from({ length: totalCells }, (_, i) => {
         const runId = runIds[i]
@@ -32,7 +42,21 @@ export function ComparisonGrid({ runIds, children }: ComparisonGridProps) {
         const displayName = runNames.get(runId) || scriptName
 
         return (
-          <div key={runId} className="bg-background min-w-0 flex flex-col">
+          <div
+            key={runId}
+            className={cn(
+              'bg-background min-w-0 flex flex-col',
+              // CSS Grid items default to `min-height: auto`, so when a
+              // cell's content is taller than its 1fr row the cell
+              // expands to fit and pushes the whole grid past the
+              // `h-full` boundary. `min-h-0` lets the cell honor its
+              // row size; `overflow-hidden` is the belt-and-suspenders
+              // clip for any child that ignores the bound. Only matters
+              // in fillParent mode (where rows are 1fr) — outside it
+              // the grid takes the natural height of its tallest cell.
+              fillParent && 'min-h-0 overflow-hidden',
+            )}
+          >
             <div
               className="flex items-center gap-1.5 px-2 py-1 border-b border-border shrink-0"
               style={{ borderTop: `3px solid ${color}` }}
@@ -45,7 +69,15 @@ export function ComparisonGrid({ runIds, children }: ComparisonGridProps) {
                 {displayName}
               </span>
             </div>
-            <div className="flex-1 min-h-0 overflow-auto">
+            <div
+              className={cn(
+                'flex-1 min-h-0',
+                // When the grid fills its parent each child can own its
+                // own scroll container (e.g. VirtualizedImageList). Outside
+                // fillParent we keep the legacy cell-level overflow.
+                !fillParent && 'overflow-auto',
+              )}
+            >
               {children(runId, i)}
             </div>
           </div>

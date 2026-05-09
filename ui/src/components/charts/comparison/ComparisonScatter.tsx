@@ -5,6 +5,26 @@ import { useChartTokens } from '@/components/charts/useChartTokens'
 import { shapeForLabel } from '@/components/charts/scatterShape'
 import { DEFAULT_RUN_COLOR } from '@/lib/colors'
 import type { SeriesFor } from '@/components/charts/seriesFor'
+import { useStore } from '@/store'
+
+// Hex-to-rgba; mirrors single-run ScatterMetric's withAlpha. Used to
+// dim points that don't match the active step filter.
+function withAlpha(hex: string, alpha: number): string {
+  const trimmed = hex.trim()
+  if (!trimmed.startsWith('#') || (trimmed.length !== 4 && trimmed.length !== 7)) {
+    return trimmed
+  }
+  const expanded =
+    trimmed.length === 4
+      ? `#${trimmed[1]}${trimmed[1]}${trimmed[2]}${trimmed[2]}${trimmed[3]}${trimmed[3]}`
+      : trimmed
+  const r = parseInt(expanded.slice(1, 3), 16)
+  const g = parseInt(expanded.slice(3, 5), 16)
+  const b = parseInt(expanded.slice(5, 7), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+type ScatterPoint = { x: number; y: number; step: number | null }
 
 export const ComparisonScatter = memo(function ComparisonScatter({
   runIds,
@@ -18,18 +38,24 @@ export const ComparisonScatter = memo(function ComparisonScatter({
   seriesFor: SeriesFor
 }) {
   const tokens = useChartTokens()
+  const timelineMode = useStore(s => s.timeline.mode)
+  const timelineStep = useStore(s => s.timeline.step)
+  const isFiltering = timelineMode === 'step' && timelineStep != null
 
-  // Build the union of labels across runs first so shape assignment is
-  // stable regardless of which run we iterate first.
+  // Build the union of labels across runs by walking *every* entry
+  // (scatter accumulates: each emission appends points). The previous
+  // implementation only looked at the latest emission, which is why
+  // metrics_gallery's 40-emission scatter showed only 2 points per run.
   const allLabels = useMemo(() => {
     const set = new Set<string>()
     for (const rid of runIds) {
       const s = seriesFor(rid)
-      if (!s || s.entries.length === 0) continue
-      const latest = s.entries[s.entries.length - 1]
-      const v = latest.value as Record<string, unknown> | undefined
-      if (!v || typeof v !== 'object') continue
-      for (const k of Object.keys(v)) set.add(k)
+      if (!s) continue
+      for (const e of s.entries) {
+        const v = e.value as Record<string, unknown> | undefined
+        if (!v || typeof v !== 'object') continue
+        for (const k of Object.keys(v)) set.add(k)
+      }
     }
     return [...set].sort()
   }, [runIds, seriesFor])
@@ -37,42 +63,73 @@ export const ComparisonScatter = memo(function ComparisonScatter({
   const datasets = useMemo(() => {
     const out: {
       label: string
-      data: { x: number; y: number }[]
-      backgroundColor: string
+      data: ScatterPoint[]
+      backgroundColor: string | string[]
       borderColor: string
-      borderWidth: number
+      borderWidth: number | number[]
       pointStyle: string
-      pointRadius: number
+      pointRadius: number | number[]
       runId: string
       pointLabel: string
     }[] = []
     for (const rid of runIds) {
       const s = seriesFor(rid)
       if (!s || s.entries.length === 0) continue
-      const latest = s.entries[s.entries.length - 1]
-      const v = latest.value as Record<string, { x?: unknown; y?: unknown }> | undefined
-      if (!v || typeof v !== 'object') continue
       const runColor = runColors.get(rid) ?? DEFAULT_RUN_COLOR
-      for (const [label, series] of Object.entries(v)) {
-        if (!series || !Array.isArray(series.x) || !Array.isArray(series.y)) continue
-        const xs = series.x as number[]
-        const ys = series.y as number[]
-        const data = xs.map((x, i) => ({ x, y: ys[i] }))
+      const dimmed = withAlpha(runColor, 0.25)
+      // Accumulate points per (run, label) across every emission so the
+      // chart shows the union of all logged points, not just the last
+      // emission's slice. Each point carries its emission's `step` so
+      // the active-step filter can dim non-matching points.
+      const pointsByLabel = new Map<string, ScatterPoint[]>()
+      for (const e of s.entries) {
+        const v = e.value as Record<string, { x?: unknown; y?: unknown }> | undefined
+        if (!v || typeof v !== 'object') continue
+        for (const [label, series] of Object.entries(v)) {
+          if (!series || !Array.isArray(series.x) || !Array.isArray(series.y)) continue
+          const xs = series.x as number[]
+          const ys = series.y as number[]
+          const bucket = pointsByLabel.get(label) ?? []
+          for (let i = 0; i < xs.length; i++) {
+            bucket.push({ x: xs[i], y: ys[i], step: e.step ?? null })
+          }
+          pointsByLabel.set(label, bucket)
+        }
+      }
+      for (const [label, points] of pointsByLabel) {
+        // Per-point styling so the active-step points pop without
+        // splitting into a second dataset (which would double label
+        // entries and break the tooltip's 1:1 with logged values).
+        const bg: string[] = []
+        const radius: number[] = []
+        const borderW: number[] = []
+        for (const p of points) {
+          const isActive = isFiltering && p.step === timelineStep
+          if (isFiltering && !isActive) {
+            bg.push(dimmed)
+            radius.push(3)
+            borderW.push(0)
+          } else {
+            bg.push(runColor)
+            radius.push(isActive ? 7 : 4)
+            borderW.push(isActive ? 1.5 : 0.5)
+          }
+        }
         out.push({
           label: `${rid}::${label}`, // unique dataset id for Chart.js
-          data,
-          backgroundColor: runColor, // run identity = color
+          data: points,
+          backgroundColor: bg,
           borderColor: tokens.tooltipFg,
-          borderWidth: 0.5,
+          borderWidth: borderW,
           pointStyle: shapeForLabel(label, allLabels), // label = shape
-          pointRadius: 4,
+          pointRadius: radius,
           runId: rid,
           pointLabel: label,
         })
       }
     }
     return out
-  }, [runIds, runColors, seriesFor, allLabels, tokens.tooltipFg])
+  }, [runIds, runColors, seriesFor, allLabels, tokens.tooltipFg, isFiltering, timelineStep])
 
   const config: ChartConfiguration<'scatter'> = useMemo(
     () => ({
@@ -124,13 +181,21 @@ export const ComparisonScatter = memo(function ComparisonScatter({
     }),
   })
 
-  if (datasets.length === 0) {
-    return <p className="text-[10px] text-muted-foreground">No scatter data to compare</p>
-  }
-
+  // Keep the canvas mounted; see ComparisonLine for the useChartJs
+  // mount-effect rationale.
   return (
-    <div ref={containerRef} className="h-[200px]">
+    <div ref={containerRef} className="relative h-[200px]">
       <canvas ref={canvasRef} className="cursor-crosshair" />
+      {isFiltering && datasets.length > 0 && (
+        <span className="absolute top-1 right-1 text-[10px] font-medium text-primary-foreground bg-primary/80 rounded px-1.5 py-px pointer-events-none z-10">
+          step {timelineStep}
+        </span>
+      )}
+      {datasets.length === 0 && (
+        <p className="absolute inset-0 flex items-center justify-center text-[10px] text-muted-foreground pointer-events-none">
+          No scatter data to compare
+        </p>
+      )}
     </div>
   )
 })

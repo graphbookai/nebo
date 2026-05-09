@@ -58,17 +58,16 @@ export const ComparisonBar = memo(function ComparisonBar({
         animation: false,
         responsive: true,
         maintainAspectRatio: false,
-        // Stacked across runs to preserve the recharts-era behavior where
-        // every category bar showed total magnitude with each run as a layer.
+        // Grouped (side-by-side) bars per category — each run gets its
+        // own bar of equal height, which is easier to read than the
+        // previous stacked layout when comparing magnitudes across runs.
         scales: {
           x: {
-            stacked: true,
             ticks: { color: tokens.axisTickColor, font: { size: 10 } },
             grid: { display: false },
             border: { display: false },
           },
           y: {
-            stacked: true,
             ticks: { color: tokens.axisTickColor, font: { size: 10 } },
             grid: { color: tokens.gridStroke, drawTicks: false },
             border: { display: false },
@@ -98,13 +97,16 @@ export const ComparisonBar = memo(function ComparisonBar({
     }),
   })
 
-  if (data.labels.length === 0) {
-    return <p className="text-[10px] text-muted-foreground">No bar data to compare</p>
-  }
-
+  // Keep the canvas mounted; see ComparisonLine for the useChartJs
+  // mount-effect rationale.
   return (
-    <div ref={containerRef} className="h-[140px]">
+    <div ref={containerRef} className="relative h-[140px]">
       <canvas ref={canvasRef} className="cursor-crosshair" />
+      {data.labels.length === 0 && (
+        <p className="absolute inset-0 flex items-center justify-center text-[10px] text-muted-foreground pointer-events-none">
+          No bar data to compare
+        </p>
+      )}
     </div>
   )
 })

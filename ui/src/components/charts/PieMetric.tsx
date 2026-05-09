@@ -14,7 +14,7 @@ export const PieMetric = memo(function PieMetric({
   fill,
 }: {
   entry: MetricEntry
-  // Fill the parent's height instead of the default 180px (grid card mode).
+  // Fill the parent's height instead of the default 140px (grid card mode).
   fill?: boolean
 }) {
   const tokens = useChartTokens()
@@ -82,8 +82,8 @@ export const PieMetric = memo(function PieMetric({
   if (!data) return null
 
   return (
-    <div className={fill ? 'flex h-full flex-col' : 'flex flex-col'}>
-      <div ref={containerRef} className={fill ? 'flex-1' : 'h-[180px]'}>
+    <div className={fill ? 'flex h-full flex-col min-h-0' : 'flex flex-col'}>
+      <div ref={containerRef} className={fill ? 'flex-1 min-h-0' : 'h-[140px]'}>
         <canvas ref={canvasRef} className="cursor-crosshair" />
       </div>
       <div

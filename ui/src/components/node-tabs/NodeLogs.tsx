@@ -26,9 +26,9 @@ export function NodeLogs({ runId, loggableId, comparisonRunIds, fillParent }: No
 
   if (comparisonRunIds) {
     return (
-      <div className="space-y-2">
+      <div className={cn('space-y-2', fillParent && 'flex flex-col h-full min-h-0')}>
         {/* Shared search and filter */}
-        <div className="flex items-center gap-2">
+        <div className={cn('flex items-center gap-2', fillParent && 'shrink-0')}>
           <div className="flex items-center gap-1 flex-1 bg-muted rounded-md px-2">
             <Search className="h-3 w-3 text-muted-foreground shrink-0" />
             <input
@@ -55,16 +55,19 @@ export function NodeLogs({ runId, loggableId, comparisonRunIds, fillParent }: No
           </div>
         </div>
 
-        <ComparisonGrid runIds={comparisonRunIds}>
-          {(cellRunId) => (
-            <ComparisonLogCell
-              runId={cellRunId}
-              loggableId={loggableId}
-              search={search}
-              levelFilter={levelFilter}
-            />
-          )}
-        </ComparisonGrid>
+        <div className={cn(fillParent && 'flex-1 min-h-0')}>
+          <ComparisonGrid runIds={comparisonRunIds} fillParent={fillParent}>
+            {(cellRunId) => (
+              <ComparisonLogCell
+                runId={cellRunId}
+                loggableId={loggableId}
+                search={search}
+                levelFilter={levelFilter}
+                fillParent={fillParent}
+              />
+            )}
+          </ComparisonGrid>
+        </div>
       </div>
     )
   }
@@ -87,9 +90,10 @@ interface ComparisonLogCellProps {
   loggableId: string
   search: string
   levelFilter: string
+  fillParent?: boolean
 }
 
-function ComparisonLogCell({ runId, loggableId, search, levelFilter }: ComparisonLogCellProps) {
+function ComparisonLogCell({ runId, loggableId, search, levelFilter, fillParent }: ComparisonLogCellProps) {
   const logs = useStore(s => s.runs.get(runId)?.logs ?? [])
   const errors = useStore(s => s.runs.get(runId)?.errors ?? [])
   const timelineFilter = useTimelineFilter()
@@ -117,7 +121,12 @@ function ComparisonLogCell({ runId, loggableId, search, levelFilter }: Compariso
   }
 
   return (
-    <div className="max-h-[200px] overflow-auto p-1">
+    <div
+      className={cn(
+        'overflow-auto p-1',
+        fillParent ? 'h-full' : 'max-h-[200px]',
+      )}
+    >
       {nodeLogs.map((log, i) => (
         <div
           key={i}

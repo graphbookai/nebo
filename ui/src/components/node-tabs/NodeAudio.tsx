@@ -20,8 +20,8 @@ interface NodeAudioProps {
 export function NodeAudio({ runId, loggableId, comparisonRunIds, fillParent }: NodeAudioProps) {
   if (comparisonRunIds) {
     return (
-      <ComparisonGrid runIds={comparisonRunIds}>
-        {(cellRunId) => <ComparisonAudioCell runId={cellRunId} loggableId={loggableId} />}
+      <ComparisonGrid runIds={comparisonRunIds} fillParent={fillParent}>
+        {(cellRunId) => <ComparisonAudioCell runId={cellRunId} loggableId={loggableId} fillParent={fillParent} />}
       </ComparisonGrid>
     )
   }
@@ -58,7 +58,7 @@ export function AudioItem({ runId, entry, showTimestamp }: { runId: string; entr
   )
 }
 
-function ComparisonAudioCell({ runId, loggableId }: { runId: string; loggableId: string }) {
+function ComparisonAudioCell({ runId, loggableId, fillParent }: { runId: string; loggableId: string; fillParent?: boolean }) {
   const allAudioEntries = useStore(s => s.runs.get(runId)?.loggableAudio[loggableId]) ?? []
   const timelineFilter = useTimelineFilter()
 
@@ -72,10 +72,12 @@ function ComparisonAudioCell({ runId, loggableId }: { runId: string; loggableId:
   }
 
   return (
-    <div className="space-y-2 p-1">
-      {audioEntries.map((entry) => (
-        <AudioItem key={entry.mediaId} runId={runId} entry={entry} />
-      ))}
+    <div className={cn('p-1', fillParent && 'h-full overflow-auto')}>
+      <div className="space-y-2">
+        {audioEntries.map((entry) => (
+          <AudioItem key={entry.mediaId} runId={runId} entry={entry} />
+        ))}
+      </div>
     </div>
   )
 }
