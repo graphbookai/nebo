@@ -337,33 +337,6 @@ async def load_file(filepath: str, server_url: str = _DEFAULT_URL) -> dict[str, 
         return {"error": f"Failed to load file: {e}"}
 
 
-async def chat(question: str, run_id: Optional[str] = None, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
-    """Ask a question about a run via the daemon's Q&A endpoint."""
-    try:
-        payload: dict[str, Any] = {"question": question}
-        if run_id:
-            payload["run_id"] = run_id
-        # For MCP, we need the full response (not streaming)
-        # Use the /chat endpoint and collect the SSE stream
-        url = f"{server_url}/chat"
-        data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(url, data=data, method="POST")
-        req.add_header("Content-Type", "application/json")
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            full_text = ""
-            for line_bytes in resp:
-                line = line_bytes.decode("utf-8", errors="replace").strip()
-                if line.startswith("data: ") and line != "data: [DONE]":
-                    try:
-                        chunk = json.loads(line[6:])
-                        full_text += chunk.get("text", "")
-                    except json.JSONDecodeError:
-                        pass
-            return {"answer": full_text}
-    except Exception as e:
-        return {"error": f"Chat failed: {e}"}
-
-
 # ─── Write Tools ─────────────────────────────────────────────────────────────
 #
 # These mirror the SDK's `nb.log_*` helpers as MCP tools so an external

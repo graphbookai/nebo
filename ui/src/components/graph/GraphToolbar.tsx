@@ -1,8 +1,7 @@
 import { useState } from 'react'
-import { useReactFlow } from '@xyflow/react'
 import { useStore } from '@/store'
 import { Button } from '@/components/ui/button'
-import { Maximize, GitFork, ArrowDownUp, ArrowLeftRight, Download } from 'lucide-react'
+import { GitFork, ArrowDownUp, ArrowLeftRight, Download } from 'lucide-react'
 import { ExportOptionsModal } from '@/components/export/ExportOptionsModal'
 
 interface GraphToolbarProps {
@@ -11,7 +10,6 @@ interface GraphToolbarProps {
 }
 
 export function GraphToolbar({ onResetLayout, runId }: GraphToolbarProps) {
-  const { fitView } = useReactFlow()
   const dagDirection = useStore(s => s.dagDirection)
   const toggleDagDirection = useStore(s => s.toggleDagDirection)
   const [exportOpen, setExportOpen] = useState(false)
@@ -31,15 +29,6 @@ export function GraphToolbar({ onResetLayout, runId }: GraphToolbarProps) {
           ) : (
             <ArrowDownUp className="h-3.5 w-3.5" />
           )}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 bg-card/80 backdrop-blur-sm"
-          onClick={() => fitView({ padding: 0.1, duration: 300 })}
-          title="Fit to view"
-        >
-          <Maximize className="h-3.5 w-3.5" />
         </Button>
         <Button
           variant="outline"

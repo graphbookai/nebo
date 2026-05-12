@@ -2,7 +2,6 @@ import { create } from 'zustand'
 import type { RunSummary, GraphData, LogEntry, ErrorEntry, LabelsPayload, MetricType, MetricEntry, LoggableMetricSeries } from '@/lib/api'
 import type { WsEvent } from '@/lib/ws'
 import { assignColor } from '@/lib/colors'
-import { authHeaders } from '@/lib/auth'
 
 export interface NodeState {
   name: string
@@ -74,8 +73,6 @@ document.documentElement.classList.toggle('dark', initialSettings.theme === 'dar
 
 export type NodeTab = 'logs' | 'metrics' | 'images' | 'audio'
 
-export type RightPanelTab = 'trace' | 'chat' | 'settings'
-
 export interface PinnedPanel {
   id: string
   runId: string
@@ -139,12 +136,6 @@ export interface ComparisonGroup {
   createdAt: Date
 }
 
-export interface ChatMessage {
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: number
-}
-
 export interface RunState {
   summary: RunSummary
   graph: GraphData | null
@@ -153,7 +144,6 @@ export interface RunState {
   loggableMetrics: Record<string, Record<string, LoggableMetricSeries>>
   loggableImages: Record<string, ImageEntry[]>
   loggableAudio: Record<string, AudioEntry[]>
-  chatMessages: ChatMessage[]
   loaded: boolean
   globalLoggable?: { loggableId: string; kind: 'global' }
 }
@@ -230,10 +220,8 @@ interface NeboStore {
   viewMode: 'graph' | 'grid'
   setViewMode: (mode: 'graph' | 'grid') => void
 
-  // Right panel (trace + chat + settings)
-  rightPanelTab: RightPanelTab
+  // Right panel (Settings only)
   rightPanelOpen: boolean
-  setRightPanelTab: (tab: RightPanelTab) => void
   toggleRightPanel: () => void
 
   // Timeline
@@ -281,9 +269,6 @@ interface NeboStore {
   resetLayout: (runId: string) => void
 
   updateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void
-
-  // Chat
-  sendChatMessage: (runId: string, question: string) => Promise<void>
 
   processWsEvents: (runId: string, events: WsEvent[]) => void
 }
@@ -426,9 +411,7 @@ export const useStore = create<NeboStore>((set, get) => ({
     : 'graph') as 'graph' | 'grid',
   setViewMode: (mode) => set({ viewMode: mode }),
 
-  rightPanelTab: 'trace' as const,
   rightPanelOpen: false,
-  setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
   toggleRightPanel: () => set(state => ({ rightPanelOpen: !state.rightPanelOpen })),
 
   timeline: { mode: 'time', timeStart: null, timeEnd: null, step: null },
@@ -476,7 +459,6 @@ export const useStore = create<NeboStore>((set, get) => ({
           loggableMetrics: {},
           loggableImages: {},
           loggableAudio: {},
-          chatMessages: [],
           loaded: false,
           globalLoggable: undefined,
         })
@@ -755,76 +737,6 @@ export const useStore = create<NeboStore>((set, get) => ({
     return { settings: next }
   }),
 
-  sendChatMessage: async (runId, question) => {
-    set(state => {
-      const runs = new Map(state.runs)
-      const run = runs.get(runId)
-      if (run) {
-        run.chatMessages = [...run.chatMessages, {
-          role: 'user' as const,
-          content: question,
-          timestamp: Date.now() / 1000,
-        }]
-      }
-      return { runs }
-    })
-
-    try {
-      const response = await fetch('/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ question, run_id: runId }),
-      })
-
-      const reader = response.body?.getReader()
-      const decoder = new TextDecoder()
-      let fullResponse = ''
-
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          const text = decoder.decode(value)
-          const lines = text.split('\n')
-          for (const line of lines) {
-            if (line.startsWith('data: ') && line !== 'data: [DONE]') {
-              try {
-                const data = JSON.parse(line.slice(6))
-                fullResponse += data.text
-              } catch { /* skip malformed lines */ }
-            }
-          }
-        }
-      }
-
-      set(state => {
-        const runs = new Map(state.runs)
-        const run = runs.get(runId)
-        if (run) {
-          run.chatMessages = [...run.chatMessages, {
-            role: 'assistant' as const,
-            content: fullResponse || 'No response received.',
-            timestamp: Date.now() / 1000,
-          }]
-        }
-        return { runs }
-      })
-    } catch (err) {
-      set(state => {
-        const runs = new Map(state.runs)
-        const run = runs.get(runId)
-        if (run) {
-          run.chatMessages = [...run.chatMessages, {
-            role: 'assistant' as const,
-            content: `Error: ${err instanceof Error ? err.message : 'Failed to get response'}`,
-            timestamp: Date.now() / 1000,
-          }]
-        }
-        return { runs }
-      })
-    }
-  },
-
   processWsEvents: (runId, events) => {
     // Single batched set() — avoids N re-renders per WS batch
     set(state => {
@@ -854,7 +766,6 @@ export const useStore = create<NeboStore>((set, get) => ({
           loggableMetrics: {},
           loggableImages: {},
           loggableAudio: {},
-          chatMessages: [],
           loaded: false,
           globalLoggable: undefined,
         }

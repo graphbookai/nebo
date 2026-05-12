@@ -419,7 +419,7 @@ The tools fall into three buckets:
   ``nebo_restart_pipeline``, ``nebo_get_run_status``,
   ``nebo_get_run_history``, ``nebo_get_source_code``,
   ``nebo_write_source_code``, ``nebo_wait_for_event``,
-  ``nebo_load_file``, ``nebo_chat``.
+  ``nebo_load_file``.
 - **Write** — ``nebo_log_metric``, ``nebo_log_image``,
   ``nebo_log_audio``, ``nebo_log_text``. These mirror the SDK's
   ``nb.log_*`` helpers so an external agent can push metrics, media,

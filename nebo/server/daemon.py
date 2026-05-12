@@ -617,7 +617,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
     _GATED_PREFIXES = (
         "/events", "/ingest", "/run", "/runs",
         "/logs", "/errors", "/loggables", "/load",
-        "/chat", "/graph",
+        "/graph",
     )
 
     def _is_read(method: str) -> bool:
@@ -939,31 +939,6 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
             return {"status": "loaded", "filepath": filepath}
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": str(e)})
-
-    @app.post("/chat")
-    async def chat(body: dict[str, Any]):
-        """Q&A via Claude Code CLI with streaming response."""
-        import json as _json
-        from starlette.responses import StreamingResponse
-
-        question = body.get("question", "")
-        run_id = body.get("run_id") or state.active_run_id
-
-        if not run_id:
-            return JSONResponse(status_code=400, content={"error": "No run specified"})
-        if not question:
-            return JSONResponse(status_code=400, content={"error": "No question provided"})
-
-        from nebo.server.chat import stream_chat_response
-
-        server_url = f"http://localhost:{port}"
-
-        async def generate():
-            async for chunk in stream_chat_response(question, run_id, server_url):
-                yield f"data: {_json.dumps({'text': chunk})}\n\n"
-            yield "data: [DONE]\n\n"
-
-        return StreamingResponse(generate(), media_type="text/event-stream")
 
     @app.websocket("/stream")
     async def websocket_endpoint(ws: WebSocket):

@@ -350,8 +350,7 @@ Nebo exposes 21 MCP tools for querying, controlling, and writing data into pipel
 | `nebo_get_source_code` | Read a pipeline source file |
 | `nebo_write_source_code` | Write or patch a pipeline source file |
 | `nebo_wait_for_event` | Block until a pipeline event occurs or timeout elapses |
-| `nebo_load_file` | Load a `.nebo` file into the daemon for viewing and Q&A |
-| `nebo_chat` | Ask a question about a run (delegates to Claude Code CLI) |
+| `nebo_load_file` | Load a `.nebo` file into the daemon for viewing |
 
 ### Write Tools
 

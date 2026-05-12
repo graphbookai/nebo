@@ -192,24 +192,6 @@ MCP_TOOLS = [
             "required": ["filepath"],
         },
     },
-    {
-        "name": "nebo_chat",
-        "description": "Ask a question about a run. Uses the run's logs, metrics, graph, and errors to generate an answer.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "question": {
-                    "type": "string",
-                    "description": "The question to ask about the run",
-                },
-                "run_id": {
-                    "type": "string",
-                    "description": "The run ID to query. If omitted, uses the active run.",
-                },
-            },
-            "required": ["question"],
-        },
-    },
     # ── Write Tools ──
     # These mirror the SDK's nb.log_* helpers so an external agent can push
     # data into a run without owning the SDK process. Each tool accepts a
@@ -326,7 +308,6 @@ async def handle_tool_call(name: str, arguments: dict[str, Any], server_url: str
         "nebo_write_source_code": lambda a: tools.write_source_code(a["file_path"], a.get("content"), a.get("patches"), server_url),
         "nebo_wait_for_event": lambda a: tools.wait_for_event(a.get("timeout", 300), a.get("events"), a.get("run_id"), server_url),
         "nebo_load_file": lambda a: tools.load_file(a["filepath"], server_url),
-        "nebo_chat": lambda a: tools.chat(a["question"], a.get("run_id"), server_url),
         # Write
         "nebo_log_metric": lambda a: tools.log_metric(a["entries"], a.get("run_id"), server_url),
         "nebo_log_image": lambda a: tools.log_image(a["entries"], a.get("run_id"), server_url),

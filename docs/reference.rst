@@ -579,15 +579,9 @@ Action Tools
     :param run_id: Optional run ID. Uses the latest run if omitted.
 
 ``nebo_load_file``
-    Load a ``.nebo`` log file into the daemon for viewing and Q&A.
+    Load a ``.nebo`` log file into the daemon for viewing.
 
     :param filepath: Absolute path to the ``.nebo`` file (required).
-
-``nebo_chat``
-    Ask a question about a run. Uses the run's logs, metrics, graph, and errors to generate an answer via Claude Code CLI.
-
-    :param question: The question to ask (required).
-    :param run_id: Optional run ID. Uses the active run if omitted.
 
 Write Tools
 -----------

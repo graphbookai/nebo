@@ -89,7 +89,7 @@ export function RunDetailView() {
               variant="ghost"
               onClick={toggleRightPanel}
               className="px-1.5 py-1 h-auto"
-              title={rightPanelOpen ? 'Close trace panel' : 'Open trace panel'}
+              title={rightPanelOpen ? 'Close settings panel' : 'Open settings panel'}
             >
               <PanelRight className="h-4 w-4 text-muted-foreground" />
             </Button>

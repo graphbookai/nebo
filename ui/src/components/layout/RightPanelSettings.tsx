@@ -1,6 +1,8 @@
+import { useMemo } from 'react'
 import { ImageIcon, LineChart as LineIcon, BarChart3 } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { useStore, type Settings as SettingsType } from '@/store'
+import { useComparisonContext } from '@/hooks/useComparisonContext'
 
 function ChartSlider({
   label,
@@ -40,15 +42,39 @@ function ChartSlider({
   )
 }
 
-// Per-run settings surface that lives in the right panel alongside
-// Trace and Chat. Hosts image-label controls plus the global chart
-// knobs (line/histogram smoothing and bin count).
+// Per-run settings surface that lives in the right panel. Hosts the
+// global chart knobs (line/histogram smoothing and bin count) and any
+// image-label controls registered by the currently-viewed run.
 export function RightPanelSettings() {
   const labelKeySettings = useStore(s => s.labelKeySettings)
   const setLabelKeyVisible = useStore(s => s.setLabelKeyVisible)
   const setLabelKeyOpacity = useStore(s => s.setLabelKeyOpacity)
   const settings = useStore(s => s.settings)
   const updateSetting = useStore(s => s.updateSetting)
+  const runs = useStore(s => s.runs)
+  const { runIds } = useComparisonContext()
+
+  // labelKeySettings is global (keyed by loggable|image|key), but each
+  // controls section should only surface entries that match images
+  // present in the currently-viewed run(s). Otherwise switching runs
+  // leaves stale toggles in place for label keys that don't exist here.
+  const visibleEntries = useMemo(() => {
+    if (runIds.length === 0) return [] as [string, typeof labelKeySettings[string]][]
+    const activePairs = new Set<string>()
+    for (const rid of runIds) {
+      const run = runs.get(rid)
+      if (!run) continue
+      for (const [loggableId, images] of Object.entries(run.loggableImages)) {
+        for (const img of images) {
+          activePairs.add(`${loggableId}|${img.name}`)
+        }
+      }
+    }
+    return Object.entries(labelKeySettings).filter(([triple]) => {
+      const [loggable, image] = triple.split('|')
+      return activePairs.has(`${loggable}|${image}`)
+    })
+  }, [labelKeySettings, runs, runIds])
 
   return (
     <div className="h-full overflow-auto p-4 space-y-6">
@@ -94,33 +120,18 @@ export function RightPanelSettings() {
         </div>
       </section>
 
+      {visibleEntries.length > 0 && (
       <section>
         <div className="flex items-center gap-2 mb-3">
           <ImageIcon className="h-4 w-4 text-muted-foreground" />
           <h3 className="text-sm font-medium">Image labels</h3>
-          {Object.keys(labelKeySettings).length > 0 && (
-            <span className="text-xs text-muted-foreground">
-              ({Object.keys(labelKeySettings).length})
-            </span>
-          )}
+          <span className="text-xs text-muted-foreground">
+            ({visibleEntries.length})
+          </span>
         </div>
 
-        {Object.keys(labelKeySettings).length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            Label controls appear here once a loggable emits an image with
-            <code className="mx-1">points</code>
-            /
-            <code className="mx-1">boxes</code>
-            /
-            <code className="mx-1">circles</code>
-            /
-            <code className="mx-1">polygons</code>
-            /
-            <code className="mx-1">bitmasks</code>.
-          </p>
-        ) : (
-          <div className="space-y-4">
-            {Object.entries(labelKeySettings).map(([triple, s]) => {
+        <div className="space-y-4">
+          {visibleEntries.map(([triple, s]) => {
               const [loggable, image, key] = triple.split('|')
               return (
                 <div key={triple} className="space-y-1">
@@ -149,12 +160,12 @@ export function RightPanelSettings() {
                     className="w-full h-1 accent-primary cursor-pointer disabled:opacity-40"
                     aria-label={`${key} opacity`}
                   />
-                </div>
-              )
-            })}
-          </div>
-        )}
+              </div>
+            )
+          })}
+        </div>
       </section>
+      )}
     </div>
   )
 }
