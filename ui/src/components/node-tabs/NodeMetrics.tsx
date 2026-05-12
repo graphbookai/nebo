@@ -64,6 +64,7 @@ export function NodeMetrics({ runId, loggableId, comparisonRunIds, fillParent }:
 function SingleRunMetrics({ runId, loggableId, fillParent }: { runId: string; loggableId: string; fillParent?: boolean }) {
   const metrics = useStore(s => s.runs.get(runId)?.loggableMetrics[loggableId]) ?? {}
   const runColor = useStore(s => s.runColors.get(runId)) ?? DEFAULT_RUN_COLOR
+  const exportLimit = useStore(s => s.exportEntryLimit)
   const getOrAssignRunColor = useStore(s => s.getOrAssignRunColor)
 
   // Make sure this run has an assigned color — the store lazily assigns on demand.
@@ -71,7 +72,12 @@ function SingleRunMetrics({ runId, loggableId, fillParent }: { runId: string; lo
     getOrAssignRunColor(runId)
   }, [runId, getOrAssignRunColor])
 
-  if (Object.keys(metrics).length === 0) {
+  const metricEntries = useMemo(() => {
+    const all = Object.entries(metrics)
+    return exportLimit ? all.slice(0, exportLimit) : all
+  }, [metrics, exportLimit])
+
+  if (metricEntries.length === 0) {
     return <p className="text-xs text-muted-foreground">No metrics for this loggable</p>
   }
 
@@ -79,7 +85,7 @@ function SingleRunMetrics({ runId, loggableId, fillParent }: { runId: string; lo
     return (
       <div className="h-full overflow-auto">
         <div className="space-y-4">
-          {Object.entries(metrics).map(([name, series]) => (
+          {metricEntries.map(([name, series]) => (
             <MetricBlock key={name} name={name} series={series} color={runColor} />
           ))}
         </div>
@@ -88,7 +94,7 @@ function SingleRunMetrics({ runId, loggableId, fillParent }: { runId: string; lo
   }
   return (
     <div className="space-y-4">
-      {Object.entries(metrics).map(([name, series]) => (
+      {metricEntries.map(([name, series]) => (
         <MetricBlock key={name} name={name} series={series} color={runColor} />
       ))}
     </div>
@@ -199,7 +205,7 @@ export function MetricBlock({
     series.type === 'line' || series.type === 'scatter' || series.type === 'histogram'
 
   return (
-    <div className={fill ? 'h-full flex flex-col min-h-0' : undefined}>
+    <div data-export-atom="chart" className={fill ? 'h-full flex flex-col min-h-0' : undefined}>
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-foreground">{name}</span>
         <span className="text-[10px] text-muted-foreground">{series.type}</span>
@@ -502,7 +508,7 @@ function ComparisonMetricBlock({
   const { active: activeLabels, toggle: toggleLabel } = useTagChips(allLabels)
 
   return (
-    <div>
+    <div data-export-atom="chart">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-foreground">{name}</span>
         <span className="text-[10px] text-muted-foreground">{type}</span>

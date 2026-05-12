@@ -130,6 +130,7 @@ function ComparisonLogCell({ runId, loggableId, search, levelFilter, fillParent 
       {nodeLogs.map((log, i) => (
         <div
           key={i}
+          data-export-atom="log-line"
           className={cn(
             'text-xs font-mono py-0.5 px-1 rounded',
             log.level === 'error' && 'bg-red-500/10 text-red-400',
@@ -169,6 +170,7 @@ interface SingleRunLogsProps {
 function SingleRunLogs({ runId, loggableId, search, setSearch, levelFilter, setLevelFilter, fillParent }: SingleRunLogsProps) {
   const logs = useStore(s => s.runs.get(runId)?.logs ?? [])
   const errors = useStore(s => s.runs.get(runId)?.errors ?? [])
+  const exportLimit = useStore(s => s.exportEntryLimit)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [autoScroll, setAutoScroll] = useState(true)
   const timelineFilter = useTimelineFilter()
@@ -188,8 +190,9 @@ function SingleRunLogs({ runId, loggableId, search, setSearch, levelFilter, setL
     if (timelineFilter) {
       filtered = filtered.filter(l => timelineFilter.matchEntry(l))
     }
+    if (exportLimit) filtered = filtered.slice(0, exportLimit)
     return filtered
-  }, [logs, loggableId, levelFilter, search, timelineFilter])
+  }, [logs, loggableId, levelFilter, search, timelineFilter, exportLimit])
 
   const allNodeLogs = useMemo(() => logs.filter(l => l.node === loggableId), [logs, loggableId])
 
@@ -309,6 +312,7 @@ function NodeLogsInner({
               <div
                 key={virtualItem.index}
                 data-index={virtualItem.index}
+                data-export-atom="log-line"
                 ref={virtualizer.measureElement}
                 style={{
                   position: 'absolute',

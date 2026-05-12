@@ -33,7 +33,7 @@ export function ImageItem({ runId, loggableId, img, showTimestamp }: { runId: st
   const { data, loading } = useMedia(runId, img.mediaId)
 
   return (
-    <div className="space-y-1">
+    <div data-export-atom="image" className="space-y-1">
       <div className="flex items-center justify-between">
         <span className={`${showTimestamp ? 'text-xs' : 'text-[10px]'} font-medium`}>{img.name}</span>
         <span className="text-[10px] text-muted-foreground">
@@ -151,12 +151,14 @@ function ComparisonImageCell({ runId, loggableId, fillParent }: { runId: string;
 
 function SingleRunImages({ runId, loggableId, fillParent }: { runId: string; loggableId: string; fillParent?: boolean }) {
   const allImages = useStore(s => s.runs.get(runId)?.loggableImages[loggableId]) ?? []
+  const exportLimit = useStore(s => s.exportEntryLimit)
   const timelineFilter = useTimelineFilter()
 
   const images = useMemo(() => {
-    if (!timelineFilter) return allImages
-    return allImages.filter(img => timelineFilter.matchEntry(img))
-  }, [allImages, timelineFilter])
+    let out = timelineFilter ? allImages.filter(img => timelineFilter.matchEntry(img)) : allImages
+    if (exportLimit) out = out.slice(0, exportLimit)
+    return out
+  }, [allImages, timelineFilter, exportLimit])
 
   if (images.length === 0) {
     return <p className="text-xs text-muted-foreground">No images for this node</p>

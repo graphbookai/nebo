@@ -33,7 +33,7 @@ export function AudioItem({ runId, entry, showTimestamp }: { runId: string; entr
   const { data, loading } = useMedia(runId, entry.mediaId)
 
   return (
-    <div className="space-y-1">
+    <div data-export-atom="audio" className="space-y-1">
       <div className="flex items-center justify-between">
         <span className={`${showTimestamp ? 'text-xs' : 'text-[10px]'} font-medium`}>{entry.name}</span>
         <span className="text-[10px] text-muted-foreground">
@@ -84,12 +84,14 @@ function ComparisonAudioCell({ runId, loggableId, fillParent }: { runId: string;
 
 function SingleRunAudio({ runId, loggableId, fillParent }: { runId: string; loggableId: string; fillParent?: boolean }) {
   const allAudioEntries = useStore(s => s.runs.get(runId)?.loggableAudio[loggableId]) ?? []
+  const exportLimit = useStore(s => s.exportEntryLimit)
   const timelineFilter = useTimelineFilter()
 
   const audioEntries = useMemo(() => {
-    if (!timelineFilter) return allAudioEntries
-    return allAudioEntries.filter(entry => timelineFilter.matchEntry(entry))
-  }, [allAudioEntries, timelineFilter])
+    let out = timelineFilter ? allAudioEntries.filter(e => timelineFilter.matchEntry(e)) : allAudioEntries
+    if (exportLimit) out = out.slice(0, exportLimit)
+    return out
+  }, [allAudioEntries, timelineFilter, exportLimit])
 
   if (audioEntries.length === 0) {
     return <p className="text-xs text-muted-foreground">No audio for this node</p>

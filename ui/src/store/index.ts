@@ -211,6 +211,21 @@ interface NeboStore {
   collapsedNodes: Map<string, Map<string, boolean>>
   toggleNodeCollapsed: (runId: string, nodeId: string) => void
 
+  // User-selected tab per (run, loggable). Absence falls back to
+  // ui_hints.default_tab (logs default) the way LoggableTabContainer
+  // resolves it. Lifted into the store so the export feature can
+  // honor the user's currently-clicked tab in the diagram render.
+  selectedTabs: Map<string, Map<string, NodeTab>>
+  setSelectedTab: (runId: string, loggableId: string, tab: NodeTab) => void
+
+  // Soft cap applied while an export is rendering its offscreen tree —
+  // tab panels (logs / images / audio / metrics) read this and slice
+  // their item lists down to N. `null` disables the cap. The export
+  // orchestrator sets this before mounting and resets it in finally,
+  // so the live UI is only affected during the brief export window.
+  exportEntryLimit: number | null
+  setExportEntryLimit: (limit: number | null) => void
+
   // View mode (desktop preference; mobile defaults to 'grid' at render time)
   viewMode: 'graph' | 'grid'
   setViewMode: (mode: 'graph' | 'grid') => void
@@ -369,6 +384,18 @@ export const useStore = create<NeboStore>((set, get) => ({
     outer.set(runId, inner)
     return { nodeSizes: outer }
   }),
+
+  selectedTabs: new Map(),
+  setSelectedTab: (runId, loggableId, tab) => set(state => {
+    const outer = new Map(state.selectedTabs)
+    const inner = new Map(outer.get(runId) ?? [])
+    inner.set(loggableId, tab)
+    outer.set(runId, inner)
+    return { selectedTabs: outer }
+  }),
+
+  exportEntryLimit: null,
+  setExportEntryLimit: (limit) => set({ exportEntryLimit: limit }),
 
   collapsedNodes: new Map(),
   toggleNodeCollapsed: (runId, nodeId) => set(state => {

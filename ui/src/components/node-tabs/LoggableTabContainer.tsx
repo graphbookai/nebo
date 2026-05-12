@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 import { useStore, type NodeTab } from '@/store'
 import { cn } from '@/lib/utils'
 import { Pin } from 'lucide-react'
@@ -30,6 +30,8 @@ export function LoggableTabContainer({ runId, loggableId, fillParent = false }: 
   const pinTab = useStore(s => s.pinTab)
   const run = useStore(s => s.runs.get(runId))
   const runs = useStore(s => s.runs)
+  const userTab = useStore(s => s.selectedTabs.get(runId)?.get(loggableId))
+  const setSelectedTab = useStore(s => s.setSelectedTab)
   const { isComparison, runIds: comparisonRunIds } = useComparisonContext()
 
   // Nodes can declare `ui={"default_tab": "metrics"}` on @nb.fn to open a
@@ -41,12 +43,11 @@ export function LoggableTabContainer({ runId, loggableId, fillParent = false }: 
       : 'logs'
   }, [run?.graph?.nodes, loggableId])
 
-  const userChoseTab = useRef(false)
-  const [activeTab, setActiveTab] = useState<NodeTab>(defaultTab)
-
-  useEffect(() => {
-    if (!userChoseTab.current) setActiveTab(defaultTab)
-  }, [defaultTab])
+  // User-selected tab persists across graph re-renders by living in the
+  // store (`selectedTabs`). When the user has not yet clicked a tab on
+  // this loggable, fall through to `defaultTab` so the SDK-declared
+  // `default_tab` still seeds the initial view.
+  const activeTab: NodeTab = userTab ?? defaultTab
 
   // In comparison mode, aggregate data availability across all runs
   const hasLogs = useMemo(() => {
@@ -117,7 +118,7 @@ export function LoggableTabContainer({ runId, loggableId, fillParent = false }: 
     visibleTabs.find(t => t.key === defaultTab)?.key ?? visibleTabs[0].key
   const resolvedTab = isActiveVisible
     ? activeTab
-    : userChoseTab.current
+    : userTab !== undefined
       ? activeTab
       : fallbackTab
 
@@ -140,8 +141,7 @@ export function LoggableTabContainer({ runId, loggableId, fillParent = false }: 
               )}
               onClick={(e) => {
                 e.stopPropagation()
-                userChoseTab.current = true
-                setActiveTab(tab.key)
+                setSelectedTab(runId, loggableId, tab.key)
               }}
             >
               {tab.label}
