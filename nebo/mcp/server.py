@@ -78,41 +78,6 @@ MCP_TOOLS = [
     },
     # ── Action Tools ──
     {
-        "name": "nebo_run_pipeline",
-        "description": "Start a pipeline script. Returns a run_id for tracking.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "script_path": {"type": "string", "description": "Path to the Python script."},
-                "args": {"type": "array", "items": {"type": "string"}, "description": "Script arguments."},
-                "name": {"type": "string", "description": "Optional run name/ID."},
-            },
-            "required": ["script_path"],
-        },
-    },
-    {
-        "name": "nebo_stop_pipeline",
-        "description": "Stop a running pipeline by run ID.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "run_id": {"type": "string", "description": "The run ID to stop."},
-            },
-            "required": ["run_id"],
-        },
-    },
-    {
-        "name": "nebo_restart_pipeline",
-        "description": "Stop and re-run a pipeline with the same script and args.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "run_id": {"type": "string", "description": "The run ID to restart."},
-            },
-            "required": ["run_id"],
-        },
-    },
-    {
         "name": "nebo_get_run_status",
         "description": "Get the status of a run: running, completed, crashed, stopped. Includes exit code, duration, error summary.",
         "inputSchema": {
@@ -127,40 +92,6 @@ MCP_TOOLS = [
         "name": "nebo_get_run_history",
         "description": "List all runs with outcomes, timestamps, and error counts.",
         "inputSchema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "nebo_get_source_code",
-        "description": "Read the pipeline source file.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "file_path": {"type": "string", "description": "Path to the source file."},
-            },
-            "required": ["file_path"],
-        },
-    },
-    {
-        "name": "nebo_write_source_code",
-        "description": "Write or patch a pipeline source file. Provide either full content or patches.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "file_path": {"type": "string", "description": "Path to the source file."},
-                "content": {"type": "string", "description": "Full file content (replaces file)."},
-                "patches": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "old": {"type": "string"},
-                            "new": {"type": "string"},
-                        },
-                    },
-                    "description": "List of {old, new} patches to apply.",
-                },
-            },
-            "required": ["file_path"],
-        },
     },
     {
         "name": "nebo_wait_for_event",
@@ -304,13 +235,8 @@ async def handle_tool_call(name: str, arguments: dict[str, Any], server_url: str
         "nebo_get_errors": lambda a: tools.get_errors(a.get("run_id"), server_url),
         "nebo_get_description": lambda a: tools.get_description(server_url),
         # Action
-        "nebo_run_pipeline": lambda a: tools.run_pipeline(a["script_path"], a.get("args"), a.get("name"), server_url),
-        "nebo_stop_pipeline": lambda a: tools.stop_pipeline(a["run_id"], server_url),
-        "nebo_restart_pipeline": lambda a: tools.restart_pipeline(a["run_id"], server_url),
         "nebo_get_run_status": lambda a: tools.get_run_status(a["run_id"], server_url),
         "nebo_get_run_history": lambda a: tools.get_run_history(server_url),
-        "nebo_get_source_code": lambda a: tools.get_source_code(a["file_path"], server_url),
-        "nebo_write_source_code": lambda a: tools.write_source_code(a["file_path"], a.get("content"), a.get("patches"), server_url),
         "nebo_wait_for_event": lambda a: tools.wait_for_event(a.get("timeout", 300), a.get("events"), a.get("run_id"), server_url),
         "nebo_load_file": lambda a: tools.load_file(a["filepath"], server_url),
         # Write

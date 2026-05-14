@@ -18,7 +18,6 @@ import json
 import time
 import urllib.request
 import urllib.error
-from pathlib import Path
 from typing import Any, Optional
 
 from nebo import client as _client
@@ -129,76 +128,6 @@ async def get_description(server_url: str = _DEFAULT_URL) -> dict[str, Any]:
 
 # ─── Action Tools ────────────────────────────────────────────────────────────
 
-async def run_pipeline(
-    script_path: str,
-    args: Optional[list[str]] = None,
-    name: Optional[str] = None,
-    server_url: str = _DEFAULT_URL,
-) -> dict[str, Any]:
-    """Start a pipeline script via the daemon.
-
-    Args:
-        script_path: Path to the Python script.
-        args: Command-line arguments for the script.
-        name: Optional run name/ID.
-    """
-    run_id = name or f"run_{int(time.time())}"
-
-    try:
-        result = _post(
-            f"{server_url}/run",
-            {"script_path": script_path, "args": args or [], "run_id": run_id},
-        )
-        result["source"] = "daemon"
-        return result
-    except Exception as e:
-        # Fallback: start subprocess directly
-        import subprocess
-        import sys
-        import os
-
-        env = os.environ.copy()
-        env["NEBO_SERVER_PORT"] = str(server_url.split(":")[-1])
-        env["NEBO_RUN_ID"] = run_id
-        env["NEBO_MODE"] = "server"
-
-        proc = subprocess.Popen(
-            [sys.executable, script_path] + (args or []),
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        return {"run_id": run_id, "pid": proc.pid, "status": "started", "source": "fallback", "error": str(e)}
-
-
-async def stop_pipeline(run_id: str, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
-    """Stop a running pipeline by run ID."""
-    try:
-        return _post(f"{server_url}/runs/{run_id}/stop", {})
-    except Exception as e:
-        return {"error": f"Failed to stop pipeline: {e}"}
-
-
-async def restart_pipeline(run_id: str, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
-    """Stop and re-run a pipeline with the same script and args."""
-    try:
-        # Get run info first
-        run_info = _get(f"{server_url}/runs/{run_id}")
-
-        # Stop if running
-        await stop_pipeline(run_id, server_url)
-
-        # Re-run with same params
-        return await run_pipeline(
-            script_path=run_info["script_path"],
-            args=run_info.get("args", []),
-            name=f"{run_id}_restart_{int(time.time())}",
-            server_url=server_url,
-        )
-    except Exception as e:
-        return {"error": f"Failed to restart pipeline: {e}"}
-
-
 async def get_run_status(run_id: str, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
     """Get the status of a specific run."""
     try:
@@ -213,61 +142,6 @@ async def get_run_history(server_url: str = _DEFAULT_URL) -> dict[str, Any]:
         return _client.get_run_history(url=server_url)
     except Exception as e:
         return {"error": f"Could not get run history: {e}"}
-
-
-async def get_source_code(file_path: str, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
-    """Read a pipeline source file.
-
-    Args:
-        file_path: Path to the source file.
-    """
-    path = Path(file_path)
-    if not path.exists():
-        return {"error": f"File not found: {file_path}"}
-    try:
-        content = path.read_text(encoding="utf-8")
-        return {"file_path": str(path.resolve()), "content": content, "size": len(content)}
-    except Exception as e:
-        return {"error": f"Could not read file: {e}"}
-
-
-async def write_source_code(
-    file_path: str,
-    content: Optional[str] = None,
-    patches: Optional[list[dict[str, str]]] = None,
-    server_url: str = _DEFAULT_URL,
-) -> dict[str, Any]:
-    """Write or patch a pipeline source file.
-
-    Args:
-        file_path: Path to the source file.
-        content: Full file content (replaces entire file).
-        patches: List of {old: str, new: str} patches to apply.
-    """
-    path = Path(file_path)
-
-    if content is not None:
-        try:
-            path.write_text(content, encoding="utf-8")
-            return {"status": "written", "file_path": str(path.resolve()), "size": len(content)}
-        except Exception as e:
-            return {"error": f"Could not write file: {e}"}
-
-    if patches:
-        try:
-            current = path.read_text(encoding="utf-8")
-            for patch in patches:
-                old = patch.get("old", "")
-                new = patch.get("new", "")
-                if old not in current:
-                    return {"error": f"Patch target not found in file: {old[:80]}..."}
-                current = current.replace(old, new, 1)
-            path.write_text(current, encoding="utf-8")
-            return {"status": "patched", "file_path": str(path.resolve()), "patches_applied": len(patches)}
-        except Exception as e:
-            return {"error": f"Could not patch file: {e}"}
-
-    return {"error": "Either 'content' or 'patches' must be provided"}
 
 
 async def wait_for_event(
