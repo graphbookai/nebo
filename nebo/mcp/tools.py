@@ -21,6 +21,8 @@ import urllib.error
 from pathlib import Path
 from typing import Any, Optional
 
+from nebo import client as _client
+
 
 _DEFAULT_URL = "http://localhost:7861"
 
@@ -60,9 +62,7 @@ def _post(url: str, body: Any, timeout: float = 10.0) -> Any:
 async def get_graph(run_id: Optional[str] = None, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
     """Get the full DAG structure with nodes, edges, and execution status."""
     try:
-        if run_id:
-            return _get(f"{server_url}/runs/{run_id}/graph")
-        return _get(f"{server_url}/graph")
+        return _client.get_graph(run_id=run_id, url=server_url)
     except Exception as e:
         return _daemon_unreachable(server_url, e)
 
@@ -70,9 +70,7 @@ async def get_graph(run_id: Optional[str] = None, server_url: str = _DEFAULT_URL
 async def get_loggable_status(loggable_id: str, run_id: Optional[str] = None, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
     """Get detailed status for a specific loggable (node or global)."""
     try:
-        if run_id:
-            return _get(f"{server_url}/runs/{run_id}/loggables/{loggable_id}")
-        return _get(f"{server_url}/loggables/{loggable_id}")
+        return _client.get_loggable_status(loggable_id, run_id=run_id, url=server_url)
     except Exception as e:
         return _daemon_unreachable(server_url, e)
 
@@ -85,15 +83,7 @@ async def get_logs(
 ) -> dict[str, Any]:
     """Get recent logs, optionally filtered by loggable and run."""
     try:
-        params_parts = [f"limit={limit}"]
-        if loggable_id:
-            params_parts.append(f"loggable_id={urllib.request.quote(loggable_id)}")
-        qs = "&".join(params_parts)
-        if run_id:
-            url = f"{server_url}/runs/{run_id}/logs?{qs}"
-        else:
-            url = f"{server_url}/logs?{qs}"
-        return _get(url)
+        return _client.get_logs(loggable_id=loggable_id, run_id=run_id, limit=limit, url=server_url)
     except Exception as e:
         return _daemon_unreachable(server_url, e)
 
@@ -101,11 +91,13 @@ async def get_logs(
 async def get_metrics(
     loggable_id: str,
     name: Optional[str] = None,
+    tag: Optional[str] = None,
+    step: Optional[int] = None,
     server_url: str = _DEFAULT_URL,
 ) -> dict[str, Any]:
     """Get metric time series data for a loggable."""
     try:
-        result = _get(f"{server_url}/loggables/{loggable_id}")
+        result = _client.get_metrics(loggable_id, name=name, tag=tag, step=step, url=server_url)
     except Exception as e:
         return _daemon_unreachable(server_url, e)
     if "error" in result:
@@ -121,9 +113,7 @@ async def get_metrics(
 async def get_errors(run_id: Optional[str] = None, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
     """Get all exceptions/errors, with full tracebacks and node context."""
     try:
-        if run_id:
-            return _get(f"{server_url}/runs/{run_id}/errors")
-        return _get(f"{server_url}/errors")
+        return _client.get_errors(run_id=run_id, url=server_url)
     except Exception as e:
         return _daemon_unreachable(server_url, e)
 
@@ -131,7 +121,7 @@ async def get_errors(run_id: Optional[str] = None, server_url: str = _DEFAULT_UR
 async def get_description(server_url: str = _DEFAULT_URL) -> dict[str, Any]:
     """Get workflow description and all node docstrings."""
     try:
-        graph = _get(f"{server_url}/graph")
+        graph = _client.get_graph(url=server_url)
     except Exception as e:
         return _daemon_unreachable(server_url, e)
     return {
@@ -219,7 +209,7 @@ async def restart_pipeline(run_id: str, server_url: str = _DEFAULT_URL) -> dict[
 async def get_run_status(run_id: str, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
     """Get the status of a specific run."""
     try:
-        return _get(f"{server_url}/runs/{run_id}")
+        return _client.get_run_status(run_id, url=server_url)
     except Exception as e:
         return {"error": f"Run '{run_id}' not found: {e}"}
 
@@ -227,7 +217,7 @@ async def get_run_status(run_id: str, server_url: str = _DEFAULT_URL) -> dict[st
 async def get_run_history(server_url: str = _DEFAULT_URL) -> dict[str, Any]:
     """Get a list of all runs with outcomes, timestamps, and error counts."""
     try:
-        return _get(f"{server_url}/runs")
+        return _client.get_run_history(url=server_url)
     except Exception as e:
         return {"error": f"Could not get run history: {e}"}
 
