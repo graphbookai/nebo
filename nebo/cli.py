@@ -2,13 +2,15 @@
 
 Commands:
     nebo serve   — Start the persistent daemon server
-    nebo run     — Run a pipeline as a managed subprocess
     nebo status  — Show daemon status and recent runs
     nebo stop    — Stop the daemon
     nebo logs    — View logs from runs
     nebo errors  — View errors from runs
     nebo mcp     — Print MCP connection config for Claude Code
     nebo skill   — List or install nebo-shipped agent skills
+
+Pipelines are launched directly from the shell (e.g. `uv run python
+my_script.py`) — the SDK auto-detects a running daemon and connects.
 """
 
 from __future__ import annotations
@@ -143,68 +145,6 @@ def cmd_serve(args: argparse.Namespace) -> None:
         finally:
             _remove_pid()
             print("\nNebo daemon stopped.")
-
-
-def cmd_run(args: argparse.Namespace) -> None:
-    """Run a pipeline managed by the daemon."""
-    port = args.port
-    script = args.script
-    script_args = args.script_args or []
-
-    if not Path(script).exists():
-        print(f"Error: Script not found: {script}")
-        sys.exit(1)
-
-    # Ensure daemon is running
-    if not _is_alive(port):
-        print(f"Daemon not running on port {port}. Starting in background...")
-        ns = argparse.Namespace(port=port, host="localhost", daemon=True)
-        cmd_serve(ns)
-        time.sleep(1)
-
-    import httpx
-
-    # Register run with daemon
-    run_id = args.name or f"run_{int(time.time())}"
-
-    # Set environment so SDK auto-connects
-    env = os.environ.copy()
-    env["NEBO_SERVER_PORT"] = str(port)
-    env["NEBO_RUN_ID"] = run_id
-    env["NEBO_MODE"] = "server"
-    env["NEBO_FLUSH_INTERVAL"] = str(args.flush_interval)
-
-    cmd = [sys.executable, script] + script_args
-
-    print(f"Starting pipeline: {script} (run_id: {run_id})")
-    proc = subprocess.Popen(cmd, env=env)
-
-    try:
-        exit_code = proc.wait()
-    except KeyboardInterrupt:
-        proc.terminate()
-        try:
-            exit_code = proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            exit_code = -1
-
-    if exit_code == 0:
-        print(f"\nPipeline completed successfully (run_id: {run_id})")
-    else:
-        print(f"\nPipeline exited with code {exit_code} (run_id: {run_id})")
-
-    # Notify daemon
-    try:
-        httpx.post(
-            f"http://localhost:{port}/events",
-            json=[{"type": "run_completed", "data": {"run_id": run_id, "exit_code": exit_code}}],
-            timeout=2.0,
-        )
-    except Exception:
-        pass
-
-    sys.exit(exit_code)
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -724,14 +664,6 @@ def main() -> None:
     p_serve.add_argument("--read", choices=["public", "private"], help="Read access mode (default: public). Only matters when --api-token is set.")
     p_serve.add_argument("--write", choices=["public", "private"], help="Write access mode (default: private). Only matters when --api-token is set.")
 
-    # run
-    p_run = subparsers.add_parser("run", help="Run a pipeline managed by the daemon")
-    p_run.add_argument("script", help="Path to the Python script")
-    p_run.add_argument("--name", help="Run name/ID")
-    p_run.add_argument("--port", type=int, default=7861)
-    p_run.add_argument("--flush-interval", type=float, default=0.1, help="Seconds between event flushes (default: 0.1)")
-    p_run.add_argument("script_args", nargs="*", help="Arguments for the script")
-
     # status
     p_status = subparsers.add_parser(
         "status", parents=[_common_conn_parser()], help="Show daemon status",
@@ -883,7 +815,6 @@ def main() -> None:
 
     commands = {
         "serve": cmd_serve,
-        "run": cmd_run,
         "status": cmd_status,
         "stop": cmd_stop,
         "logs": cmd_logs,

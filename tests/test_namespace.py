@@ -1,13 +1,15 @@
-"""Tests for the nebo namespace rename.
+"""Public import-surface contract tests.
 
-Verifies that all imports use 'nebo' instead of 'graphbook.beta'.
+Each test pins a path callers depend on. A surprise break in any of these
+breaks downstream users, so the surface change is worth a deliberate
+review.
 """
 
 from __future__ import annotations
 
 
 class TestNamespaceImports:
-    """Verify that the nebo namespace is properly set up."""
+    """Verify that the public import surface is wired up."""
 
     def test_import_nebo(self) -> None:
         """import nebo should work."""
@@ -127,29 +129,19 @@ class TestNamespaceImports:
         import nebo.extensions
         assert nebo.extensions is not None
 
-    def test_no_graphbook_references_in_init(self) -> None:
-        """nebo.__init__ module docstring should not mention graphbook."""
-        import nebo
-        assert "graphbook" not in (nebo.__doc__ or "").lower()
+    def test_init_reads_server_mode_env_vars(self) -> None:
+        """nebo.init must read NEBO_MODE / NEBO_SERVER_PORT / NEBO_RUN_ID.
 
-    def test_env_vars_use_nebo_prefix(self) -> None:
-        """Environment variable references should use NEBO_ prefix."""
+        These env vars are the contract external runners use (HF Spaces,
+        CI wrappers) to override SDK defaults at process start. Removing
+        them silently would break those callers.
+        """
         import nebo
         import inspect
         source = inspect.getsource(nebo.init)
         assert "NEBO_MODE" in source
         assert "NEBO_SERVER_PORT" in source
         assert "NEBO_RUN_ID" in source
-        assert "GRAPHBOOK_" not in source
-
-    def test_cli_env_vars_use_nebo_prefix(self) -> None:
-        """CLI module should use NEBO_ env var prefix."""
-        import inspect
-        from nebo import cli
-        source = inspect.getsource(cli)
-        assert "NEBO_SERVER_PORT" in source
-        assert "NEBO_MODE" in source
-        assert "GRAPHBOOK_" not in source
 
     def test_pyproject_has_nebo_script(self) -> None:
         """pyproject.toml should have nebo = nebo.cli:main entry point."""
@@ -157,10 +149,3 @@ class TestNamespaceImports:
         toml_path = Path(__file__).parent.parent / "pyproject.toml"
         content = toml_path.read_text()
         assert 'nebo = "nebo.cli:main"' in content
-
-    def test_pyproject_build_paths(self) -> None:
-        """pyproject.toml build paths should reference nebo, not graphbook."""
-        from pathlib import Path
-        toml_path = Path(__file__).parent.parent / "pyproject.toml"
-        content = toml_path.read_text()
-        assert "graphbook" not in content

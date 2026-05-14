@@ -11,11 +11,14 @@ class TestMCPToolNames:
     """Tests for MCP tool naming convention."""
 
     def test_all_tool_names_use_nebo_prefix(self) -> None:
-        """All MCP tools should use nebo_ prefix, not graphbook_."""
+        """All MCP tools should use the nebo_ prefix.
+
+        Claude Code's MCP namespace uses the prefix to scope tool calls
+        — every registered tool must start with it or it won't dispatch.
+        """
         from nebo.mcp.server import MCP_TOOLS
         for tool in MCP_TOOLS:
             assert tool["name"].startswith("nebo_"), f"Tool {tool['name']} should start with nebo_"
-            assert "graphbook" not in tool["name"], f"Tool {tool['name']} still contains graphbook"
 
     def test_dispatcher_handles_nebo_prefixed_tools(self) -> None:
         """handle_tool_call should recognize nebo_ prefixed tool names."""

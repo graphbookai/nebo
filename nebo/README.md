@@ -225,10 +225,16 @@ nebo serve --no-store       # disable .nebo file storage
 
 ### Run a pipeline
 
+Launch pipelines from your shell — the SDK auto-detects a running daemon
+and connects. The SDK prints `Nebo daemon fully connected. Your run id
+is: <id>.` to stdout on connect.
+
 ```bash
-nebo run my_pipeline.py
-nebo run my_pipeline.py --name "experiment-1"
+uv run python my_pipeline.py
 ```
+
+Use that run id with the read/write CLI subcommands. Stop a running
+pipeline from the shell (Ctrl+C, `kill`, `pkill`).
 
 ### Load a .nebo file
 
@@ -262,29 +268,33 @@ nebo mcp   # print Claude Code MCP config
 
 Nebo exposes 15 MCP tools for querying and controlling pipelines from an AI agent (e.g., Claude). The daemon server must be running.
 
+Each tool below is available both as a CLI subcommand (no setup) and as an
+MCP tool (for clients that prefer it). Pipeline lifecycle is deliberately
+not exposed — the user launches scripts from their own shell.
+
 ### Observation Tools
 
-| Tool | Description |
-|------|-------------|
-| `nebo_get_graph` | Full DAG structure: nodes, edges, execution counts |
-| `nebo_get_loggable_status` | Detailed status for one loggable (node or global): logs, metrics, errors, params |
-| `nebo_get_logs` | Recent log entries, filterable by loggable_id and run |
-| `nebo_get_metrics` | Metric time series for a loggable |
-| `nebo_get_errors` | All errors with full tracebacks and node context |
-| `nebo_get_description` | Workflow description and all node docstrings |
+| CLI | MCP | Description |
+|------|------|-------------|
+| `nebo runs list` | `nebo_get_run_history` | All runs with outcomes and timestamps |
+| `nebo runs show <id>` | `nebo_get_run_status` | One run's summary + `metrics_index` |
+| `nebo graph show` | `nebo_get_graph` | Full DAG: nodes, edges, execution counts |
+| `nebo loggables show <id>` | `nebo_get_loggable_status` | One loggable: logs, metrics, errors, params |
+| `nebo logs` | `nebo_get_logs` | Log entries, filterable by loggable and run |
+| `nebo metrics get <loggable>` | `nebo_get_metrics` | Metric series with `--tag` / `--step` filters |
+| `nebo errors` | `nebo_get_errors` | All errors with full tracebacks |
+| `nebo describe` | `nebo_get_description` | Workflow description + node docstrings |
 
-### Action Tools
+### Utility & Write Tools
 
-| Tool | Description |
-|------|-------------|
-| `nebo_run_pipeline` | Start a pipeline script, returns a run ID |
-| `nebo_stop_pipeline` | Stop a running pipeline by run ID |
-| `nebo_restart_pipeline` | Stop and re-run a pipeline with same args |
-| `nebo_get_run_status` | Status of a specific run (running/completed/crashed) |
-| `nebo_get_run_history` | List all runs with outcomes and timestamps |
-| `nebo_get_source_code` | Read a pipeline source file |
-| `nebo_write_source_code` | Write or patch a pipeline source file |
-| `nebo_wait_for_event` | Block until a pipeline event occurs or timeout elapses |
+| CLI | MCP | Description |
+|------|------|-------------|
+| `nebo load <file>` | `nebo_load_file` | Load a `.nebo` file into the daemon |
+| `nebo runs wait <id>` | `nebo_wait_for_alert` | Block until `nb.alert(...)` fires |
+| `nebo metrics log --entries-json '[...]'` | `nebo_log_metric` | Push derived metrics (defaults to `__agent__`) |
+| `nebo text log --entries-json '[...]'` | `nebo_log_text` | Push text log entries |
+| `nebo images log --entries-json '[...]'` | `nebo_log_image` | Push images by `path` / `url` / `data` |
+| `nebo audio log --entries-json '[...]'` | `nebo_log_audio` | Push audio recordings |
 
 ## .nebo File Format
 

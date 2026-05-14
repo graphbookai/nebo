@@ -19,7 +19,7 @@ uv run pytest tests/test_decorators.py -v         # single file
 uv run pytest tests/test_decorators.py::test_bare_decorator -v   # single test
 uv run nebo --help              # CLI entry point (defined in nebo/cli.py: main)
 uv run nebo serve               # start daemon (port 7861)
-uv run nebo run examples/basic_pipeline.py
+uv run python examples/basic_pipeline.py   # run a pipeline (SDK auto-connects to the daemon)
 ```
 
 ### Web UI (`ui/`)
@@ -43,7 +43,7 @@ Two execution modes coexist and share the same SDK surface:
 - **Local mode** (default): in-process. The SDK renders a Rich terminal dashboard directly; no daemon involved.
 - **Server mode**: the SDK sends events over HTTP to a long-lived FastAPI daemon (`nebo serve`, port 7861). The daemon persists runs as `.nebo` files (MessagePack, append-only) and fans events out to the web UI (WebSocket at `/stream`) and MCP tools.
 
-Mode is resolved in `nebo/__init__.py::init()`. `mode="auto"` probes the daemon; env vars set by `nebo run` (`NEBO_MODE`, `NEBO_SERVER_PORT`, `NEBO_RUN_ID`, `NEBO_FLUSH_INTERVAL`) override user args. `_ensure_init()` lazily auto-initializes on first `nb.*` call, so pipelines never need an explicit `nb.init()`.
+Mode is resolved in `nebo/__init__.py::init()`. `mode="auto"` probes the daemon for liveness and connects in server mode if it answers. Env vars `NEBO_MODE`, `NEBO_SERVER_PORT`, `NEBO_RUN_ID`, `NEBO_FLUSH_INTERVAL` override user args — these are typically set by external runners (HF Spaces, CI, custom wrappers), since pipelines are otherwise launched directly from the shell. `_ensure_init()` lazily auto-initializes on first `nb.*` call, so pipelines never need an explicit `nb.init()`.
 
 Two process-wide escape hatches let headless contexts (CI, embedders, tests) suppress side-effects without threading kwargs through every entry point:
 - `NEBO_NO_STORE=1` — daemon's auto-create and `run_start` paths skip the on-disk `.nebo` writer.
@@ -117,10 +117,13 @@ Smoothed values are rendered, not persisted: raw entries in the store remain unt
 - `nebo/core/` — decorators, DAG builder, session state, `DaemonClient`, config, tracker, `.nebo` file format.
 - `nebo/logging/` — user-facing `log`/`log_line`/`log_bar`/`log_pie`/`log_scatter`/`log_histogram`/`log_image`/`log_audio`/`md`, plus the serializer/queue that batches events to the daemon.
 - `nebo/labels.py` — public dataclasses (`Points`, `Boxes`, `Circles`, `Polygons`, `Bitmasks`) for `nb.log_image` overlays. Re-exported as `nb.labels`.
-- `nebo/server/` — `daemon.py` (FastAPI app, created via `create_daemon_app` factory), `runner.py` (manages subprocess pipelines kicked off by `nebo run` or MCP), `protocol.py` (`MessageType` enum + `decode_batch`).
-- `nebo/mcp/` — MCP tools (`tools.py`) and stdio/server entry points. Split into observation (graph, logs, metrics, errors, description) and action (run / stop / restart / wait / read+write source / load).
+- `nebo/server/` — `daemon.py` (FastAPI app, created via `create_daemon_app` factory), `runner.py` (vestigial subprocess manager; the agent surface no longer launches pipelines, but the daemon's `POST /run` route still uses it), `protocol.py` (`MessageType` enum + `decode_batch`).
+- `nebo/mcp/` — MCP tools (`tools.py`) and stdio/server entry points. Split into observation (graph, logs, metrics, errors, description, run status/history), utility (`wait_for_alert`, `load_file`), and write (`log_metric/text/image/audio`). Run lifecycle is NOT exposed — pipelines start/stop via the user's shell.
+- `nebo/client.py` — single HTTP client shared by `nebo/mcp/tools.py` and `nebo/cli.py`. Owns all daemon-bound `urllib` traffic; resolves `--url`/`--port`/`--api-token` from kwargs → `NEBO_URL`/`NEBO_PORT`/`NEBO_API_TOKEN` → defaults.
 - `nebo/terminal/` — Rich dashboard used in local mode.
-- `nebo/cli.py` — `nebo serve|run|status|stop|logs|errors|load|mcp` subcommands. PID file at `~/.nebo/server.pid`.
+- `nebo/cli.py` — subcommands split into two groups:
+  - **Server/admin:** `serve`, `status`, `stop`, `mcp`, `mcp-stdio`, `skill`, `deploy`. PID file at `~/.nebo/server.pid`.
+  - **Agent-callable Q&A:** `runs list|show|wait`, `graph show`, `loggables show`, `describe`, `logs`, `errors`, `metrics list|get|log`, `text|images|audio log`, `load`. Each takes `--url`/`--port`/`--api-token`/`--json` via the shared `_common_conn_parser()` and routes through `nebo/client.py`.
 - `nebo/extras/cv/` — optional computer-vision helpers. `nebo/extensions/` — extension hook point.
 
 ### Web UI (`ui/`)
