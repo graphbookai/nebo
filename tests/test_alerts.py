@@ -89,3 +89,24 @@ class TestAlerts:
         state = get_state()
         assert state.webhook_url == "https://example.com/hook"
         assert state.webhook_min_level == int(AlertLevel.ERROR)
+
+
+from unittest.mock import MagicMock
+
+
+def test_alert_emits_wire_event_when_client_connected():
+    SessionState.reset_singleton()
+    state = SessionState()
+    fake_client = MagicMock()
+    state._client = fake_client
+    alert("oops", "details", level=AlertLevel.WARN)
+
+    sent = [call.args[0] for call in fake_client.send_event.call_args_list]
+    alert_events = [e for e in sent if e.get("type") == "alert"]
+    assert alert_events, "no alert event emitted"
+    payload = alert_events[0]["data"]
+    assert payload["title"] == "oops"
+    assert payload["text"] == "details"
+    assert payload["level"] == int(AlertLevel.WARN)
+    assert payload["level_name"] == "WARN"
+    SessionState.reset_singleton()

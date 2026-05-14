@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import urllib.error
 import urllib.request
 from enum import IntEnum
@@ -45,6 +46,25 @@ def alert(title: str, text: str = "", level: AlertLevel = AlertLevel.INFO) -> No
         level: ``AlertLevel.DEBUG/INFO/WARN/ERROR``.
     """
     state = get_state()
+    level_name = AlertLevel(int(level)).name if int(level) in AlertLevel._value2member_map_ else str(level)
+
+    # Emit a wire event so the daemon can record it and wake waiters.
+    try:
+        state._send_to_client({
+            "type": "alert",
+            "loggable_id": None,
+            "data": {
+                "title": title,
+                "text": text,
+                "level": int(level),
+                "level_name": level_name,
+                "timestamp": time.time(),
+            },
+        })
+    except Exception:
+        # Wire-event failure must not break the webhook path or the caller.
+        pass
+
     url: Optional[str] = getattr(state, "webhook_url", None)
     if not url:
         return
@@ -52,7 +72,6 @@ def alert(title: str, text: str = "", level: AlertLevel = AlertLevel.INFO) -> No
     if int(level) < int(min_level):
         return
 
-    level_name = AlertLevel(int(level)).name if int(level) in AlertLevel._value2member_map_ else str(level)
     body = title if not text else f"{title}\n{text}"
     payload = {"text": f"[{level_name}] {body}"}
 
