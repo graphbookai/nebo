@@ -45,6 +45,8 @@ export const ScatterMetric = memo(function ScatterMetric({
   const timelineStep = useStore(s => s.timeline.step)
   const setTimelineMode = useStore(s => s.setTimelineMode)
   const setTimelineStep = useStore(s => s.setTimelineStep)
+  const pointOpacity = useStore(s => s.settings.scatterPointOpacity)
+  const pointSizeScale = useStore(s => s.settings.scatterPointSize)
 
   const isFiltering = timelineMode === 'step' && timelineStep != null
 
@@ -88,7 +90,12 @@ export const ScatterMetric = memo(function ScatterMetric({
       const labelColor = colorsByLabel
         ? RUN_COLOR_PALETTE[allLabels.indexOf(label) % RUN_COLOR_PALETTE.length]
         : color
+      const activeColor = withAlpha(labelColor, pointOpacity)
       const dimmed = withAlpha(labelColor, 0.25)
+      // Scale every radius by the user's `scatterPointSize` so the
+      // slider controls density without losing the active/inactive
+      // hierarchy. Clamp to >= 1 so points never become invisible.
+      const scale = (n: number) => Math.max(1, n * pointSizeScale)
 
       // Per-point styling so the active-step points pop without splitting
       // into a second dataset (which would double label entries / break
@@ -100,11 +107,11 @@ export const ScatterMetric = memo(function ScatterMetric({
         const isActive = isFiltering && p.step === timelineStep
         if (isFiltering && !isActive) {
           bg.push(dimmed)
-          radius.push(3)
+          radius.push(scale(3))
           borderW.push(0)
         } else {
-          bg.push(labelColor)
-          radius.push(isActive ? 7 : 4)
+          bg.push(activeColor)
+          radius.push(scale(isActive ? 7 : 4))
           borderW.push(isActive ? 1.5 : 0.5)
         }
       }
@@ -120,7 +127,7 @@ export const ScatterMetric = memo(function ScatterMetric({
       })
     }
     return out
-  }, [pointsByLabel, color, colorsByLabel, allLabels, tokens.tooltipFg, isFiltering, timelineStep])
+  }, [pointsByLabel, color, colorsByLabel, allLabels, tokens.tooltipFg, isFiltering, timelineStep, pointOpacity, pointSizeScale])
 
   const handleClick = useCallback(
     (_evt: ChartEvent, elements: ActiveElement[], chart: Chart) => {

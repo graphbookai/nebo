@@ -5,6 +5,7 @@ import { useChartTokens } from '@/components/charts/useChartTokens'
 import { DEFAULT_RUN_COLOR } from '@/lib/colors'
 import type { SeriesFor } from '@/components/charts/seriesFor'
 import { useStore } from '@/store'
+import { withAlpha } from '@/components/charts/withAlpha'
 
 // Each dataset carries a precomputed `_stepIndex: Map<x, y>` so the
 // plugin doesn't have to scan the data array on every redraw. This
@@ -74,6 +75,10 @@ export const ComparisonLine = memo(function ComparisonLine({
   const tokens = useChartTokens()
   const timelineMode = useStore(s => s.timeline.mode)
   const timelineStep = useStore(s => s.timeline.step)
+  // Fixed line opacity in comparison views — dialed down a hair from
+  // fully opaque so overlapping runs read as distinct strokes instead
+  // of stacking into a single thick band.
+  const LINE_OPACITY = 1.0
   const isFiltering = timelineMode === 'step' && timelineStep != null
 
   const datasets = useMemo(() => {
@@ -94,10 +99,12 @@ export const ComparisonLine = memo(function ComparisonLine({
         return {
           label: rid,
           data,
-          borderColor: runColors.get(rid) ?? DEFAULT_RUN_COLOR,
+          borderColor: withAlpha(runColors.get(rid) ?? DEFAULT_RUN_COLOR, LINE_OPACITY),
           borderWidth: 1.5,
           pointRadius: 0,
-          tension: 0.3,
+          // tension=0 gives hard corners between datapoints; the
+          // smoothing setting still softens the data via an EMA.
+          tension: 0,
           spanGaps: true,
           // Read by activeStepLinePlugin to avoid an O(N) scan per redraw.
           _stepIndex: stepIndex,

@@ -215,7 +215,9 @@ export const LineMetric = memo(function LineMetric({
       borderWidth: 1.5,
       pointRadius: 0,
       pointHitRadius: 12,
-      tension: 0.3,
+      // tension=0 gives hard corners between datapoints; the smoothing
+      // setting still softens the data via an EMA over the values.
+      tension: 0,
       ...(segmentBorderColor
         ? { segment: { borderColor: segmentBorderColor } }
         : {}),

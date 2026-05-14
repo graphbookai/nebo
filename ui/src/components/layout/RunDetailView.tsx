@@ -98,7 +98,7 @@ export function RunDetailView() {
           {isComparison && comparisonRunIds.length > 0 && (() => {
             const names = comparisonRunIds.map(rid => {
               const r = runs.get(rid)
-              return runNames.get(rid) || r?.summary.script_path.split('/').pop() || rid
+              return runNames.get(rid) || r?.summary.run_name || r?.summary.script_path.split('/').pop() || rid
             })
             const fullText = `Showing graph of ${names[0]}, and comparing it with ${names.slice(1).join(', ')}`
             return (

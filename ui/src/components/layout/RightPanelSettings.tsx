@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { ImageIcon, LineChart as LineIcon, BarChart3 } from 'lucide-react'
+import { ImageIcon, LineChart as LineIcon, BarChart3, ScatterChart } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { useStore, type Settings as SettingsType } from '@/store'
 import { useComparisonContext } from '@/hooks/useComparisonContext'
@@ -87,11 +87,38 @@ export function RightPanelSettings() {
           label="Smoothing"
           value={settings.lineSmoothing}
           min={0}
-          max={1}
-          step={0.05}
+          max={0.99}
+          step={0.01}
           format={(v) => v.toFixed(2)}
           onChange={(v) => updateSetting<keyof SettingsType>('lineSmoothing', v)}
         />
+      </section>
+
+      <section>
+        <div className="flex items-center gap-2 mb-3">
+          <ScatterChart className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-medium">Scatter charts</h3>
+        </div>
+        <div className="space-y-3">
+          <ChartSlider
+            label="Point opacity"
+            value={settings.scatterPointOpacity}
+            min={0.1}
+            max={1}
+            step={0.05}
+            format={(v) => `${Math.round(v * 100)}%`}
+            onChange={(v) => updateSetting<keyof SettingsType>('scatterPointOpacity', v)}
+          />
+          <ChartSlider
+            label="Point size"
+            value={settings.scatterPointSize}
+            min={0.25}
+            max={1}
+            step={0.05}
+            format={(v) => `${Math.round(v * 100)}%`}
+            onChange={(v) => updateSetting<keyof SettingsType>('scatterPointSize', v)}
+          />
+        </div>
       </section>
 
       <section>
@@ -104,8 +131,8 @@ export function RightPanelSettings() {
             label="Smoothing"
             value={settings.histogramSmoothing}
             min={0}
-            max={1}
-            step={0.05}
+            max={0.99}
+            step={0.01}
             format={(v) => v.toFixed(2)}
             onChange={(v) => updateSetting<keyof SettingsType>('histogramSmoothing', v)}
           />

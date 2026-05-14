@@ -403,8 +403,16 @@ function ComparisonMetrics({
     })
   }, [comparisonRunIds])
 
+  // Prefer the user's client-side custom name → the SDK-emitted
+  // `run_name` (from `nb.init(name=...)`) → the script filename as a
+  // last resort. The chips in comparison views used to skip the
+  // `run_name` step and always fell back to the script's filename,
+  // which made user-supplied run names invisible.
   const runNameFor = (rid: string) =>
-    runNames.get(rid) || runs.get(rid)?.summary.script_path.split('/').pop() || rid
+    runNames.get(rid) ||
+    runs.get(rid)?.summary.run_name ||
+    runs.get(rid)?.summary.script_path.split('/').pop() ||
+    rid
 
   // Collect every metric name across runs, keyed by its type (use the first
   // type we see — type is locked on the SDK side anyway).
@@ -605,8 +613,16 @@ function ComparisonChart({
   const runColors = useStore(s => s.runColors)
   const runNames = useStore(s => s.runNames)
 
+  // Prefer the user's client-side custom name → the SDK-emitted
+  // `run_name` (from `nb.init(name=...)`) → the script filename as a
+  // last resort. The chips in comparison views used to skip the
+  // `run_name` step and always fell back to the script's filename,
+  // which made user-supplied run names invisible.
   const runNameFor = (rid: string) =>
-    runNames.get(rid) || runs.get(rid)?.summary.script_path.split('/').pop() || rid
+    runNames.get(rid) ||
+    runs.get(rid)?.summary.run_name ||
+    runs.get(rid)?.summary.script_path.split('/').pop() ||
+    rid
   const seriesFor = useCallback(
     (rid: string) => {
       const s = runs.get(rid)?.loggableMetrics[loggableId]?.[name]

@@ -121,7 +121,10 @@ export const HistogramMetric = memo(function HistogramMetric({
         backgroundColor: withAlpha(labelColor, 0.22),
         borderWidth: 1.5,
         pointRadius: 0,
-        tension: 0.3,
+        // tension=0 keeps the bin-to-bin outline as a polyline instead
+        // of a bezier curve; the smoothing setting still softens the
+        // bin counts upstream via an EMA.
+        tension: 0,
         fill: 'origin' as const,
       }
     })

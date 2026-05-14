@@ -24,6 +24,8 @@ export const ComparisonScatter = memo(function ComparisonScatter({
   const tokens = useChartTokens()
   const timelineMode = useStore(s => s.timeline.mode)
   const timelineStep = useStore(s => s.timeline.step)
+  const pointOpacity = useStore(s => s.settings.scatterPointOpacity)
+  const pointSizeScale = useStore(s => s.settings.scatterPointSize)
   const isFiltering = timelineMode === 'step' && timelineStep != null
 
   // Build the union of labels across runs by walking *every* entry
@@ -56,10 +58,12 @@ export const ComparisonScatter = memo(function ComparisonScatter({
       runId: string
       pointLabel: string
     }[] = []
+    const scale = (n: number) => Math.max(1, n * pointSizeScale)
     for (const rid of runIds) {
       const s = seriesFor(rid)
       if (!s || s.entries.length === 0) continue
       const runColor = runColors.get(rid) ?? DEFAULT_RUN_COLOR
+      const activeColor = withAlpha(runColor, pointOpacity)
       const dimmed = withAlpha(runColor, 0.25)
       // Accumulate points per (run, label) across every emission so the
       // chart shows the union of all logged points, not just the last
@@ -91,11 +95,11 @@ export const ComparisonScatter = memo(function ComparisonScatter({
           const isActive = isFiltering && p.step === timelineStep
           if (isFiltering && !isActive) {
             bg.push(dimmed)
-            radius.push(3)
+            radius.push(scale(3))
             borderW.push(0)
           } else {
-            bg.push(runColor)
-            radius.push(isActive ? 7 : 4)
+            bg.push(activeColor)
+            radius.push(scale(isActive ? 7 : 4))
             borderW.push(isActive ? 1.5 : 0.5)
           }
         }
@@ -113,7 +117,7 @@ export const ComparisonScatter = memo(function ComparisonScatter({
       }
     }
     return out
-  }, [runIds, runColors, seriesFor, allLabels, tokens.tooltipFg, isFiltering, timelineStep])
+  }, [runIds, runColors, seriesFor, allLabels, tokens.tooltipFg, isFiltering, timelineStep, pointOpacity, pointSizeScale])
 
   const config: ChartConfiguration<'scatter'> = useMemo(
     () => ({

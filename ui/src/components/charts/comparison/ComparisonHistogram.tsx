@@ -79,7 +79,9 @@ export const ComparisonHistogram = memo(function ComparisonHistogram({
         backgroundColor: withAlpha(color, 0.22),
         borderWidth: 1.5,
         pointRadius: 0,
-        tension: 0.3,
+        // tension=0 keeps the bin-to-bin outline as a polyline; the
+        // smoothing setting still softens the bin counts upstream.
+        tension: 0,
         fill: 'origin' as const,
         runId: rid,
         pointLabel: label,
