@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from fastapi import WebSocket, WebSocketDisconnect
+from fastapi import Request, WebSocket, WebSocketDisconnect
 from nebo.server.protocol import MessageType, decode_batch
 
 
@@ -835,19 +835,47 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         return {"data": state._media_store[media_id]}
 
     @app.get("/runs/{run_id}/loggables/{loggable_id}")
-    async def get_run_loggable(run_id: str, loggable_id: str):
+    async def get_run_loggable(request: Request, run_id: str, loggable_id: str):
         if run_id not in state.runs:
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
         run = state.runs[run_id]
         if loggable_id not in run.loggables:
             return JSONResponse(status_code=404, content={"error": f"Loggable '{loggable_id}' not found"})
         lg = run.loggables[loggable_id]
+
+        # Apply optional query-string filters to metrics.
+        # ?name=X   — return only the named series (others are omitted entirely)
+        # ?tag=X    — keep only entries whose tags list contains X (line/scatter)
+        # ?step=N   — keep only entries whose step equals N (exact match)
+        name_filter = request.query_params.get("name")
+        tag_filter = request.query_params.get("tag")
+        step_param = request.query_params.get("step")
+        step_filter = int(step_param) if step_param is not None else None
+
+        metrics = dict(lg.metrics)
+        if name_filter is not None:
+            metrics = {k: v for k, v in metrics.items() if k == name_filter}
+        if tag_filter is not None or step_filter is not None:
+            filtered_metrics: dict[str, Any] = {}
+            for mname, series in metrics.items():
+                filtered_entries = []
+                for entry in series.get("entries", []):
+                    if tag_filter is not None and tag_filter not in (entry.get("tags") or []):
+                        continue
+                    if step_filter is not None and entry.get("step") != step_filter:
+                        continue
+                    filtered_entries.append(entry)
+                series_out = dict(series)
+                series_out["entries"] = filtered_entries
+                filtered_metrics[mname] = series_out
+            metrics = filtered_metrics
+
         return {
             "loggable_id": lg.loggable_id, "kind": lg.kind, "func_name": lg.func_name, "docstring": lg.docstring,
             "exec_count": lg.exec_count,
             "is_source": lg.is_source, "params": lg.params,
             "recent_logs": lg.logs[-20:], "errors": lg.errors,
-            "metrics": lg.metrics, "progress": lg.progress,
+            "metrics": metrics, "progress": lg.progress,
         }
 
     # --- Event wait endpoint ---

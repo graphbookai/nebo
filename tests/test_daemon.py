@@ -677,3 +677,127 @@ class TestApiTokenAuth:
         assert client.get("/runs").status_code == 200
         resp = client.post("/events", json=[{"type": "log", "message": "x"}])
         assert resp.status_code == 200
+
+
+class TestMetricsQueryFilters:
+    """Tests for ?tag= and ?step= query-string filters on the per-loggable endpoint.
+
+    These filters only apply to accumulating series (line/scatter) that carry
+    tags and step fields; snapshot types (bar/pie/histogram) are unaffected
+    because their entries don't carry meaningful tags/steps.
+    """
+
+    def _make_client(self, run_id: str, metrics: dict):
+        """Set up a TestClient with a single run + loggable pre-populated."""
+        from fastapi.testclient import TestClient
+        from nebo.server.daemon import DaemonState, LoggableState, create_daemon_app
+
+        state = DaemonState()
+        run = state.create_run("test.py", run_id=run_id, store=False)
+        run.status = "running"
+        lg = LoggableState(loggable_id="node_a", kind="node")
+        run.loggables["node_a"] = lg
+        lg.metrics.update(metrics)
+        app = create_daemon_app(state=state)
+        return TestClient(app), state
+
+    def test_metrics_filter_by_tag(self) -> None:
+        """?tag=train must return only line entries whose tags list includes 'train'."""
+        client, _ = self._make_client(
+            run_id="r_filter_tag",
+            metrics={
+                "loss": {
+                    "type": "line",
+                    "entries": [
+                        {"step": 0, "value": 1.0, "tags": ["train"], "timestamp": 0},
+                        {"step": 1, "value": 0.5, "tags": ["val"], "timestamp": 1},
+                        {"step": 2, "value": 0.4, "tags": ["train"], "timestamp": 2},
+                    ],
+                }
+            },
+        )
+        resp = client.get("/runs/r_filter_tag/loggables/node_a?name=loss&tag=train")
+        assert resp.status_code == 200
+        entries = resp.json()["metrics"]["loss"]["entries"]
+        assert [e["step"] for e in entries] == [0, 2]
+
+    def test_metrics_filter_by_step(self) -> None:
+        """?step=1 must return only entries whose step equals 1."""
+        client, _ = self._make_client(
+            run_id="r_filter_step",
+            metrics={
+                "loss": {
+                    "type": "line",
+                    "entries": [
+                        {"step": 0, "value": 1.0, "tags": [], "timestamp": 0},
+                        {"step": 1, "value": 0.5, "tags": [], "timestamp": 1},
+                        {"step": 2, "value": 0.4, "tags": [], "timestamp": 2},
+                    ],
+                }
+            },
+        )
+        resp = client.get("/runs/r_filter_step/loggables/node_a?name=loss&step=1")
+        assert resp.status_code == 200
+        entries = resp.json()["metrics"]["loss"]["entries"]
+        assert [e["step"] for e in entries] == [1]
+
+    def test_metrics_filter_by_name(self) -> None:
+        """?name=loss must return only the 'loss' series, not 'acc'."""
+        client, _ = self._make_client(
+            run_id="r_filter_name",
+            metrics={
+                "loss": {
+                    "type": "line",
+                    "entries": [{"step": 0, "value": 1.0, "tags": [], "timestamp": 0}],
+                },
+                "acc": {
+                    "type": "line",
+                    "entries": [{"step": 0, "value": 0.9, "tags": [], "timestamp": 0}],
+                },
+            },
+        )
+        resp = client.get("/runs/r_filter_name/loggables/node_a?name=loss")
+        assert resp.status_code == 200
+        metrics = resp.json()["metrics"]
+        assert "loss" in metrics
+        assert "acc" not in metrics
+
+    def test_metrics_filter_tag_and_step_compose(self) -> None:
+        """?tag= and ?step= filters compose (both must match)."""
+        client, _ = self._make_client(
+            run_id="r_filter_both",
+            metrics={
+                "loss": {
+                    "type": "line",
+                    "entries": [
+                        {"step": 1, "value": 0.9, "tags": ["train"], "timestamp": 0},
+                        {"step": 1, "value": 0.8, "tags": ["val"], "timestamp": 1},
+                        {"step": 2, "value": 0.7, "tags": ["train"], "timestamp": 2},
+                    ],
+                }
+            },
+        )
+        resp = client.get("/runs/r_filter_both/loggables/node_a?name=loss&tag=train&step=1")
+        assert resp.status_code == 200
+        entries = resp.json()["metrics"]["loss"]["entries"]
+        assert len(entries) == 1
+        assert entries[0]["value"] == 0.9
+
+    def test_metrics_no_filter_returns_all(self) -> None:
+        """Without filters, all entries are returned (no regression)."""
+        client, _ = self._make_client(
+            run_id="r_no_filter",
+            metrics={
+                "loss": {
+                    "type": "line",
+                    "entries": [
+                        {"step": 0, "value": 1.0, "tags": ["train"], "timestamp": 0},
+                        {"step": 1, "value": 0.5, "tags": ["val"], "timestamp": 1},
+                    ],
+                }
+            },
+        )
+        resp = client.get("/runs/r_no_filter/loggables/node_a")
+        assert resp.status_code == 200
+        entries = resp.json()["metrics"]["loss"]["entries"]
+        assert len(entries) == 2
