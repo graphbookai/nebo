@@ -491,6 +491,42 @@ There is no cross-run query. Loop:
 Token discipline: prefer `metrics_index` from `runs show` over fetching
 every loggable's metrics blindly.
 
+### Visualizing a cross-run answer
+
+Comparison views in the nebo web UI are pure UI state — the daemon
+doesn't know which runs the user has selected, and you can't push the
+UI into a particular comparison. But you have two ways to make a
+cross-run answer *visual*:
+
+**A. Seed an overlay the user can open themselves.** Emit the same
+metric `name` to the same `loggable_id` on each run you want compared.
+Example: after looping the runs you want to compare, write a
+`derived_loss` line metric to `__agent__` on each:
+
+    nebo metrics log --run R1 --entries-json '[{"name":"derived_loss","type":"line","value":0.41,"step":0}]'
+    nebo metrics log --run R2 --entries-json '[{"name":"derived_loss","type":"line","value":0.38,"step":0}]'
+    nebo metrics log --run R3 --entries-json '[{"name":"derived_loss","type":"line","value":0.45,"step":0}]'
+
+Tell the user: "Open the comparison view, select R1/R2/R3, and look at
+`__agent__ ▸ derived_loss`." The UI overlays the three series — same
+loggable_id + name across selected runs is the comparison contract.
+
+**B. Synthesize the comparison into a single chart on one run.** When
+you don't need the user to do anything in the UI, fold the multi-run
+result into a single chart on one chosen run. A bar chart keyed by run
+name is the most common form:
+
+    nebo metrics log --run R1 --entries-json '[{
+      "name": "final_loss_by_run",
+      "type": "bar",
+      "value": {"R1": 0.41, "R2": 0.38, "R3": 0.45}
+    }]'
+
+That single bar chart on `__agent__` answers the cross-run question
+without requiring the user to open the comparison view at all. Useful
+when the comparison itself is the deliverable rather than a starting
+point for further exploration.
+
 ## Anti-patterns
 
 - Don't omit `--json`. Human columns drift and break parsers.
