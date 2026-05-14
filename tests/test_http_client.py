@@ -132,3 +132,34 @@ def test_load_file_posts_filepath(monkeypatch):
     load_file("/tmp/x.nebo", url="http://h")
     assert cap["calls"][0]["url"] == "http://h/load"
     assert json.loads(cap["calls"][0]["data"]) == {"filepath": "/tmp/x.nebo"}
+
+
+from nebo.client import log_metric, log_text
+
+
+def test_log_metric_defaults_loggable_id_to_agent(monkeypatch):
+    posted: list = []
+
+    def fake_post(path, body, **conn):
+        posted.append((path, body))
+        return {"status": "ok"}
+
+    monkeypatch.setattr("nebo.client._post", fake_post)
+    log_metric([{"name": "loss", "value": 0.1}], run_id="r1")
+    assert posted
+    _, body = posted[0]
+    metric = next(e for e in body if e["type"] == "metric")
+    assert metric["loggable_id"] == "__agent__"
+    reg = next(e for e in body if e["type"] == "loggable_register")
+    assert reg["data"]["kind"] == "agent"
+
+
+def test_log_text_routes_default_to_agent(monkeypatch):
+    posted: list = []
+    monkeypatch.setattr(
+        "nebo.client._post",
+        lambda path, body, **c: posted.append((path, body)) or {"status": "ok"},
+    )
+    log_text([{"message": "hi"}], run_id="r1")
+    log_event = next(e for e in posted[0][1] if e["type"] == "log")
+    assert log_event["loggable_id"] == "__agent__"

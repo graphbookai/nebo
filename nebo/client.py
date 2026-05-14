@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.parse
 import urllib.request
 from typing import Any, Optional
@@ -169,3 +170,82 @@ def get_errors(run_id: Optional[str] = None, **conn) -> Any:
 
 def load_file(filepath: str, **conn) -> Any:
     return _post("/load", {"filepath": filepath}, **conn)
+
+
+def _ensure_loggable_event(loggable_id: str) -> dict[str, Any]:
+    """Idempotent register event so the daemon doesn't drop entries on
+    unknown loggables. Matches the kind used elsewhere for the two
+    synthetic loggables (__agent__ / __global__); other ids default to
+    "global" which is what the daemon's register handler treats as
+    "non-node" (i.e., not a DAG node)."""
+    if loggable_id == "__agent__":
+        kind = "agent"
+    elif loggable_id == "__global__":
+        kind = "global"
+    else:
+        kind = "global"
+    return {
+        "type": "loggable_register",
+        "loggable_id": loggable_id,
+        "data": {"loggable_id": loggable_id, "kind": kind},
+    }
+
+
+def _events_path(run_id: Optional[str]) -> str:
+    if run_id:
+        return f"/events?run_id={urllib.parse.quote(run_id)}"
+    return "/events"
+
+
+def log_metric(
+    entries: list[dict[str, Any]],
+    *,
+    run_id: Optional[str] = None,
+    **conn,
+) -> Any:
+    """Push metric entries to the daemon.
+
+    Each entry: ``{loggable_id?, name, value, type?, step?, tags?}``.
+    `loggable_id` defaults to ``__agent__`` (the agent sandbox).
+    """
+    events: list[dict[str, Any]] = []
+    for e in entries:
+        lid = e.get("loggable_id") or "__agent__"
+        events.append(_ensure_loggable_event(lid))
+        events.append({
+            "type": "metric",
+            "loggable_id": lid,
+            "name": e.get("name", ""),
+            "metric_type": e.get("type", "line"),
+            "value": e.get("value"),
+            "step": e.get("step"),
+            "tags": list(e.get("tags") or []),
+            "timestamp": time.time(),
+        })
+    return _post(_events_path(run_id), events, **conn)
+
+
+def log_text(
+    entries: list[dict[str, Any]],
+    *,
+    run_id: Optional[str] = None,
+    **conn,
+) -> Any:
+    """Push text log entries to the daemon.
+
+    Each entry: ``{loggable_id?, message, level?, step?}``. Level defaults
+    to ``info``; `loggable_id` defaults to ``__agent__``.
+    """
+    events: list[dict[str, Any]] = []
+    for e in entries:
+        lid = e.get("loggable_id") or "__agent__"
+        events.append(_ensure_loggable_event(lid))
+        events.append({
+            "type": "log",
+            "loggable_id": lid,
+            "message": e.get("message", ""),
+            "level": e.get("level", "info"),
+            "step": e.get("step"),
+            "timestamp": time.time(),
+        })
+    return _post(_events_path(run_id), events, **conn)
