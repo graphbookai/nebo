@@ -90,9 +90,23 @@ def get_run_status(run_id: str, **conn) -> Any:
 
 
 def get_description(run_id: Optional[str] = None, **conn) -> Any:
-    if run_id:
-        return _get(f"{_run_scope(run_id)}/description", **conn)
-    return _get("/description", **conn)
+    """Return workflow description + per-node docstrings.
+
+    The daemon doesn't expose a dedicated /description route — the
+    workflow description and node docstrings live inside the /graph
+    payload. This helper does the extraction so callers can rely on a
+    stable `{workflow_description, node_descriptions}` shape regardless
+    of how the daemon happens to serve it.
+    """
+    graph = get_graph(run_id=run_id, **conn)
+    return {
+        "workflow_description": graph.get("workflow_description"),
+        "node_descriptions": {
+            nid: n.get("docstring")
+            for nid, n in graph.get("nodes", {}).items()
+            if n.get("docstring")
+        },
+    }
 
 
 def get_graph(run_id: Optional[str] = None, **conn) -> Any:

@@ -121,16 +121,9 @@ async def get_errors(run_id: Optional[str] = None, server_url: str = _DEFAULT_UR
 async def get_description(server_url: str = _DEFAULT_URL) -> dict[str, Any]:
     """Get workflow description and all node docstrings."""
     try:
-        graph = _client.get_graph(url=server_url)
+        return _client.get_description(url=server_url)
     except Exception as e:
         return _daemon_unreachable(server_url, e)
-    return {
-        "workflow_description": graph.get("workflow_description"),
-        "node_descriptions": {
-            nid: n.get("docstring") for nid, n in graph.get("nodes", {}).items()
-            if n.get("docstring")
-        },
-    }
 
 
 
