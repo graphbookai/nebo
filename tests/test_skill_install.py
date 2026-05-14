@@ -124,3 +124,19 @@ class TestInstallDispatcher:
         monkeypatch.setenv("NEBO_CLAUDE_HOME", str(tmp_path))
         with pytest.raises(ValueError):
             skill_install.install(platforms=["sublime"], skill="runs-qa")
+
+
+def test_runs_qa_skill_uses_cli_primarily():
+    body = skills.read_skill("runs-qa")
+    # Primary commands must be CLI.
+    assert "nebo runs list" in body
+    assert "nebo metrics get" in body
+    assert "nebo runs wait" in body
+    # MCP tools should appear only in the appendix.
+    appendix_start = body.find("Optional: MCP")
+    assert appendix_start != -1, "skill is missing the 'Optional: MCP' appendix"
+    primary = body[:appendix_start]
+    # No MCP tool names in the primary playbook.
+    assert "nebo_get_metrics" not in primary
+    assert "nebo_log_metric" not in primary
+    assert "nebo_wait_for_alert" not in primary
