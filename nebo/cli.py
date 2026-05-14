@@ -524,6 +524,42 @@ def _lazy_deploy(args: argparse.Namespace) -> None:
     cmd_deploy(args)
 
 
+def _common_conn_parser() -> argparse.ArgumentParser:
+    """Parent parser carrying connection + output flags every read/write
+    subcommand inherits via ``parents=[...]``. Uses ``add_help=False`` so
+    help text isn't duplicated.
+    """
+    p = argparse.ArgumentParser(add_help=False)
+    p.add_argument(
+        "--url",
+        help="Daemon URL (overrides --port). Default: NEBO_URL env or http://localhost:7861.",
+    )
+    p.add_argument(
+        "--port",
+        type=int,
+        help="Daemon port. Default: NEBO_PORT env or 7861.",
+    )
+    p.add_argument(
+        "--api-token",
+        help="X-Nebo-Token to send with requests. Default: NEBO_API_TOKEN env.",
+    )
+    p.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON instead of human-formatted output.",
+    )
+    return p
+
+
+def _conn_kwargs(args: argparse.Namespace) -> dict:
+    """Translate parsed args into nebo.client connection kwargs."""
+    return {
+        "url": getattr(args, "url", None),
+        "port": getattr(args, "port", None),
+        "api_token": getattr(args, "api_token", None),
+    }
+
+
 def main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
