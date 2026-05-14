@@ -49,4 +49,7 @@ source = "vcs"
 
 [tool.hatch.build]
 exclude = ["nebo/server/static/.gitkeep"]
-artifacts = ["nebo/.agents/**", "nebo/server/spaces/**"]
+artifacts = ["nebo/server/spaces/**"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"nebo/skills" = "nebo/skills"

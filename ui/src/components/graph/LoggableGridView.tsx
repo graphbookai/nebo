@@ -165,7 +165,7 @@ interface CardSpec {
 }
 
 interface SectionSpec {
-  /** Stable key — `__global__` or the loggable's id for function nodes. */
+  /** Stable key — `__global__`, `__agent__`, or the loggable's id for function nodes. */
   sectionId: string
   /** Display name shown above the card grid; clickable to filter. */
   label: string
@@ -204,7 +204,7 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
   const [search, setSearch] = useState('')
   const [modalCardId, setModalCardId] = useState<string | null>(null)
 
-  // Section list: Global first, then function nodes in topo order.
+  // Section list: Global + Agent first, then function nodes in topo order.
   const sectionDescriptors = useMemo(() => {
     if (!graph) return [] as { sectionId: string; label: string }[]
     const fnIds = Object.keys(graph.nodes).filter(
@@ -213,6 +213,7 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
     const sortedFnIds = topologicalSort(fnIds, graph.edges)
     const sections: { sectionId: string; label: string }[] = [
       { sectionId: '__global__', label: 'Global' },
+      { sectionId: '__agent__', label: 'Agent' },
     ]
     for (const id of sortedFnIds) {
       sections.push({

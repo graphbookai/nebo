@@ -15,7 +15,7 @@ export interface NodeState {
 }
 
 export interface LoggableState extends NodeState {
-  kind: 'node' | 'global'
+  kind: 'node' | 'global' | 'agent'
   loggableId: string
 }
 
@@ -32,6 +32,13 @@ export interface Settings {
   histogramSmoothing: number
   // Number of bins shared across labels in every histogram chart.
   histogramBinCount: number
+  // Active-point opacity for scatter charts (0–1). Applies in both
+  // single-run and comparison views. Dimmed (filtered-out) points keep
+  // their own ~25% alpha treatment.
+  scatterPointOpacity: number
+  // Scatter point size scale (0–1). 1 keeps the original radii (~7px
+  // active, ~4px default, ~3px dimmed); 0.5 halves them.
+  scatterPointSize: number
 }
 
 const SETTINGS_KEY = 'gb_settings'
@@ -47,6 +54,8 @@ const DEFAULT_SETTINGS: Settings = {
   lineSmoothing: 0,
   histogramSmoothing: 0,
   histogramBinCount: DEFAULT_HISTOGRAM_BIN_COUNT,
+  scatterPointOpacity: 0.8,
+  scatterPointSize: 0.5,
 }
 
 function loadSettings(): Settings {
@@ -146,6 +155,7 @@ export interface RunState {
   loggableAudio: Record<string, AudioEntry[]>
   loaded: boolean
   globalLoggable?: { loggableId: string; kind: 'global' }
+  agentLoggable?: { loggableId: string; kind: 'agent' }
 }
 
 interface NeboStore {
@@ -853,11 +863,16 @@ export const useStore = create<NeboStore>((set, get) => ({
 
           case 'loggable_register': {
             const lid = (data.loggable_id as string) || ''
-            const kind = (data.kind as 'node' | 'global') ?? 'node'
+            const kind = (data.kind as 'node' | 'global' | 'agent') ?? 'node'
             if (kind === 'global') {
               // Globals are not DAG nodes — track separately, do not insert into graph.nodes
               if (!run.globalLoggable) {
                 run.globalLoggable = { loggableId: lid, kind: 'global' }
+              }
+            } else if (kind === 'agent') {
+              // Agent sandbox loggable for MCP-authored entries — also non-DAG.
+              if (!run.agentLoggable) {
+                run.agentLoggable = { loggableId: lid, kind: 'agent' }
               }
             } else {
               if (!run.graph) {

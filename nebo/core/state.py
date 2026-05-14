@@ -39,7 +39,7 @@ class LoggableInfo:
     to the daemon, which persists them in the `.nebo` file.
     """
     loggable_id: str = ""
-    kind: Literal["node", "global"] = "node"
+    kind: Literal["node", "global", "agent"] = "node"
     logs: Deque[dict] = field(default_factory=lambda: deque(maxlen=RECENT_LOGS_MAXLEN))
     errors: list = field(default_factory=list)
     progress: Optional[dict] = None
@@ -57,13 +57,23 @@ class NodeInfo(LoggableInfo):
     materialized: bool = False
     group: Optional[str] = None
     ui_hints: Optional[dict] = None
-    kind: Literal["node", "global"] = "node"
+    kind: Literal["node", "global", "agent"] = "node"
 
 
 @dataclass
 class GlobalInfo(LoggableInfo):
     """The single process-wide loggable catching logs outside any @fn context."""
-    kind: Literal["node", "global"] = "global"
+    kind: Literal["node", "global", "agent"] = "global"
+
+
+@dataclass
+class AgentInfo(LoggableInfo):
+    """Sandbox loggable for entries authored by an external agent via MCP.
+
+    Parallel to GlobalInfo, but namespaced separately so agent-computed
+    metrics don't intermix with user-emitted ones routed to __global__.
+    """
+    kind: Literal["node", "global", "agent"] = "agent"
 
 
 @dataclass
@@ -110,6 +120,11 @@ class SessionState:
         # have a home even before the first run_start / clear_run_state.
         self.loggables["__global__"] = GlobalInfo(
             loggable_id="__global__", kind="global"
+        )
+        # Seed the agent loggable so MCP-driven writes from external
+        # agents have a stable, namespaced home distinct from __global__.
+        self.loggables["__agent__"] = AgentInfo(
+            loggable_id="__agent__", kind="agent"
         )
         self.edges: list[DAGEdge] = []
         self._edge_set: set[tuple[str, str]] = set()
@@ -377,6 +392,9 @@ class SessionState:
             self.loggables["__global__"] = GlobalInfo(
                 loggable_id="__global__", kind="global"
             )
+            self.loggables["__agent__"] = AgentInfo(
+                loggable_id="__agent__", kind="agent"
+            )
             self.edges.clear()
             self._edge_set.clear()
             self._return_origins.clear()
@@ -392,6 +410,9 @@ class SessionState:
             self.loggables.clear()
             self.loggables["__global__"] = GlobalInfo(
                 loggable_id="__global__", kind="global"
+            )
+            self.loggables["__agent__"] = AgentInfo(
+                loggable_id="__agent__", kind="agent"
             )
             self.edges.clear()
             self._edge_set.clear()

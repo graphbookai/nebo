@@ -5,6 +5,7 @@ from nebo.core.state import (
     LoggableInfo,
     NodeInfo,
     GlobalInfo,
+    AgentInfo,
     SessionState,
     get_state,
 )
@@ -43,6 +44,13 @@ def test_global_info_has_fixed_kind():
     assert g.loggable_id == "__global__"
 
 
+def test_agent_info_has_fixed_kind():
+    a = AgentInfo(loggable_id="__agent__")
+    assert isinstance(a, LoggableInfo)
+    assert a.kind == "agent"
+    assert a.loggable_id == "__agent__"
+
+
 def test_session_state_seeds_global_on_clear():
     SessionState.reset_singleton()
     state = get_state()
@@ -51,7 +59,22 @@ def test_session_state_seeds_global_on_clear():
     assert state.loggables["__global__"].kind == "global"
 
 
+def test_session_state_seeds_agent_on_clear():
+    SessionState.reset_singleton()
+    state = get_state()
+    state.clear_run_state()
+    assert "__agent__" in state.loggables
+    assert state.loggables["__agent__"].kind == "agent"
+
+
 def test_session_state_reset_seeds_global():
     SessionState.reset_singleton()
     state = get_state()
     assert "__global__" in state.loggables
+
+
+def test_session_state_reset_seeds_agent():
+    SessionState.reset_singleton()
+    state = get_state()
+    assert "__agent__" in state.loggables
+    assert state.loggables["__agent__"].kind == "agent"

@@ -374,10 +374,16 @@ def _post_events(
 
 def _ensure_loggable_event(loggable_id: str) -> dict[str, Any]:
     """Idempotent register event so unknown loggables aren't silently dropped."""
+    if loggable_id == "__agent__":
+        kind = "agent"
+    elif loggable_id == "__global__":
+        kind = "global"
+    else:
+        kind = "global"
     return {
         "type": "loggable_register",
         "loggable_id": loggable_id,
-        "data": {"loggable_id": loggable_id, "kind": "global"},
+        "data": {"loggable_id": loggable_id, "kind": kind},
     }
 
 
@@ -413,8 +419,11 @@ async def log_metric(
 ) -> dict[str, Any]:
     """Push one or more metric points into a run.
 
-    Each entry: ``{run_id?, loggable_id, name, value, type?, step?, tags?}``.
+    Each entry: ``{run_id?, loggable_id?, name, value, type?, step?, tags?}``.
     `type` is one of ``line`` (default), ``bar``, ``pie``, ``scatter``, ``histogram``.
+    ``loggable_id`` defaults to ``__agent__`` — the sandbox loggable reserved
+    for entries authored by an external agent. Pass an explicit ``loggable_id``
+    to target a specific node.
     """
     items = _normalize_entries(entries)
     if not items:
@@ -423,9 +432,7 @@ async def log_metric(
     # Group events by run_id so we issue one POST per target run.
     by_run: dict[Optional[str], list[dict[str, Any]]] = {}
     for entry in items:
-        lid = entry.get("loggable_id")
-        if not lid:
-            return {"error": "every entry needs a loggable_id"}
+        lid = entry.get("loggable_id") or "__agent__"
         target = entry.get("run_id") or run_id
         bucket = by_run.setdefault(target, [])
         bucket.append(_ensure_loggable_event(lid))
@@ -463,9 +470,7 @@ def _log_media(
 
     by_run: dict[Optional[str], list[dict[str, Any]]] = {}
     for entry in items:
-        lid = entry.get("loggable_id")
-        if not lid:
-            return {"error": "every entry needs a loggable_id"}
+        lid = entry.get("loggable_id") or "__agent__"
         try:
             data_b64 = _read_inline_data(entry)
         except Exception as e:
@@ -507,10 +512,11 @@ async def log_image(
 ) -> dict[str, Any]:
     """Push one or more images into a run.
 
-    Each entry: ``{run_id?, loggable_id, name, url? | data?, step?, labels?}``.
+    Each entry: ``{run_id?, loggable_id?, name, url? | data?, step?, labels?}``.
     Supply either ``url`` (fetched server-side) or ``data`` (already-base64
     bytes). The daemon stores the bytes via the existing media path so the
-    image survives the source URL going stale.
+    image survives the source URL going stale. ``loggable_id`` defaults to
+    ``__agent__``.
     """
     return _log_media(entries, "image", run_id, server_url)
 
@@ -522,7 +528,8 @@ async def log_audio(
 ) -> dict[str, Any]:
     """Push one or more audio recordings into a run.
 
-    Each entry: ``{run_id?, loggable_id, name, url? | data?, sr?, step?}``.
+    Each entry: ``{run_id?, loggable_id?, name, url? | data?, sr?, step?}``.
+    ``loggable_id`` defaults to ``__agent__``.
     """
     return _log_media(entries, "audio", run_id, server_url)
 
@@ -534,8 +541,10 @@ async def log_text(
 ) -> dict[str, Any]:
     """Push one or more text log entries into a run.
 
-    Each entry: ``{run_id?, loggable_id, message, level?, step?}``. ``level``
-    is one of ``info`` (default), ``warning``, ``error``.
+    Each entry: ``{run_id?, loggable_id?, message, level?, step?}``. ``level``
+    is one of ``info`` (default), ``warning``, ``error``. ``loggable_id``
+    defaults to ``__agent__`` — the sandbox loggable for entries authored by
+    an external agent.
     """
     items = _normalize_entries(entries)
     if not items:
@@ -543,7 +552,7 @@ async def log_text(
 
     by_run: dict[Optional[str], list[dict[str, Any]]] = {}
     for entry in items:
-        lid = entry.get("loggable_id", "__global__")
+        lid = entry.get("loggable_id") or "__agent__"
         target = entry.get("run_id") or run_id
         bucket = by_run.setdefault(target, [])
         bucket.append(_ensure_loggable_event(lid))

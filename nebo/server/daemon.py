@@ -53,7 +53,13 @@ class ErrorEntry:
 
 @dataclass
 class LoggableState:
-    """State for a single loggable (DAG node or the implicit global loggable) within a run."""
+    """State for a single loggable within a run.
+
+    `kind` is one of:
+      - "node": a DAG node produced by @nb.fn()
+      - "global": the implicit __global__ loggable for user logs outside any node
+      - "agent": the implicit __agent__ loggable for entries authored over MCP
+    """
     loggable_id: str
     kind: str = "node"
     func_name: str = ""
@@ -203,6 +209,15 @@ class DaemonState:
             status="starting",
             started_at=datetime.now(),
             source_hash=source_hash,
+        )
+        # Seed implicit loggables so events that arrive without a node
+        # context have a home: __global__ for user code outside an @nb.fn,
+        # __agent__ for entries authored by an MCP client (agent).
+        run.loggables["__global__"] = LoggableState(
+            loggable_id="__global__", kind="global"
+        )
+        run.loggables["__agent__"] = LoggableState(
+            loggable_id="__agent__", kind="agent"
         )
         self.runs[run_id] = run
         self.active_run_id = run_id
@@ -477,11 +492,15 @@ class DaemonState:
             run.status = "running"
             if self.active_run_id is None:
                 self.active_run_id = run.id
-            # Seed the implicit __global__ loggable so logs that arrive without
-            # a node context (e.g. nb.log() outside an @nb.fn) have a home.
+            # Seed implicit loggables — __global__ for user logs outside an
+            # @nb.fn context, __agent__ for MCP-authored entries from an agent.
             run.loggables.setdefault(
                 "__global__",
                 LoggableState(loggable_id="__global__", kind="global"),
+            )
+            run.loggables.setdefault(
+                "__agent__",
+                LoggableState(loggable_id="__agent__", kind="agent"),
             )
             # Enable storage if SDK requests it and daemon allows it
             store = data.get("store", True)

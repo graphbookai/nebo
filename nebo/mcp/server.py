@@ -202,13 +202,15 @@ MCP_TOOLS = [
             "Log one or more metric points to a run. Mirrors nb.log_line / "
             "log_bar / log_pie / log_scatter / log_histogram from the SDK. "
             "Default chart type is 'line' (accumulating); other types are "
-            "snapshots — re-emitting the same name overwrites."
+            "snapshots — re-emitting the same name overwrites. "
+            "loggable_id defaults to '__agent__' (sandbox for agent-authored "
+            "entries) when omitted."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "entries": {
-                    "description": "Single entry or list of entries. Each: {run_id?, loggable_id, name, value, type?, step?, tags?}.",
+                    "description": "Single entry or list of entries. Each: {run_id?, loggable_id?, name, value, type?, step?, tags?}. loggable_id defaults to '__agent__'.",
                     "oneOf": [
                         {"type": "object"},
                         {"type": "array", "items": {"type": "object"}},
@@ -225,13 +227,14 @@ MCP_TOOLS = [
             "Log one or more images to a run. Mirrors nb.log_image. Each "
             "entry supplies either `url` (fetched server-side, persisted) "
             "or `data` (already-base64 bytes). Bytes are stored on the "
-            "daemon so the run survives the source URL going stale."
+            "daemon so the run survives the source URL going stale. "
+            "loggable_id defaults to '__agent__' when omitted."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "entries": {
-                    "description": "Single entry or list. Each: {run_id?, loggable_id, name, url? | data?, step?, labels?}.",
+                    "description": "Single entry or list. Each: {run_id?, loggable_id?, name, url? | data?, step?, labels?}. loggable_id defaults to '__agent__'.",
                     "oneOf": [
                         {"type": "object"},
                         {"type": "array", "items": {"type": "object"}},
@@ -247,13 +250,14 @@ MCP_TOOLS = [
         "description": (
             "Log one or more audio recordings to a run. Mirrors "
             "nb.log_audio. Same input shape as nebo_log_image plus an "
-            "optional `sr` (sample rate) per entry; default 16000."
+            "optional `sr` (sample rate) per entry; default 16000. "
+            "loggable_id defaults to '__agent__' when omitted."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "entries": {
-                    "description": "Single entry or list. Each: {run_id?, loggable_id, name, url? | data?, sr?, step?}.",
+                    "description": "Single entry or list. Each: {run_id?, loggable_id?, name, url? | data?, sr?, step?}. loggable_id defaults to '__agent__'.",
                     "oneOf": [
                         {"type": "object"},
                         {"type": "array", "items": {"type": "object"}},
@@ -268,7 +272,8 @@ MCP_TOOLS = [
         "name": "nebo_log_text",
         "description": (
             "Log one or more text entries to a run. Mirrors nb.log. "
-            "loggable_id defaults to '__global__' when omitted."
+            "loggable_id defaults to '__agent__' (sandbox for agent-authored "
+            "entries) when omitted."
         ),
         "inputSchema": {
             "type": "object",

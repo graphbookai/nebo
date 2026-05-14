@@ -187,15 +187,56 @@ class TestMCPWriteTools:
         assert "error" in result
 
     @pytest.mark.asyncio
-    async def test_log_metric_requires_loggable_id(self) -> None:
+    async def test_log_metric_defaults_to_agent_loggable(self) -> None:
+        # When loggable_id is omitted the entry targets __agent__ — the
+        # sandbox loggable for entries authored by an external agent.
+        # With no live daemon we get a daemon-write error, but the
+        # validation should accept the entry.
         from nebo.mcp.tools import log_metric
-        result = await log_metric({"name": "loss", "value": 0.1})
-        assert "error" in result and "loggable_id" in result["error"]
+        result = await log_metric(
+            {"name": "loss", "value": 0.1},
+            server_url="http://localhost:19999",
+        )
+        assert "error" in result
+        assert "daemon write failed" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_log_metric_routes_default_loggable_to_agent(self) -> None:
+        # Capture the events the tool would have posted and assert the
+        # loggable_id was filled in to __agent__.
+        captured: list[dict] = []
+
+        def fake_post(url, payload, timeout=10.0):  # noqa: ARG001
+            captured.extend(payload)
+            return {"status": "ok"}
+
+        import nebo.mcp.tools as tools
+        original = tools._post
+        tools._post = fake_post  # type: ignore[assignment]
+        try:
+            from nebo.mcp.tools import log_metric
+            await log_metric({"name": "loss", "value": 0.1})
+        finally:
+            tools._post = original  # type: ignore[assignment]
+
+        metric_events = [e for e in captured if e.get("type") == "metric"]
+        assert metric_events
+        assert all(e["loggable_id"] == "__agent__" for e in metric_events)
+        register_events = [e for e in captured if e.get("type") == "loggable_register"]
+        assert register_events
+        assert all(
+            e["data"]["kind"] == "agent"
+            for e in register_events
+            if e["loggable_id"] == "__agent__"
+        )
 
     @pytest.mark.asyncio
     async def test_log_image_requires_url_or_data(self) -> None:
         from nebo.mcp.tools import log_image
-        result = await log_image({"loggable_id": "x", "name": "img"})
+        # With no url/data we expect an error before any default loggable
+        # routing matters; loggable_id can be omitted and still surfaces
+        # the same media-payload error.
+        result = await log_image({"name": "img"})
         assert "error" in result
         assert "url" in result["error"] or "data" in result["error"]
 
@@ -220,6 +261,29 @@ class TestMCPWriteTools:
         )
         assert "error" in result
         assert "daemon write failed" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_log_text_defaults_loggable_to_agent(self) -> None:
+        # Omitting loggable_id should route to __agent__ (the sandbox for
+        # agent-authored entries), not __global__.
+        captured: list[dict] = []
+
+        def fake_post(url, payload, timeout=10.0):  # noqa: ARG001
+            captured.extend(payload)
+            return {"status": "ok"}
+
+        import nebo.mcp.tools as tools
+        original = tools._post
+        tools._post = fake_post  # type: ignore[assignment]
+        try:
+            from nebo.mcp.tools import log_text
+            await log_text({"message": "hello from agent"})
+        finally:
+            tools._post = original  # type: ignore[assignment]
+
+        log_events = [e for e in captured if e.get("type") == "log"]
+        assert log_events
+        assert all(e["loggable_id"] == "__agent__" for e in log_events)
 
 
 class TestMCPDispatcher:

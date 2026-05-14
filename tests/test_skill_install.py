@@ -1,0 +1,126 @@
+"""Tests for the `nebo skill install` machinery."""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import pytest
+
+from nebo import skills
+from nebo.skills import install as skill_install
+
+
+def test_available_skills_includes_runs_qa_and_instrumentation():
+    names = skills.available_skills()
+    assert "runs-qa" in names
+    assert "instrumentation" in names
+
+
+def test_read_skill_returns_frontmatter():
+    body = skills.read_skill("runs-qa")
+    assert body.startswith("---")
+    assert "name: nebo-runs-qa" in body
+
+
+def test_read_skill_unknown_raises():
+    with pytest.raises(FileNotFoundError):
+        skills.read_skill("not-a-real-skill")
+
+
+class TestClaudeCodeInstall:
+    def test_user_level_install_writes_skill_md(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("NEBO_CLAUDE_HOME", str(tmp_path))
+        written = skill_install.install_claude_code(skill="runs-qa")
+        assert len(written) == 1
+        target = tmp_path / "skills" / "runs-qa" / "SKILL.md"
+        assert target.exists()
+        assert written[0] == target
+        assert "nebo-runs-qa" in target.read_text(encoding="utf-8")
+
+    def test_install_all_writes_every_skill(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("NEBO_CLAUDE_HOME", str(tmp_path))
+        written = skill_install.install_claude_code(skill="all")
+        names = {p.parent.name for p in written}
+        assert names == set(skills.available_skills())
+
+    def test_unknown_skill_raises(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("NEBO_CLAUDE_HOME", str(tmp_path))
+        with pytest.raises(ValueError):
+            skill_install.install_claude_code(skill="bogus")
+
+    def test_project_level_install_uses_cwd(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        # NEBO_CLAUDE_HOME should be ignored when --project is set.
+        monkeypatch.setenv("NEBO_CLAUDE_HOME", str(tmp_path / "elsewhere"))
+        written = skill_install.install_claude_code(skill="runs-qa", project=True)
+        target = tmp_path / ".claude" / "skills" / "runs-qa" / "SKILL.md"
+        assert target.exists()
+        assert written[0] == target
+        # Elsewhere dir should NOT have been created.
+        assert not (tmp_path / "elsewhere" / "skills" / "runs-qa").exists()
+
+
+class TestAgentsMdInstall:
+    def test_writes_new_agents_md(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("NEBO_AGENTS_MD_DIR", str(tmp_path))
+        path = skill_install.install_agents_md(skill="runs-qa")
+        assert path == tmp_path / "AGENTS.md"
+        body = path.read_text(encoding="utf-8")
+        assert "<!-- nebo-skill:runs-qa start -->" in body
+        assert "<!-- nebo-skill:runs-qa end -->" in body
+        assert "nebo-runs-qa" in body
+
+    def test_reinstall_is_idempotent(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("NEBO_AGENTS_MD_DIR", str(tmp_path))
+        skill_install.install_agents_md(skill="runs-qa")
+        first = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+        skill_install.install_agents_md(skill="runs-qa")
+        second = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+        assert first == second
+
+    def test_install_all_adds_two_sections(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("NEBO_AGENTS_MD_DIR", str(tmp_path))
+        skill_install.install_agents_md(skill="all")
+        body = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+        assert "<!-- nebo-skill:runs-qa start -->" in body
+        assert "<!-- nebo-skill:instrumentation start -->" in body
+
+    def test_preserves_unrelated_content(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("NEBO_AGENTS_MD_DIR", str(tmp_path))
+        existing = "# Project notes\n\nSome existing content.\n"
+        (tmp_path / "AGENTS.md").write_text(existing, encoding="utf-8")
+        skill_install.install_agents_md(skill="runs-qa")
+        body = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+        assert "# Project notes" in body
+        assert "Some existing content." in body
+        assert "<!-- nebo-skill:runs-qa start -->" in body
+
+    def test_replacing_section_keeps_others(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("NEBO_AGENTS_MD_DIR", str(tmp_path))
+        # Seed with both, then re-install just one — the other survives.
+        skill_install.install_agents_md(skill="all")
+        skill_install.install_agents_md(skill="runs-qa")
+        body = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+        assert "<!-- nebo-skill:runs-qa start -->" in body
+        assert "<!-- nebo-skill:instrumentation start -->" in body
+
+
+class TestInstallDispatcher:
+    def test_install_all_platforms(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("NEBO_CLAUDE_HOME", str(tmp_path / "claude"))
+        monkeypatch.setenv("NEBO_AGENTS_MD_DIR", str(tmp_path / "project"))
+        os.makedirs(tmp_path / "project", exist_ok=True)
+        results = skill_install.install(
+            platforms=list(skill_install.PLATFORMS),
+            skill="runs-qa",
+        )
+        assert set(results) == set(skill_install.PLATFORMS)
+        cc_path = tmp_path / "claude" / "skills" / "runs-qa" / "SKILL.md"
+        assert cc_path.exists()
+        agents_path = tmp_path / "project" / "AGENTS.md"
+        assert agents_path.exists()
+
+    def test_unknown_platform_raises(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("NEBO_CLAUDE_HOME", str(tmp_path))
+        with pytest.raises(ValueError):
+            skill_install.install(platforms=["sublime"], skill="runs-qa")

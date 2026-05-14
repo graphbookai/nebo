@@ -152,18 +152,19 @@ export interface NodeDetail {
   progress: { current: number; total: number; name?: string } | null
 }
 
-// Loggable = node-or-global addressable thing that can receive logs, metrics,
+// Loggable = node-or-non-node addressable thing that can receive logs, metrics,
 // images, audio, etc. `graph.nodes` only contains node-kind loggables; the
 // per-run store slices (loggableMetrics, etc.) are keyed by loggableId and may
-// contain either kind.
+// contain any kind. Non-node kinds: `global` (user logs outside any node),
+// `agent` (entries authored over MCP by an external agent).
 export type LoggableState = NodeDetail & {
-  kind: 'node' | 'global'
+  kind: 'node' | 'global' | 'agent'
   loggable_id: string
 }
 
 export interface LoggableRegistration {
   loggable_id: string
-  kind: 'node' | 'global'
+  kind: 'node' | 'global' | 'agent'
   func_name?: string
   docstring?: string | null
   group?: string | null

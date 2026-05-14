@@ -1,9 +1,9 @@
 ---
-name: nebo
-description: Use when writing Python code that needs multi-modal logging (text, metrics, images, audio, text), DAG-structured pipeline visualization, scalar metrics tracking, or progress bars — particularly for ML training loops, data-processing pipelines, or agentic workflows using the nebo library
+name: nebo-instrumentation
+description: Use when writing Python code that needs to be instrumented with nebo — adding @nb.fn() decorators, calling nb.log / nb.log_line / log_bar / log_pie / log_scatter / log_histogram / log_image / log_audio / log_cfg / track, declaring run-level metadata with nb.md / nb.ui. Covers ML training loops, data-processing pipelines, and agentic workflows.
 ---
 
-# Nebo
+# Nebo (instrumentation)
 
 ## Overview
 

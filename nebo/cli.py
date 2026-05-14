@@ -8,6 +8,7 @@ Commands:
     nebo logs    — View logs from runs
     nebo errors  — View errors from runs
     nebo mcp     — Print MCP connection config for Claude Code
+    nebo skill   — List or install nebo-shipped agent skills
 """
 
 from __future__ import annotations
@@ -453,6 +454,64 @@ def cmd_load(args: argparse.Namespace) -> None:
     print(f"Loaded: {filepath}")
 
 
+def cmd_skill(args: argparse.Namespace) -> None:
+    """List or install nebo-shipped agent skills."""
+    # Imported lazily so `nebo --help` doesn't pay the cost.
+    from nebo import skills
+    from nebo.skills import install as skill_install
+
+    action = getattr(args, "skill_action", None)
+
+    if action == "list" or action is None:
+        for name in skills.available_skills():
+            body = skills.read_skill(name)
+            # Extract description from frontmatter for a friendlier listing.
+            description = ""
+            if body.startswith("---"):
+                end = body.find("\n---", 3)
+                if end != -1:
+                    fm = body[3:end]
+                    for line in fm.splitlines():
+                        if line.strip().startswith("description:"):
+                            description = line.split(":", 1)[1].strip()
+                            break
+            print(f"{name}")
+            if description:
+                print(f"  {description}")
+        return
+
+    if action == "install":
+        platform = getattr(args, "platform", "claude-code") or "claude-code"
+        skill = getattr(args, "skill", None) or "runs-qa"
+        project = bool(getattr(args, "project", False))
+
+        if platform == "all":
+            platforms = list(skill_install.PLATFORMS)
+        else:
+            platforms = [platform]
+
+        try:
+            results = skill_install.install(
+                platforms=platforms,
+                skill=None if skill == "all" else skill,
+                project=project,
+            )
+        except (ValueError, FileNotFoundError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            sys.exit(2)
+
+        for platform_name, paths in results.items():
+            if isinstance(paths, list):
+                for p in paths:
+                    print(f"{platform_name}: wrote {p}")
+            else:
+                print(f"{platform_name}: wrote {paths}")
+        return
+
+    print(f"unknown skill action: {action!r}", file=sys.stderr)
+    sys.exit(2)
+
+
 def cmd_mcp_stdio(args: argparse.Namespace) -> None:
     """Run the MCP stdio transport (bridges stdio <-> daemon HTTP)."""
     from nebo.mcp.stdio import run_stdio_bridge
@@ -528,6 +587,32 @@ def main() -> None:
     p_mcp_stdio = subparsers.add_parser("mcp-stdio", help="Run MCP stdio transport")
     p_mcp_stdio.add_argument("--port", type=int, default=7861)
 
+    # skill
+    p_skill = subparsers.add_parser(
+        "skill", help="List or install nebo-shipped agent skills",
+    )
+    skill_subparsers = p_skill.add_subparsers(dest="skill_action")
+    skill_subparsers.add_parser("list", help="List available skills")
+    p_skill_install = skill_subparsers.add_parser(
+        "install", help="Install a skill onto an agent platform",
+    )
+    p_skill_install.add_argument(
+        "--platform",
+        choices=["claude-code", "agents-md", "all"],
+        default="claude-code",
+        help="Target platform (default: claude-code)",
+    )
+    p_skill_install.add_argument(
+        "--skill",
+        default="runs-qa",
+        help="Skill name (or 'all'). Default: runs-qa. Run `nebo skill list` to see options.",
+    )
+    p_skill_install.add_argument(
+        "--project",
+        action="store_true",
+        help="For claude-code: install under ./.claude/skills instead of ~/.claude/skills",
+    )
+
     # deploy
     p_deploy = subparsers.add_parser(
         "deploy",
@@ -553,6 +638,7 @@ def main() -> None:
         "load": cmd_load,
         "mcp": cmd_mcp,
         "mcp-stdio": cmd_mcp_stdio,
+        "skill": cmd_skill,
         "deploy": _lazy_deploy,
     }
 
