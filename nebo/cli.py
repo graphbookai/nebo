@@ -904,10 +904,38 @@ def main() -> None:
     }
 
     handler = commands.get(args.command)
-    if handler:
-        handler(args)
-    else:
+    if not handler:
         parser.print_help()
+        return
+
+    # Translate daemon errors into clean messages + non-zero exit codes so
+    # agents and shell pipelines see a usable error instead of a Python
+    # traceback. HTTPError covers auth (401), missing routes (404), and
+    # malformed query params (422). URLError covers daemon-not-running.
+    import urllib.error
+
+    try:
+        handler(args)
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        msg = f"daemon returned HTTP {e.code}"
+        if e.code == 401:
+            msg += " (unauthorized — pass --api-token or set NEBO_API_TOKEN)"
+        if body:
+            msg += f": {body}"
+        print(msg, file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        print(
+            f"could not reach the nebo daemon: {e.reason}. "
+            "Start it with `nebo serve` (default port 7861).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":
