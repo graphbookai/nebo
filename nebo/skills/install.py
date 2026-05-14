@@ -2,9 +2,11 @@
 
 Two platforms are supported:
 
-- ``claude-code``: copies ``SKILL.md`` to ``~/.claude/skills/<name>/SKILL.md``
-  (user-level, the default) or ``.claude/skills/<name>/SKILL.md`` under the
-  current directory (project-level, ``--project``).
+- ``claude-code``: copies ``SKILL.md`` to ``~/.claude/skills/nebo-<name>/SKILL.md``
+  (user-level, the default) or ``.claude/skills/nebo-<name>/SKILL.md`` under
+  the current directory (project-level, ``--project``). The ``nebo-`` prefix
+  on the directory keeps these visually grouped and distinguishable from
+  other skills installed in the same tree.
 
 - ``agents-md``: upserts the skill content into ``AGENTS.md`` in the current
   directory. A pair of HTML markers (``<!-- nebo-skill:<name> start -->`` …
@@ -62,16 +64,28 @@ def _agents_md_path() -> Path:
     return Path.cwd() / "AGENTS.md"
 
 
+def _claude_dirname(name: str) -> str:
+    """Directory name to use under Claude Code's skills/ for `name`.
+
+    Skills shipped with nebo land under ``nebo-<name>`` so they group
+    visually alongside other ``nebo-*`` entries in the user's skills dir.
+    Names that already carry the prefix (e.g. someone calling with
+    ``skill="nebo-runs-qa"``) are kept as-is rather than double-prefixed.
+    """
+    return name if name.startswith("nebo-") else f"nebo-{name}"
+
+
 def install_claude_code(skill: str | None = None, project: bool = False) -> list[Path]:
     """Install one or more skills into the Claude Code skills directory.
 
-    Returns the list of written file paths.
+    Each skill lands at ``<base>/nebo-<name>/SKILL.md`` so it's clearly a
+    nebo-shipped skill at a glance. Returns the list of written file paths.
     """
     base = _claude_skills_dir(project)
     base.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     for name in _resolve_skills(skill):
-        target_dir = base / name
+        target_dir = base / _claude_dirname(name)
         target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / "SKILL.md"
         target.write_text(read_skill(name), encoding="utf-8")

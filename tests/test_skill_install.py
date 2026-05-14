@@ -28,20 +28,25 @@ def test_read_skill_unknown_raises():
 
 
 class TestClaudeCodeInstall:
-    def test_user_level_install_writes_skill_md(self, tmp_path, monkeypatch):
+    def test_user_level_install_writes_prefixed_skill_dir(self, tmp_path, monkeypatch):
+        # Each skill lands under `skills/nebo-<name>/SKILL.md` so it's
+        # visually distinguishable from other Claude Code skills.
         monkeypatch.setenv("NEBO_CLAUDE_HOME", str(tmp_path))
         written = skill_install.install_claude_code(skill="runs-qa")
         assert len(written) == 1
-        target = tmp_path / "skills" / "runs-qa" / "SKILL.md"
+        target = tmp_path / "skills" / "nebo-runs-qa" / "SKILL.md"
         assert target.exists()
         assert written[0] == target
         assert "nebo-runs-qa" in target.read_text(encoding="utf-8")
+        # And NOT at the un-prefixed location.
+        assert not (tmp_path / "skills" / "runs-qa").exists()
 
-    def test_install_all_writes_every_skill(self, tmp_path, monkeypatch):
+    def test_install_all_uses_nebo_prefix_on_every_dir(self, tmp_path, monkeypatch):
         monkeypatch.setenv("NEBO_CLAUDE_HOME", str(tmp_path))
         written = skill_install.install_claude_code(skill="all")
         names = {p.parent.name for p in written}
-        assert names == set(skills.available_skills())
+        expected = {f"nebo-{s}" for s in skills.available_skills()}
+        assert names == expected
 
     def test_unknown_skill_raises(self, tmp_path, monkeypatch):
         monkeypatch.setenv("NEBO_CLAUDE_HOME", str(tmp_path))
@@ -53,11 +58,11 @@ class TestClaudeCodeInstall:
         # NEBO_CLAUDE_HOME should be ignored when --project is set.
         monkeypatch.setenv("NEBO_CLAUDE_HOME", str(tmp_path / "elsewhere"))
         written = skill_install.install_claude_code(skill="runs-qa", project=True)
-        target = tmp_path / ".claude" / "skills" / "runs-qa" / "SKILL.md"
+        target = tmp_path / ".claude" / "skills" / "nebo-runs-qa" / "SKILL.md"
         assert target.exists()
         assert written[0] == target
         # Elsewhere dir should NOT have been created.
-        assert not (tmp_path / "elsewhere" / "skills" / "runs-qa").exists()
+        assert not (tmp_path / "elsewhere" / "skills" / "nebo-runs-qa").exists()
 
 
 class TestAgentsMdInstall:
@@ -115,7 +120,7 @@ class TestInstallDispatcher:
             skill="runs-qa",
         )
         assert set(results) == set(skill_install.PLATFORMS)
-        cc_path = tmp_path / "claude" / "skills" / "runs-qa" / "SKILL.md"
+        cc_path = tmp_path / "claude" / "skills" / "nebo-runs-qa" / "SKILL.md"
         assert cc_path.exists()
         agents_path = tmp_path / "project" / "AGENTS.md"
         assert agents_path.exists()
