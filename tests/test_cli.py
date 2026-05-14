@@ -138,3 +138,53 @@ class TestLoadRemote:
         assert "train" in run.loggables
         loss = run.loggables["train"].metrics["loss"]
         assert [e["value"] for e in loss["entries"]] == [0.9, 0.4]
+
+
+# ---------------------------------------------------------------------------
+# nebo runs list|show|wait
+# ---------------------------------------------------------------------------
+
+import io
+from contextlib import redirect_stdout
+from unittest.mock import patch
+
+
+def _run_cli(argv: list[str]) -> str:
+    """Run nebo.cli.main with argv (excluding the program name) and return stdout."""
+    buf = io.StringIO()
+    from nebo.cli import main
+    with redirect_stdout(buf), patch("sys.argv", ["nebo"] + argv):
+        main()
+    return buf.getvalue()
+
+
+def test_runs_list_json(monkeypatch):
+    monkeypatch.setattr(
+        "nebo.client.get_run_history",
+        lambda **c: {"runs": [{"id": "abc", "status": "completed"}]},
+    )
+    out = _run_cli(["runs", "list", "--json"])
+    assert json.loads(out)["runs"][0]["id"] == "abc"
+
+
+def test_runs_show_json(monkeypatch):
+    monkeypatch.setattr(
+        "nebo.client.get_run_status",
+        lambda rid, **c: {"id": rid, "node_count": 3},
+    )
+    out = _run_cli(["runs", "show", "abc", "--json"])
+    assert json.loads(out) == {"id": "abc", "node_count": 3}
+
+
+def test_runs_wait_passes_args(monkeypatch):
+    received: dict = {}
+    def fake_wait(run_id, **kwargs):
+        received["run_id"] = run_id
+        received.update(kwargs)
+        return {"status": "alert", "alert": {"title": "x"}}
+    monkeypatch.setattr("nebo.client.wait_for_alert", fake_wait)
+    out = _run_cli(["runs", "wait", "abc", "--timeout", "10", "--min-level", "30", "--json"])
+    assert json.loads(out)["status"] == "alert"
+    assert received["run_id"] == "abc"
+    assert received["timeout"] == 10.0
+    assert received["min_level"] == 30

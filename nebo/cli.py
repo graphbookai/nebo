@@ -512,6 +512,48 @@ def cmd_skill(args: argparse.Namespace) -> None:
     sys.exit(2)
 
 
+def cmd_runs(args: argparse.Namespace) -> None:
+    """Inspect runs: list / show / wait."""
+    from nebo import client
+    sub = args.runs_action
+    conn = _conn_kwargs(args)
+    if sub == "list":
+        result = client.get_run_history(**conn)
+        if args.json:
+            print(json.dumps(result))
+        else:
+            for r in result.get("runs", []):
+                rid = r.get("id", "")
+                status = r.get("status", "")
+                name = r.get("run_name") or ""
+                print(f"{rid:<20} {status:<10} {name}")
+        return
+    if sub == "show":
+        result = client.get_run_status(args.run_id, **conn)
+        if args.json:
+            print(json.dumps(result))
+        else:
+            for k, v in result.items():
+                print(f"{k}: {v}")
+        return
+    if sub == "wait":
+        result = client.wait_for_alert(
+            args.run_id,
+            timeout=args.timeout,
+            min_level=args.min_level,
+            **conn,
+        )
+        if args.json:
+            print(json.dumps(result))
+        else:
+            if result.get("status") == "alert":
+                a = result["alert"]
+                print(f"ALERT [{a.get('level_name', '')}] {a.get('title', '')}: {a.get('text', '')}")
+            else:
+                print(f"status: {result.get('status')}")
+        return
+
+
 def cmd_mcp_stdio(args: argparse.Namespace) -> None:
     """Run the MCP stdio transport (bridges stdio <-> daemon HTTP)."""
     from nebo.mcp.stdio import run_stdio_bridge
@@ -649,6 +691,29 @@ def main() -> None:
         help="For claude-code: install under ./.claude/skills instead of ~/.claude/skills",
     )
 
+    # runs
+    p_runs = subparsers.add_parser("runs", help="Inspect runs")
+    runs_sub = p_runs.add_subparsers(dest="runs_action", required=True)
+    runs_sub.add_parser(
+        "list",
+        parents=[_common_conn_parser()],
+        help="List all runs known to the daemon",
+    )
+    p_runs_show = runs_sub.add_parser(
+        "show",
+        parents=[_common_conn_parser()],
+        help="Show summary for one run",
+    )
+    p_runs_show.add_argument("run_id")
+    p_runs_wait = runs_sub.add_parser(
+        "wait",
+        parents=[_common_conn_parser()],
+        help="Block until an alert fires for the run",
+    )
+    p_runs_wait.add_argument("run_id")
+    p_runs_wait.add_argument("--timeout", type=float, default=300.0)
+    p_runs_wait.add_argument("--min-level", type=int, default=20)
+
     # deploy
     p_deploy = subparsers.add_parser(
         "deploy",
@@ -676,6 +741,7 @@ def main() -> None:
         "mcp-stdio": cmd_mcp_stdio,
         "skill": cmd_skill,
         "deploy": _lazy_deploy,
+        "runs": cmd_runs,
     }
 
     handler = commands.get(args.command)
