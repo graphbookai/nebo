@@ -14,6 +14,7 @@ class MessageType(str, Enum):
     LOG = "log"
     METRIC = "metric"
     IMAGE = "image"
+    ALERT = "alert"
     AUDIO = "audio"
     PROGRESS = "progress"
     ERROR = "error"
