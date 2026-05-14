@@ -1,6 +1,6 @@
 # tests/test_http_client.py
 import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from nebo.client import _resolve_url, _get
 
