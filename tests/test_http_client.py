@@ -47,3 +47,88 @@ def test_get_sends_auth_header_when_token_set(monkeypatch):
     assert result == {"ok": True}
     assert captured["url"] == "http://h/health"
     assert captured["headers"].get("X-nebo-token") == "secret"
+
+
+from nebo.client import (
+    get_run_history,
+    get_run_status,
+    get_description,
+    get_graph,
+    get_loggable_status,
+    get_logs,
+    get_metrics,
+    get_errors,
+    load_file,
+    _post,
+)
+
+
+def _stub_urlopen(monkeypatch, expected_body: bytes) -> dict:
+    captured: dict = {"calls": []}
+
+    class FakeResp:
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def read(self):
+            return expected_body
+
+    def fake_urlopen(req, timeout=5.0):
+        captured["calls"].append({
+            "url": req.full_url,
+            "method": req.get_method(),
+            "data": req.data,
+            "headers": dict(req.header_items()),
+        })
+        return FakeResp()
+
+    monkeypatch.setattr("nebo.client.urllib.request.urlopen", fake_urlopen)
+    return captured
+
+
+def test_get_run_history_hits_runs_endpoint(monkeypatch):
+    cap = _stub_urlopen(monkeypatch, b'{"runs": []}')
+    result = get_run_history(url="http://h")
+    assert result == {"runs": []}
+    assert cap["calls"][0]["url"] == "http://h/runs"
+
+
+def test_get_metrics_passes_filter_query_params(monkeypatch):
+    cap = _stub_urlopen(monkeypatch, b'{"metrics": {}}')
+    get_metrics(
+        "node_a",
+        name="loss",
+        tag="train",
+        step=5,
+        run_id="abc123",
+        url="http://h",
+    )
+    qs = cap["calls"][0]["url"].split("?", 1)[1]
+    parts = dict(p.split("=", 1) for p in qs.split("&"))
+    assert parts["name"] == "loss"
+    assert parts["tag"] == "train"
+    assert parts["step"] == "5"
+
+
+def test_get_logs_run_scoped(monkeypatch):
+    cap = _stub_urlopen(monkeypatch, b'{"logs": []}')
+    get_logs(run_id="abc", url="http://h")
+    assert cap["calls"][0]["url"] == "http://h/runs/abc/logs"
+
+
+def test_post_sends_json_body(monkeypatch):
+    cap = _stub_urlopen(monkeypatch, b'{"status": "ok"}')
+    result = _post("/events", [{"type": "metric"}], url="http://h", api_token="t")
+    assert result == {"status": "ok"}
+    assert cap["calls"][0]["method"] == "POST"
+    assert json.loads(cap["calls"][0]["data"]) == [{"type": "metric"}]
+    assert cap["calls"][0]["headers"]["Content-type"] == "application/json"
+    assert cap["calls"][0]["headers"]["X-nebo-token"] == "t"
+
+
+def test_load_file_posts_filepath(monkeypatch):
+    cap = _stub_urlopen(monkeypatch, b'{"status": "loaded"}')
+    load_file("/tmp/x.nebo", url="http://h")
+    assert cap["calls"][0]["url"] == "http://h/load"
+    assert json.loads(cap["calls"][0]["data"]) == {"filepath": "/tmp/x.nebo"}

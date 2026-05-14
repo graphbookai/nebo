@@ -52,3 +52,106 @@ def _get(
         req.add_header("X-Nebo-Token", token)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def _post(
+    path: str,
+    body: Any,
+    *,
+    url: Optional[str] = None,
+    port: Optional[int] = None,
+    api_token: Optional[str] = None,
+    timeout: float = 10.0,
+) -> Any:
+    base = _resolve_url(url=url, port=port)
+    token = _resolve_token(api_token)
+    full_url = f"{base}{path}"
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(full_url, data=data, method="POST")
+    req.add_header("Content-Type", "application/json")
+    if token:
+        req.add_header("X-Nebo-Token", token)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _run_scope(run_id: Optional[str]) -> str:
+    """Return `/runs/<id>` for run-scoped reads, or '' for the legacy
+    'latest run' read paths kept for backward compatibility."""
+    return f"/runs/{urllib.parse.quote(run_id)}" if run_id else ""
+
+
+def get_run_history(**conn) -> Any:
+    return _get("/runs", **conn)
+
+
+def get_run_status(run_id: str, **conn) -> Any:
+    return _get(f"/runs/{urllib.parse.quote(run_id)}", **conn)
+
+
+def get_description(run_id: Optional[str] = None, **conn) -> Any:
+    if run_id:
+        return _get(f"{_run_scope(run_id)}/description", **conn)
+    return _get("/description", **conn)
+
+
+def get_graph(run_id: Optional[str] = None, **conn) -> Any:
+    return _get(f"{_run_scope(run_id)}/graph" if run_id else "/graph", **conn)
+
+
+def get_loggable_status(loggable_id: str, run_id: Optional[str] = None, **conn) -> Any:
+    if run_id:
+        path = f"{_run_scope(run_id)}/loggables/{urllib.parse.quote(loggable_id)}"
+    else:
+        path = f"/loggables/{urllib.parse.quote(loggable_id)}"
+    return _get(path, **conn)
+
+
+def get_logs(
+    loggable_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    limit: Optional[int] = None,
+    **conn,
+) -> Any:
+    path = f"{_run_scope(run_id)}/logs" if run_id else "/logs"
+    qs: list[str] = []
+    if loggable_id:
+        qs.append(f"loggable_id={urllib.parse.quote(loggable_id)}")
+    if limit is not None:
+        qs.append(f"limit={int(limit)}")
+    if qs:
+        path = f"{path}?{'&'.join(qs)}"
+    return _get(path, **conn)
+
+
+def get_metrics(
+    loggable_id: str,
+    *,
+    name: Optional[str] = None,
+    tag: Optional[str] = None,
+    step: Optional[int] = None,
+    run_id: Optional[str] = None,
+    **conn,
+) -> Any:
+    if run_id:
+        path = f"{_run_scope(run_id)}/loggables/{urllib.parse.quote(loggable_id)}"
+    else:
+        path = f"/loggables/{urllib.parse.quote(loggable_id)}"
+    qs: list[str] = []
+    if name:
+        qs.append(f"name={urllib.parse.quote(name)}")
+    if tag:
+        qs.append(f"tag={urllib.parse.quote(tag)}")
+    if step is not None:
+        qs.append(f"step={int(step)}")
+    if qs:
+        path = f"{path}?{'&'.join(qs)}"
+    return _get(path, **conn)
+
+
+def get_errors(run_id: Optional[str] = None, **conn) -> Any:
+    return _get(f"{_run_scope(run_id)}/errors" if run_id else "/errors", **conn)
+
+
+def load_file(filepath: str, **conn) -> Any:
+    return _post("/load", {"filepath": filepath}, **conn)
