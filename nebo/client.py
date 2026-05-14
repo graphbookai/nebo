@@ -10,6 +10,7 @@ Connection settings resolve in this order:
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import time
@@ -248,4 +249,101 @@ def log_text(
             "step": e.get("step"),
             "timestamp": time.time(),
         })
+    return _post(_events_path(run_id), events, **conn)
+
+
+MEDIA_BYTES_LIMIT = 50 * 1024 * 1024  # 50 MB
+
+
+def _normalize_media_payload(entry: dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
+    """Return (data_b64, url) where exactly one is non-None.
+
+    Accepts entries with `path`, `url`, or `data`. Reads `path` locally and
+    base64-encodes. Rejects entries that supply more than one source.
+    """
+    sources = [k for k in ("path", "url", "data") if entry.get(k)]
+    if len(sources) > 1:
+        raise ValueError(
+            f"entry {entry.get('name')!r}: supply only one of path/url/data (got {sources})"
+        )
+    if not sources:
+        raise ValueError(f"entry {entry.get('name')!r}: needs one of path, url, or data")
+    if entry.get("path"):
+        with open(entry["path"], "rb") as fh:
+            raw = fh.read()
+        if len(raw) > MEDIA_BYTES_LIMIT:
+            raise ValueError(
+                f"entry {entry.get('name')!r}: {len(raw)} bytes exceeds {MEDIA_BYTES_LIMIT}"
+            )
+        return base64.b64encode(raw).decode("ascii"), None
+    if entry.get("data"):
+        return str(entry["data"]), None
+    return None, str(entry["url"])
+
+
+def log_image(
+    entries: list[dict[str, Any]],
+    *,
+    run_id: Optional[str] = None,
+    **conn,
+) -> Any:
+    """Push image entries to the daemon.
+
+    Each entry: ``{loggable_id?, name, path? | url? | data?, step?, labels?}``.
+    Exactly one of `path` (local file, read+base64-encoded here), `url`
+    (fetched server-side), or `data` (already-base64) must be set.
+    `loggable_id` defaults to ``__agent__``.
+    """
+    events: list[dict[str, Any]] = []
+    for e in entries:
+        lid = e.get("loggable_id") or "__agent__"
+        data_b64, url = _normalize_media_payload(e)
+        events.append(_ensure_loggable_event(lid))
+        evt: dict[str, Any] = {
+            "type": "image",
+            "loggable_id": lid,
+            "name": e.get("name", ""),
+            "step": e.get("step"),
+            "timestamp": time.time(),
+        }
+        if data_b64 is not None:
+            evt["data"] = data_b64
+        else:
+            evt["url"] = url
+        if "labels" in e:
+            evt["labels"] = e["labels"]
+        events.append(evt)
+    return _post(_events_path(run_id), events, **conn)
+
+
+def log_audio(
+    entries: list[dict[str, Any]],
+    *,
+    run_id: Optional[str] = None,
+    **conn,
+) -> Any:
+    """Push audio entries to the daemon.
+
+    Each entry: ``{loggable_id?, name, path? | url? | data?, sr?, step?}``.
+    Exactly one of `path`/`url`/`data` must be set. `sr` defaults to 16000.
+    `loggable_id` defaults to ``__agent__``.
+    """
+    events: list[dict[str, Any]] = []
+    for e in entries:
+        lid = e.get("loggable_id") or "__agent__"
+        data_b64, url = _normalize_media_payload(e)
+        events.append(_ensure_loggable_event(lid))
+        evt: dict[str, Any] = {
+            "type": "audio",
+            "loggable_id": lid,
+            "name": e.get("name", ""),
+            "sr": e.get("sr", 16000),
+            "step": e.get("step"),
+            "timestamp": time.time(),
+        }
+        if data_b64 is not None:
+            evt["data"] = data_b64
+        else:
+            evt["url"] = url
+        events.append(evt)
     return _post(_events_path(run_id), events, **conn)

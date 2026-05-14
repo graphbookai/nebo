@@ -134,6 +134,9 @@ def test_load_file_posts_filepath(monkeypatch):
     assert json.loads(cap["calls"][0]["data"]) == {"filepath": "/tmp/x.nebo"}
 
 
+import base64
+from pathlib import Path
+
 from nebo.client import log_metric, log_text
 
 
@@ -163,3 +166,53 @@ def test_log_text_routes_default_to_agent(monkeypatch):
     log_text([{"message": "hi"}], run_id="r1")
     log_event = next(e for e in posted[0][1] if e["type"] == "log")
     assert log_event["loggable_id"] == "__agent__"
+
+
+import pytest
+from nebo.client import log_image, log_audio
+
+
+def test_log_image_reads_path_and_submits_base64(monkeypatch, tmp_path):
+    raw = b"\x89PNG\r\n\x1a\nfake"
+    img_path: Path = tmp_path / "x.png"
+    img_path.write_bytes(raw)
+
+    posted: list = []
+    monkeypatch.setattr(
+        "nebo.client._post",
+        lambda path, body, **c: posted.append((path, body)) or {"status": "ok"},
+    )
+    log_image([{"name": "img", "path": str(img_path)}], run_id="r1")
+    img_evt = next(e for e in posted[0][1] if e["type"] == "image")
+    assert img_evt["data"] == base64.b64encode(raw).decode("ascii")
+
+
+def test_log_image_passes_url_unchanged(monkeypatch):
+    posted: list = []
+    monkeypatch.setattr(
+        "nebo.client._post",
+        lambda path, body, **c: posted.append((path, body)) or {"status": "ok"},
+    )
+    log_image([{"name": "img", "url": "https://example.com/x.png"}], run_id="r1")
+    img_evt = next(e for e in posted[0][1] if e["type"] == "image")
+    assert img_evt["url"] == "https://example.com/x.png"
+
+
+def test_log_image_rejects_two_sources(tmp_path):
+    f = tmp_path / "x.png"
+    f.write_bytes(b"x")
+    with pytest.raises(ValueError):
+        log_image([{"name": "img", "path": str(f), "url": "https://x"}])
+
+
+def test_log_audio_defaults_sr(monkeypatch, tmp_path):
+    f = tmp_path / "a.wav"
+    f.write_bytes(b"RIFFfake")
+    posted: list = []
+    monkeypatch.setattr(
+        "nebo.client._post",
+        lambda path, body, **c: posted.append((path, body)) or {"status": "ok"},
+    )
+    log_audio([{"name": "snd", "path": str(f)}], run_id="r1")
+    audio_evt = next(e for e in posted[0][1] if e["type"] == "audio")
+    assert audio_evt["sr"] == 16000
