@@ -801,3 +801,37 @@ class TestMetricsQueryFilters:
         assert resp.status_code == 200
         entries = resp.json()["metrics"]["loss"]["entries"]
         assert len(entries) == 2
+
+
+def test_alert_event_is_appended_to_run():
+    """Alert events must be persisted on Run.alerts and added to significant_events."""
+    from fastapi.testclient import TestClient
+    from nebo.server.daemon import DaemonState, create_daemon_app
+
+    state = DaemonState()
+    state.create_run("test.py", run_id="r_alert_1", store=False)
+
+    app = create_daemon_app(state=state)
+    client = TestClient(app)
+
+    resp = client.post(
+        "/events?run_id=r_alert_1",
+        json=[{
+            "type": "alert",
+            "loggable_id": "node_a",
+            "data": {
+                "title": "Loss went up",
+                "text": "epoch 12",
+                "level": 30,
+                "level_name": "WARN",
+                "timestamp": 1700000000.0,
+            },
+        }],
+    )
+    assert resp.status_code == 200
+    run = state.runs["r_alert_1"]
+    assert len(run.alerts) == 1
+    assert run.alerts[0]["title"] == "Loss went up"
+    assert run.alerts[0]["level"] == 30
+    assert run.alerts[0]["level_name"] == "WARN"
+    assert run.alerts[0]["loggable_id"] == "node_a"

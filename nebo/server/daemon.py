@@ -101,6 +101,7 @@ class Run:
     stdout_lines: list[str] = field(default_factory=list)
     stderr_lines: list[str] = field(default_factory=list)
     significant_events: list[dict] = field(default_factory=list)
+    alerts: list[dict] = field(default_factory=list)
     run_name: Optional[str] = None
     run_config: dict = field(default_factory=dict)
 
@@ -393,6 +394,24 @@ class DaemonState:
                 "timestamp": error.timestamp,
                 "loggable_id": error.node_name,
                 "message": error.exception_message,
+            })
+
+        elif etype == "alert":
+            data = event.get("data", event)
+            alert = {
+                "title": data.get("title", ""),
+                "text": data.get("text", ""),
+                "level": int(data.get("level") or 20),
+                "level_name": data.get("level_name", ""),
+                "loggable_id": event.get("loggable_id") or data.get("loggable_id"),
+                "timestamp": data.get("timestamp", time.time()),
+            }
+            run.alerts.append(alert)
+            run.significant_events.append({
+                "type": "alert",
+                "timestamp": alert["timestamp"],
+                "loggable_id": alert["loggable_id"],
+                "message": alert["title"],
             })
 
         elif etype == "loggable_register":
