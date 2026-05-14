@@ -222,3 +222,53 @@ def test_describe_json(monkeypatch):
     )
     out = _run_cli(["describe", "--json"])
     assert json.loads(out)["workflow_description"] == "hello"
+
+
+# ---------------------------------------------------------------------------
+# nebo metrics list|get|log
+# ---------------------------------------------------------------------------
+
+
+def test_metrics_get_passes_filters(monkeypatch):
+    received: dict = {}
+    def fake(lid, **kw):
+        received["loggable_id"] = lid
+        received.update(kw)
+        return {"loggable_id": lid, "metrics": {"loss": {"type": "line", "entries": []}}}
+    monkeypatch.setattr("nebo.client.get_metrics", fake)
+    _run_cli([
+        "metrics", "get", "node_a",
+        "--name", "loss",
+        "--tag", "train",
+        "--step", "5",
+        "--run", "abc",
+        "--json",
+    ])
+    assert received["loggable_id"] == "node_a"
+    assert received["name"] == "loss"
+    assert received["tag"] == "train"
+    assert received["step"] == 5
+    assert received["run_id"] == "abc"
+
+
+def test_metrics_log_passes_entries(monkeypatch):
+    received: dict = {}
+    def fake(entries, **kw):
+        received["entries"] = entries
+        received.update(kw)
+        return {"status": "ok"}
+    monkeypatch.setattr("nebo.client.log_metric", fake)
+    payload = '[{"name":"x","value":0.1,"type":"line"}]'
+    _run_cli(["metrics", "log", "--entries-json", payload, "--run", "abc", "--json"])
+    assert received["entries"] == [{"name": "x", "value": 0.1, "type": "line"}]
+    assert received["run_id"] == "abc"
+
+
+def test_metrics_list_derives_from_run_status(monkeypatch):
+    monkeypatch.setattr(
+        "nebo.client.get_run_status",
+        lambda rid, **c: {"metrics_index": {"node_a": ["loss", "accuracy"]}},
+    )
+    out = _run_cli(["metrics", "list", "--run", "abc", "--json"])
+    parsed = json.loads(out)
+    assert parsed["node_a"] == ["loss", "accuracy"]

@@ -591,6 +591,61 @@ def cmd_describe(args: argparse.Namespace) -> None:
     print(result.get("workflow_description") or "<no description>")
 
 
+def cmd_metrics(args: argparse.Namespace) -> None:
+    """Read or write metrics: list / get / log."""
+    from nebo import client
+    sub = args.metrics_action
+    conn = _conn_kwargs(args)
+
+    if sub == "list":
+        # Derive from run_status; if no --run given, hit history and pick latest.
+        if args.run:
+            status = client.get_run_status(args.run, **conn)
+        else:
+            history = client.get_run_history(**conn)
+            runs = history.get("runs", [])
+            if not runs:
+                if args.json:
+                    print(json.dumps({}))
+                else:
+                    print("(no runs)")
+                return
+            status = client.get_run_status(runs[-1]["id"], **conn)
+        index = status.get("metrics_index", {})
+        if args.json:
+            print(json.dumps(index))
+        else:
+            for lid, names in index.items():
+                print(f"{lid}: {', '.join(names)}")
+        return
+
+    if sub == "get":
+        result = client.get_metrics(
+            args.loggable_id,
+            name=args.name,
+            tag=args.tag,
+            step=args.step,
+            run_id=args.run,
+            **conn,
+        )
+        if args.json:
+            print(json.dumps(result))
+        else:
+            for mname, series in result.get("metrics", {}).items():
+                count = len(series.get("entries", []))
+                print(f"{mname} ({series.get('type')}): {count} entries")
+        return
+
+    if sub == "log":
+        entries = json.loads(args.entries_json)
+        result = client.log_metric(entries, run_id=args.run, **conn)
+        if args.json:
+            print(json.dumps(result))
+        else:
+            print(result.get("status", "ok"))
+        return
+
+
 def cmd_mcp_stdio(args: argparse.Namespace) -> None:
     """Run the MCP stdio transport (bridges stdio <-> daemon HTTP)."""
     from nebo.mcp.stdio import run_stdio_bridge
@@ -768,6 +823,24 @@ def main() -> None:
     p_desc = subparsers.add_parser("describe", parents=[_common_conn_parser()], help="Print the workflow description")
     p_desc.add_argument("--run", help="Run id (latest if omitted)")
 
+    # metrics
+    p_metrics = subparsers.add_parser("metrics", help="Read or write metrics")
+    metrics_sub = p_metrics.add_subparsers(dest="metrics_action", required=True)
+
+    p_ml = metrics_sub.add_parser("list", parents=[_common_conn_parser()], help="List metric names per loggable")
+    p_ml.add_argument("--run", help="Run id (latest if omitted)")
+
+    p_mg = metrics_sub.add_parser("get", parents=[_common_conn_parser()], help="Fetch metric entries for a loggable")
+    p_mg.add_argument("loggable_id")
+    p_mg.add_argument("--name", help="Filter to a specific metric name")
+    p_mg.add_argument("--tag", help="Filter line/scatter entries by tag")
+    p_mg.add_argument("--step", type=int, help="Filter entries by exact step")
+    p_mg.add_argument("--run", help="Run id (latest if omitted)")
+
+    p_mlog = metrics_sub.add_parser("log", parents=[_common_conn_parser()], help="Write metric entries")
+    p_mlog.add_argument("--entries-json", required=True, help="JSON list of metric entries")
+    p_mlog.add_argument("--run", help="Run id")
+
     # deploy
     p_deploy = subparsers.add_parser(
         "deploy",
@@ -799,6 +872,7 @@ def main() -> None:
         "graph": cmd_graph,
         "loggables": cmd_loggables,
         "describe": cmd_describe,
+        "metrics": cmd_metrics,
     }
 
     handler = commands.get(args.command)
