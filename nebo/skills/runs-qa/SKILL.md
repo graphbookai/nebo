@@ -77,6 +77,23 @@ Value shapes per chart type:
 derived work. Use a distinct `name` (e.g. `derived_<intent>`) to avoid
 colliding with user-emitted metrics.
 
+### Adding to an existing chart vs. making a new one
+
+Each `(loggable_id, name)` pair is one chart. The **chart type** locks
+on first emission for that pair — once a series is created as `scatter`
+you can't later re-emit it as `bar`. The **data and labels do not lock**:
+
+- `line` and `scatter` *accumulate*. Re-emitting the same
+  `(loggable_id, name)` with a new value (and, for scatter, new labels)
+  adds points/series to the existing chart. Old data stays.
+- `bar`, `pie`, `histogram` are *snapshots*. Re-emitting overwrites the
+  prior value — the chart now shows only the new data.
+
+So to overlay agent-computed points onto a user's existing scatter chart,
+emit with the user's exact `loggable_id` and `name` (and `type:"scatter"`).
+To keep agent output separated, emit to `__agent__` (the default) under a
+new `name`.
+
 ## Images and audio
 
 You can emit images or audio with three input shapes:

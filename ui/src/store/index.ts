@@ -818,13 +818,16 @@ export const useStore = create<NeboStore>((set, get) => ({
             const colorsFlag = (event.colors as boolean | undefined) ?? (data.colors as boolean | undefined)
             if (colorsFlag !== undefined) entry.colors = colorsFlag
             // Immutable update so `useMemo([series.entries])` downstream fires
-            // on every change. Line metrics accumulate; every other type is
-            // a snapshot that overwrites prior emissions.
+            // on every change. Line and scatter accumulate (new entries
+            // append to the series); bar / pie / histogram are snapshots
+            // that overwrite prior emissions. This matches the daemon's
+            // persistence model in `nebo/server/daemon.py::_process_event`.
             const existing = run.loggableMetrics[lid]?.[mname]
+            const accumulates = mtype === 'line' || mtype === 'scatter'
             const nextEntries =
               !existing
                 ? [entry]
-                : mtype === 'line'
+                : accumulates
                   ? [...existing.entries, entry]
                   : [entry]
             const nextSeries: LoggableMetricSeries = existing
