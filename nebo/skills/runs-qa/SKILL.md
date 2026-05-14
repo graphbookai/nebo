@@ -1,6 +1,6 @@
 ---
 name: nebo-runs-qa
-description: Use when the user asks questions about nebo runs — logs, metrics, errors, DAG structure, comparisons across runs — or wants you to compute and display a derived metric (line, bar, pie, scatter, histogram) in the nebo web UI. Requires the nebo daemon to be running (`nebo serve`) and the nebo MCP server configured.
+description: Use when the user asks questions about nebo runs — logs, metrics, errors, DAG structure, comparisons across runs — or wants you to compute and display a derived metric (line, bar, pie, scatter, histogram) in the nebo web UI. Talks to the daemon via the `nebo` CLI (no MCP configuration required). The daemon must be running (`nebo serve`).
 ---
 
 # Nebo Q&A and derived metrics (CLI)
