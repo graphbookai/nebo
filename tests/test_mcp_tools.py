@@ -141,18 +141,18 @@ class TestMCPWriteTools:
         # loggable_id was filled in to __agent__.
         captured: list[dict] = []
 
-        def fake_post(url, payload, timeout=10.0):  # noqa: ARG001
+        def fake_post(path, payload, *, url=None, port=None, api_token=None, timeout=10.0):  # noqa: ARG001
             captured.extend(payload)
             return {"status": "ok"}
 
-        import nebo.mcp.tools as tools
-        original = tools._post
-        tools._post = fake_post  # type: ignore[assignment]
+        import nebo.client as client_mod
+        original = client_mod._post
+        client_mod._post = fake_post  # type: ignore[assignment]
         try:
             from nebo.mcp.tools import log_metric
             await log_metric({"name": "loss", "value": 0.1})
         finally:
-            tools._post = original  # type: ignore[assignment]
+            client_mod._post = original  # type: ignore[assignment]
 
         metric_events = [e for e in captured if e.get("type") == "metric"]
         assert metric_events
@@ -176,14 +176,18 @@ class TestMCPWriteTools:
         assert "url" in result["error"] or "data" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_log_image_rejects_non_http_url(self) -> None:
+    async def test_log_image_passes_url_to_daemon(self) -> None:
+        # URLs (including non-http schemes) are forwarded to the daemon
+        # rather than fetched by the bridge. With no live daemon on port 19999
+        # we get a write-failed error; with a live daemon the daemon handles
+        # validation. Either way the tool should not crash.
         from nebo.mcp.tools import log_image
-        # The bridge refuses file:// and other non-http(s) URLs.
         result = await log_image(
             {"loggable_id": "x", "name": "img", "url": "file:///etc/passwd"},
+            server_url="http://localhost:19999",
         )
         assert "error" in result
-        assert "http" in result["error"]
+        assert "daemon write failed" in result["error"]
 
     @pytest.mark.asyncio
     async def test_log_text_accepts_single_entry(self) -> None:
@@ -203,18 +207,18 @@ class TestMCPWriteTools:
         # agent-authored entries), not __global__.
         captured: list[dict] = []
 
-        def fake_post(url, payload, timeout=10.0):  # noqa: ARG001
+        def fake_post(path, payload, *, url=None, port=None, api_token=None, timeout=10.0):  # noqa: ARG001
             captured.extend(payload)
             return {"status": "ok"}
 
-        import nebo.mcp.tools as tools
-        original = tools._post
-        tools._post = fake_post  # type: ignore[assignment]
+        import nebo.client as client_mod
+        original = client_mod._post
+        client_mod._post = fake_post  # type: ignore[assignment]
         try:
             from nebo.mcp.tools import log_text
             await log_text({"message": "hello from agent"})
         finally:
-            tools._post = original  # type: ignore[assignment]
+            client_mod._post = original  # type: ignore[assignment]
 
         log_events = [e for e in captured if e.get("type") == "log"]
         assert log_events
