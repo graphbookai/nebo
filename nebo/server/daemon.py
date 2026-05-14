@@ -945,6 +945,51 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         run = state.runs[run_id]
         return {"status": "timeout", "run_status": run.status}
 
+    # --- Alert wait endpoint ---
+
+    @app.get("/runs/{run_id}/alerts/wait")
+    async def runs_alerts_wait(
+        run_id: str,
+        timeout: float = 300.0,
+        min_level: int = 20,
+    ) -> dict:
+        if run_id not in state.runs:
+            return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
+
+        run = state.runs[run_id]
+        deadline = asyncio.get_event_loop().time() + max(0.0, float(timeout))
+
+        def _find_qualifying_alert(start: int) -> Optional[dict]:
+            for alert in run.alerts[start:]:
+                if alert.get("level", 20) >= min_level:
+                    return alert
+            return None
+
+        # Check for existing qualifying alerts before waiting.
+        seen = 0
+        match = _find_qualifying_alert(seen)
+        if match:
+            return {"status": "alert", "alert": match}
+        seen = len(run.alerts)
+
+        async with state._event_notify:
+            while True:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    break
+                try:
+                    await asyncio.wait_for(
+                        state._event_notify.wait(), timeout=remaining
+                    )
+                except asyncio.TimeoutError:
+                    break
+                match = _find_qualifying_alert(seen)
+                if match:
+                    return {"status": "alert", "alert": match}
+                seen = len(run.alerts)
+
+        return {"status": "timeout"}
+
     # Backward-compatible endpoints (use latest run)
     @app.get("/graph")
     async def get_graph():

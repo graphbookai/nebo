@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import threading
+import time
+
 import pytest
 
 from nebo.server.daemon import DaemonState, Run, LoggableState, LogEntry, ErrorEntry
@@ -835,3 +838,67 @@ def test_alert_event_is_appended_to_run():
     assert run.alerts[0]["level"] == 30
     assert run.alerts[0]["level_name"] == "WARN"
     assert run.alerts[0]["loggable_id"] == "node_a"
+
+
+def test_alerts_wait_returns_alert():
+    """Wait endpoint should unblock and return alert when one arrives at or above min_level."""
+    from fastapi.testclient import TestClient
+    from nebo.server.daemon import DaemonState, create_daemon_app
+
+    state = DaemonState()
+    state.create_run("test.py", run_id="r_wait_1", store=False)
+
+    app = create_daemon_app(state=state)
+    client = TestClient(app)
+
+    result: dict = {}
+
+    def waiter():
+        resp = client.get("/runs/r_wait_1/alerts/wait?timeout=5")
+        result["body"] = resp.json()
+
+    t = threading.Thread(target=waiter, daemon=True)
+    t.start()
+    time.sleep(0.2)
+    client.post(
+        "/events?run_id=r_wait_1",
+        json=[{
+            "type": "alert",
+            "data": {"title": "x", "text": "y", "level": 20, "level_name": "INFO", "timestamp": 1.0},
+        }],
+    )
+    t.join(timeout=5)
+    assert result["body"]["status"] == "alert"
+    assert result["body"]["alert"]["title"] == "x"
+
+
+def test_alerts_wait_respects_min_level():
+    """Wait endpoint should timeout when only alerts below min_level arrive."""
+    from fastapi.testclient import TestClient
+    from nebo.server.daemon import DaemonState, create_daemon_app
+
+    state = DaemonState()
+    state.create_run("test.py", run_id="r_wait_2", store=False)
+
+    app = create_daemon_app(state=state)
+    client = TestClient(app)
+
+    result: dict = {}
+
+    def waiter():
+        resp = client.get("/runs/r_wait_2/alerts/wait?timeout=1&min_level=30")
+        result["body"] = resp.json()
+
+    t = threading.Thread(target=waiter, daemon=True)
+    t.start()
+    time.sleep(0.1)
+    # Submit an alert BELOW the min level — should not wake the waiter.
+    client.post(
+        "/events?run_id=r_wait_2",
+        json=[{
+            "type": "alert",
+            "data": {"title": "i", "text": "", "level": 20, "level_name": "INFO", "timestamp": 1.0},
+        }],
+    )
+    t.join(timeout=5)
+    assert result["body"]["status"] == "timeout"
