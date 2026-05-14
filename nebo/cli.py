@@ -652,6 +652,30 @@ def cmd_mcp_stdio(args: argparse.Namespace) -> None:
     run_stdio_bridge(port=args.port)
 
 
+def cmd_text_log(args: argparse.Namespace) -> None:
+    """Write text log entries."""
+    from nebo import client
+    entries = json.loads(args.entries_json)
+    result = client.log_text(entries, run_id=args.run, **_conn_kwargs(args))
+    print(json.dumps(result) if args.json else result.get("status", "ok"))
+
+
+def cmd_images_log(args: argparse.Namespace) -> None:
+    """Write image entries."""
+    from nebo import client
+    entries = json.loads(args.entries_json)
+    result = client.log_image(entries, run_id=args.run, **_conn_kwargs(args))
+    print(json.dumps(result) if args.json else result.get("status", "ok"))
+
+
+def cmd_audio_log(args: argparse.Namespace) -> None:
+    """Write audio entries."""
+    from nebo import client
+    entries = json.loads(args.entries_json)
+    result = client.log_audio(entries, run_id=args.run, **_conn_kwargs(args))
+    print(json.dumps(result) if args.json else result.get("status", "ok"))
+
+
 def _lazy_deploy(args: argparse.Namespace) -> None:
     """Defer the huggingface_hub import — it's an optional dependency."""
     from nebo.cli_deploy import cmd_deploy
@@ -841,6 +865,19 @@ def main() -> None:
     p_mlog.add_argument("--entries-json", required=True, help="JSON list of metric entries")
     p_mlog.add_argument("--run", help="Run id")
 
+    # text / images / audio  (each has a single "log" action for now)
+    def _add_log_subparser(name: str) -> argparse.ArgumentParser:
+        p = subparsers.add_parser(name, help=f"Write {name} entries")
+        sub = p.add_subparsers(dest=f"{name}_action", required=True)
+        plog = sub.add_parser("log", parents=[_common_conn_parser()], help=f"Write {name} entries")
+        plog.add_argument("--entries-json", required=True, help="JSON list of entries")
+        plog.add_argument("--run", help="Run id")
+        return p
+
+    _add_log_subparser("text")
+    _add_log_subparser("images")
+    _add_log_subparser("audio")
+
     # deploy
     p_deploy = subparsers.add_parser(
         "deploy",
@@ -873,6 +910,9 @@ def main() -> None:
         "loggables": cmd_loggables,
         "describe": cmd_describe,
         "metrics": cmd_metrics,
+        "text": cmd_text_log,
+        "images": cmd_images_log,
+        "audio": cmd_audio_log,
     }
 
     handler = commands.get(args.command)

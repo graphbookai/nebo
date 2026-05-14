@@ -272,3 +272,61 @@ def test_metrics_list_derives_from_run_status(monkeypatch):
     out = _run_cli(["metrics", "list", "--run", "abc", "--json"])
     parsed = json.loads(out)
     assert parsed["node_a"] == ["loss", "accuracy"]
+
+
+# ---------------------------------------------------------------------------
+# nebo text log | images log | audio log
+# ---------------------------------------------------------------------------
+
+
+def test_text_log_passes_entries(monkeypatch):
+    received: dict = {}
+
+    def fake_log_text(entries, **kw):
+        received["entries"] = entries
+        received.update(kw)
+        return {"status": "ok"}
+
+    monkeypatch.setattr("nebo.client.log_text", fake_log_text)
+    _run_cli([
+        "text", "log",
+        "--entries-json", '[{"message":"hello"}]',
+        "--run", "abc",
+        "--json",
+    ])
+    assert received["entries"] == [{"message": "hello"}]
+    assert received["run_id"] == "abc"
+
+
+def test_images_log_passes_entries(monkeypatch, tmp_path):
+    f = tmp_path / "x.png"
+    f.write_bytes(b"PNGfake")
+    received: dict = {}
+    monkeypatch.setattr(
+        "nebo.client.log_image",
+        lambda entries, **kw: received.setdefault("entries", entries) or {"status": "ok"},
+    )
+    _run_cli([
+        "images", "log",
+        "--entries-json", json.dumps([{"name": "x", "path": str(f)}]),
+        "--run", "abc",
+        "--json",
+    ])
+    assert received["entries"][0]["path"] == str(f)
+
+
+def test_audio_log_passes_entries(monkeypatch, tmp_path):
+    f = tmp_path / "x.wav"
+    f.write_bytes(b"RIFFfake")
+    received: dict = {}
+    monkeypatch.setattr(
+        "nebo.client.log_audio",
+        lambda entries, **kw: received.setdefault("entries", entries) or {"status": "ok"},
+    )
+    _run_cli([
+        "audio", "log",
+        "--entries-json", json.dumps([{"name": "snd", "path": str(f)}]),
+        "--run", "abc",
+        "--json",
+    ])
+    assert received["entries"][0]["name"] == "snd"
