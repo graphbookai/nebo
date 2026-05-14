@@ -188,3 +188,37 @@ def test_runs_wait_passes_args(monkeypatch):
     assert received["run_id"] == "abc"
     assert received["timeout"] == 10.0
     assert received["min_level"] == 30
+
+
+# ---------------------------------------------------------------------------
+# nebo graph show | loggables show | describe
+# ---------------------------------------------------------------------------
+
+
+def test_graph_show_json(monkeypatch):
+    monkeypatch.setattr(
+        "nebo.client.get_graph",
+        lambda **c: {"nodes": {"a": {}}, "edges": []},
+    )
+    out = _run_cli(["graph", "show", "--run", "abc", "--json"])
+    parsed = json.loads(out)
+    assert "nodes" in parsed
+    assert "edges" in parsed
+
+
+def test_loggables_show_json(monkeypatch):
+    monkeypatch.setattr(
+        "nebo.client.get_loggable_status",
+        lambda lid, **c: {"loggable_id": lid, "kind": "node"},
+    )
+    out = _run_cli(["loggables", "show", "node_a", "--run", "abc", "--json"])
+    assert json.loads(out)["loggable_id"] == "node_a"
+
+
+def test_describe_json(monkeypatch):
+    monkeypatch.setattr(
+        "nebo.client.get_description",
+        lambda **c: {"workflow_description": "hello"},
+    )
+    out = _run_cli(["describe", "--json"])
+    assert json.loads(out)["workflow_description"] == "hello"

@@ -554,6 +554,43 @@ def cmd_runs(args: argparse.Namespace) -> None:
         return
 
 
+def cmd_graph(args: argparse.Namespace) -> None:
+    """Inspect the DAG: graph show."""
+    from nebo import client
+    result = client.get_graph(run_id=args.run, **_conn_kwargs(args))
+    if args.json:
+        print(json.dumps(result))
+        return
+    nodes = result.get("nodes", {})
+    edges = result.get("edges", [])
+    print(f"{len(nodes)} nodes, {len(edges)} edges")
+    for nid, info in nodes.items():
+        print(f"  {nid}  ({info.get('func_name', '')})")
+
+
+def cmd_loggables(args: argparse.Namespace) -> None:
+    """Inspect a loggable: loggables show <id>."""
+    from nebo import client
+    result = client.get_loggable_status(
+        args.loggable_id, run_id=args.run, **_conn_kwargs(args),
+    )
+    if args.json:
+        print(json.dumps(result))
+        return
+    for k, v in result.items():
+        print(f"{k}: {v!r}")
+
+
+def cmd_describe(args: argparse.Namespace) -> None:
+    """Print workflow description."""
+    from nebo import client
+    result = client.get_description(run_id=args.run, **_conn_kwargs(args))
+    if args.json:
+        print(json.dumps(result))
+        return
+    print(result.get("workflow_description") or "<no description>")
+
+
 def cmd_mcp_stdio(args: argparse.Namespace) -> None:
     """Run the MCP stdio transport (bridges stdio <-> daemon HTTP)."""
     from nebo.mcp.stdio import run_stdio_bridge
@@ -714,6 +751,23 @@ def main() -> None:
     p_runs_wait.add_argument("--timeout", type=float, default=300.0)
     p_runs_wait.add_argument("--min-level", type=int, default=20)
 
+    # graph
+    p_graph = subparsers.add_parser("graph", help="Inspect the DAG")
+    graph_sub = p_graph.add_subparsers(dest="graph_action", required=True)
+    p_gs = graph_sub.add_parser("show", parents=[_common_conn_parser()], help="Show DAG nodes and edges")
+    p_gs.add_argument("--run", help="Run id (latest if omitted)")
+
+    # loggables
+    p_logg = subparsers.add_parser("loggables", help="Inspect a loggable")
+    logg_sub = p_logg.add_subparsers(dest="loggables_action", required=True)
+    p_ls = logg_sub.add_parser("show", parents=[_common_conn_parser()], help="Show a loggable's status")
+    p_ls.add_argument("loggable_id")
+    p_ls.add_argument("--run", help="Run id (latest if omitted)")
+
+    # describe
+    p_desc = subparsers.add_parser("describe", parents=[_common_conn_parser()], help="Print the workflow description")
+    p_desc.add_argument("--run", help="Run id (latest if omitted)")
+
     # deploy
     p_deploy = subparsers.add_parser(
         "deploy",
@@ -742,6 +796,9 @@ def main() -> None:
         "skill": cmd_skill,
         "deploy": _lazy_deploy,
         "runs": cmd_runs,
+        "graph": cmd_graph,
+        "loggables": cmd_loggables,
+        "describe": cmd_describe,
     }
 
     handler = commands.get(args.command)
