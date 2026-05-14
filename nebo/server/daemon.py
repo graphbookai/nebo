@@ -835,7 +835,13 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         return {"data": state._media_store[media_id]}
 
     @app.get("/runs/{run_id}/loggables/{loggable_id}")
-    async def get_run_loggable(request: Request, run_id: str, loggable_id: str):
+    async def get_run_loggable(
+        run_id: str,
+        loggable_id: str,
+        name: Optional[str] = None,
+        tag: Optional[str] = None,
+        step: Optional[int] = None,
+    ):
         if run_id not in state.runs:
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
         run = state.runs[run_id]
@@ -843,26 +849,22 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
             return JSONResponse(status_code=404, content={"error": f"Loggable '{loggable_id}' not found"})
         lg = run.loggables[loggable_id]
 
-        # Apply optional query-string filters to metrics.
+        # Apply optional query-string filters to metrics. FastAPI does the
+        # type coercion (and a 422 on bad input) via the parameter types.
         # ?name=X   — return only the named series (others are omitted entirely)
         # ?tag=X    — keep only entries whose tags list contains X (line/scatter)
         # ?step=N   — keep only entries whose step equals N (exact match)
-        name_filter = request.query_params.get("name")
-        tag_filter = request.query_params.get("tag")
-        step_param = request.query_params.get("step")
-        step_filter = int(step_param) if step_param is not None else None
-
         metrics = dict(lg.metrics)
-        if name_filter is not None:
-            metrics = {k: v for k, v in metrics.items() if k == name_filter}
-        if tag_filter is not None or step_filter is not None:
+        if name is not None:
+            metrics = {k: v for k, v in metrics.items() if k == name}
+        if tag is not None or step is not None:
             filtered_metrics: dict[str, Any] = {}
             for mname, series in metrics.items():
                 filtered_entries = []
                 for entry in series.get("entries", []):
-                    if tag_filter is not None and tag_filter not in (entry.get("tags") or []):
+                    if tag is not None and tag not in (entry.get("tags") or []):
                         continue
-                    if step_filter is not None and entry.get("step") != step_filter:
+                    if step is not None and entry.get("step") != step:
                         continue
                     filtered_entries.append(entry)
                 series_out = dict(series)
