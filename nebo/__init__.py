@@ -242,6 +242,11 @@ def init(
 
     state._mode = resolved_mode
 
+    # Print the run-id banner in server mode so agent skills (and humans)
+    # can pick up the run id from stdout. Suppressed via NEBO_NO_TERMINAL=1.
+    if resolved_mode == "server" and run_id and not os.environ.get("NEBO_NO_TERMINAL"):
+        print(f"Nebo daemon fully connected. Your run id is: {run_id}.")
+
     # NEBO_NO_TERMINAL is the environment escape hatch used by the test
     # suite and headless embedders to suppress the Rich live dashboard
     # without having to thread `terminal=False` through every entry point.
@@ -432,6 +437,12 @@ def start_run(
         client._run_id = run_id
         client._run_completed = False
     state._active_run_id = run_id
+
+    # Print the run-id banner so agent skills (and humans) can pick up the
+    # run id by grepping stdout. Suppressed in CI / headless mode via
+    # NEBO_NO_TERMINAL=1 (the test suite's autouse fixture sets this).
+    if not os.environ.get("NEBO_NO_TERMINAL"):
+        print(f"Nebo daemon fully connected. Your run id is: {run_id}.")
 
     # Send run_start event
     script_path = os.path.abspath(sys.argv[0]) if sys.argv else "script"
