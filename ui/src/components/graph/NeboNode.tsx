@@ -1,8 +1,15 @@
 import { memo, useCallback, useContext, useEffect, type CSSProperties } from 'react'
-import { Handle, NodeResizer, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react'
+import {
+  Handle,
+  NodeResizer,
+  Position,
+  useUpdateNodeInternals,
+  useStore as useFlowStore,
+  type NodeProps,
+} from '@xyflow/react'
 import { useStore } from '@/store'
 import { cn } from '@/lib/utils'
-import { Maximize2, ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
+import { Maximize2, ChevronsDownUp, ChevronsUpDown, Link as LinkIcon } from 'lucide-react'
 import { LoggableTabContainer } from '@/components/node-tabs/LoggableTabContainer'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useContextMenu } from '@/hooks/useContextMenu'
@@ -11,6 +18,7 @@ import { ContextMenuItem } from '@/components/shared/ContextMenuItem'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { ConfigChips } from '@/components/shared/ConfigChips'
 import { useLoggableHasContent } from '@/hooks/useLoggableHasContent'
+import { ChartDprContext } from '@/components/charts/ChartDprContext'
 import { DragContext } from './DagGraph'
 
 interface NeboNodeData {
@@ -41,6 +49,12 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
   const storedSize = useStore(s => s.nodeSizes.get(runId)?.get(nodeId))
   const contextMenu = useContextMenu()
   const hasContent = useLoggableHasContent(runId, nodeId)
+  // Live ReactFlow viewport zoom. Drives the Chart.js devicePixelRatio
+  // inside this node so chart canvases stay sharp when the user zooms
+  // the DAG (which CSS-scales every node card). Subscribing to a single
+  // scalar keeps re-renders down vs `useViewport` (which fires on pan
+  // too).
+  const flowZoom = useFlowStore((s) => s.transform[2])
 
   const onResize = useCallback((_event: unknown, params: { width: number; height: number }) => {
     updateNodeSize(runId, nodeId, { width: params.width, height: params.height })
@@ -126,6 +140,15 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
             : <ChevronsDownUp className="w-4 h-4" />}
           onClick={() => { toggleNodeCollapsed(runId, nodeId); contextMenu.close() }}
         />
+        <ContextMenuItem
+          label="Copy iframe URL"
+          icon={<LinkIcon className="w-4 h-4" />}
+          onClick={() => {
+            const url = `${window.location.origin}/?run=${encodeURIComponent(runId)}&node=${encodeURIComponent(nodeId)}`
+            void navigator.clipboard?.writeText(url)
+            contextMenu.close()
+          }}
+        />
       </ContextMenu>
       {!nodeInfo.is_source && (
         <Handle type="target" position={dagDirection === 'TB' ? Position.Top : Position.Left} className="!bg-muted-foreground !w-2 !h-2" />
@@ -207,7 +230,9 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
         // can scroll internally instead of growing the card.
         <div className="border-t border-border nowheel nopan flex-1 min-h-0">
           <ErrorBoundary label={`Node ${nodeId}`}>
-            <LoggableTabContainer runId={runId} loggableId={nodeId} fillParent />
+            <ChartDprContext.Provider value={flowZoom}>
+              <LoggableTabContainer runId={runId} loggableId={nodeId} fillParent />
+            </ChartDprContext.Provider>
           </ErrorBoundary>
         </div>
       )}

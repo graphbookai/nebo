@@ -2,6 +2,8 @@ import { memo, useMemo } from 'react'
 import type { ChartConfiguration } from 'chart.js'
 import { useChartJs } from '@/components/charts/useChartJs'
 import { useChartTokens } from '@/components/charts/useChartTokens'
+import { useChartDpr } from '@/components/charts/ChartDprContext'
+import { formatTick } from '@/components/charts/formatTick'
 import { DEFAULT_RUN_COLOR } from '@/lib/colors'
 import type { SeriesFor } from '@/components/charts/seriesFor'
 
@@ -17,6 +19,7 @@ export const ComparisonBar = memo(function ComparisonBar({
   seriesFor: SeriesFor
 }) {
   const tokens = useChartTokens()
+  const dpr = useChartDpr()
 
   // Bar is a snapshot per loggable, so each run carries at most one entry.
   // Lay out the union of category keys on the x-axis with one stacked bar
@@ -68,7 +71,11 @@ export const ComparisonBar = memo(function ComparisonBar({
             border: { display: false },
           },
           y: {
-            ticks: { color: tokens.axisTickColor, font: { size: 10 } },
+            ticks: {
+              color: tokens.axisTickColor,
+              font: { size: 10 },
+              callback: (value) => formatTick(value as number),
+            },
             grid: { color: tokens.gridStroke, drawTicks: false },
             border: { display: false },
           },
@@ -81,6 +88,7 @@ export const ComparisonBar = memo(function ComparisonBar({
 
   const { canvasRef, containerRef } = useChartJs<'bar'>({
     config,
+    dpr,
     formatTooltip: (tooltip) => ({
       title: tooltip.title?.[0],
       items: (tooltip.dataPoints ?? []).map((dp) => {

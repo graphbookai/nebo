@@ -13,8 +13,10 @@
 //   - step chips (each emission's step number)
 //   - run chips (only in comparison)
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Maximize } from 'lucide-react'
 import { useStore } from '@/store'
+import { Modal } from '@/components/ui/modal'
+import { HeaderActions } from '@/components/node-tabs/HeaderActions'
+import { downloadCanvasPng } from '@/components/node-tabs/downloadHelpers'
 import type { MetricEntry, LoggableMetricSeries } from '@/lib/api'
 import { DEFAULT_RUN_COLOR, RUN_COLOR_PALETTE } from '@/lib/colors'
 import { LineMetric } from '@/components/charts/LineMetric'
@@ -86,7 +88,7 @@ function SingleRunMetrics({ runId, loggableId, fillParent }: { runId: string; lo
       <div className="h-full overflow-auto">
         <div className="space-y-4">
           {metricEntries.map(([name, series]) => (
-            <MetricBlock key={name} name={name} series={series} color={runColor} />
+            <MetricBlock key={name} name={name} series={series} color={runColor} runId={runId} loggableId={loggableId} />
           ))}
         </div>
       </div>
@@ -95,7 +97,7 @@ function SingleRunMetrics({ runId, loggableId, fillParent }: { runId: string; lo
   return (
     <div className="space-y-4">
       {metricEntries.map(([name, series]) => (
-        <MetricBlock key={name} name={name} series={series} color={runColor} />
+        <MetricBlock key={name} name={name} series={series} color={runColor} runId={runId} loggableId={loggableId} />
       ))}
     </div>
   )
@@ -106,6 +108,9 @@ export function MetricBlock({
   series,
   color,
   fill,
+  runId,
+  loggableId,
+  inModal,
 }: {
   name: string
   series: LoggableMetricSeries
@@ -115,6 +120,15 @@ export function MetricBlock({
   // tag chips, and label chips stay at their natural size; the chart
   // wrapper takes flex-1.
   fill?: boolean
+  // Optional ids used to build the "Copy iframe URL" target. When
+  // omitted (older callers or contexts where embedding makes no sense)
+  // the iframe row is hidden from the download popover.
+  runId?: string
+  loggableId?: string
+  // When this block is itself already rendered inside a modal (e.g.
+  // grid-view's expand modal), suppress the Expand button so we don't
+  // open a modal-inside-a-modal.
+  inModal?: boolean
 }) {
   // Tags only apply to line metrics — every other type is a snapshot
   // and the v3 SDK strips tags off non-line emissions before they go on
@@ -204,34 +218,33 @@ export function MetricBlock({
   const showResetButton =
     series.type === 'line' || series.type === 'scatter' || series.type === 'histogram'
 
+  const [modalOpen, setModalOpen] = useState(false)
+  const chartWrapperRef = useRef<HTMLDivElement>(null)
+  const iframeUrl = runId && loggableId
+    ? `${window.location.origin}/?run=${encodeURIComponent(runId)}&metric=${encodeURIComponent(name)}&node=${encodeURIComponent(loggableId)}`
+    : undefined
+
   return (
     <div data-export-atom="chart" className={fill ? 'h-full flex flex-col min-h-0' : undefined}>
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-foreground">{name}</span>
-        <span className="text-[10px] text-muted-foreground">{series.type}</span>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-foreground truncate flex-1 min-w-0">{name}</span>
+        <HeaderActions
+          onExpand={inModal ? () => {} : () => setModalOpen(true)}
+          onDownloadPng={() => downloadCanvasPng(chartWrapperRef.current, name)}
+          iframeUrl={iframeUrl}
+          onResetZoom={showResetButton ? handleResetZoom : undefined}
+        />
       </div>
-      {(allTags.length > 0 || showResetButton) && (
-        <div className="mt-1 flex items-start justify-between gap-2">
-          <div className="flex flex-wrap gap-1 flex-1 min-w-0">
-            {allTags.map(t => (
-              <Chip
-                key={`tag:${t}`}
-                label={t === UNTAGGED_KEY ? '(untagged)' : t}
-                active={activeTags.has(t)}
-                onClick={() => toggle(t)}
-              />
-            ))}
-          </div>
-          {showResetButton && (
-            <button
-              type="button"
-              onClick={handleResetZoom}
-              title="Reset zoom"
-              className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted border border-border/60"
-            >
-              <Maximize className="h-3 w-3" />
-            </button>
-          )}
+      {allTags.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {allTags.map(t => (
+            <Chip
+              key={`tag:${t}`}
+              label={t === UNTAGGED_KEY ? '(untagged)' : t}
+              active={activeTags.has(t)}
+              onClick={() => toggle(t)}
+            />
+          ))}
         </div>
       )}
       {allLabels.length > 0 && (
@@ -259,7 +272,7 @@ export function MetricBlock({
           })}
         </div>
       )}
-      <div className={fill ? 'mt-1 flex-1 min-h-0' : 'mt-1'}>
+      <div ref={chartWrapperRef} className={fill ? 'mt-1 flex-1 min-h-0' : 'mt-1'}>
         <SingleRunChart
           type={series.type}
           entries={filtered}
@@ -271,6 +284,22 @@ export function MetricBlock({
           fill={fill}
         />
       </div>
+      {modalOpen && !inModal && (
+        <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={name} widthClass="max-w-6xl">
+          <div className="h-[60vh] flex flex-col min-h-0">
+            <SingleRunChart
+              type={series.type}
+              entries={filtered}
+              color={color}
+              allLabels={allLabels}
+              activeLabels={series.type === 'histogram' ? activeLabels : undefined}
+              inactiveTags={inactiveTags}
+              resetSignal={resetSignal}
+              fill
+            />
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
@@ -515,11 +544,21 @@ function ComparisonMetricBlock({
 
   const { active: activeLabels, toggle: toggleLabel } = useTagChips(allLabels)
 
+  const [modalOpen, setModalOpen] = useState(false)
+  const chartWrapperRef = useRef<HTMLDivElement>(null)
+  const [resetSignal, setResetSignal] = useState(0)
+  const handleResetZoom = useCallback(() => setResetSignal((c) => c + 1), [])
+  const showResetButton = type === 'line' || type === 'scatter' || type === 'histogram'
+
   return (
     <div data-export-atom="chart">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-foreground">{name}</span>
-        <span className="text-[10px] text-muted-foreground">{type}</span>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-foreground truncate flex-1 min-w-0">{name}</span>
+        <HeaderActions
+          onExpand={() => setModalOpen(true)}
+          onDownloadPng={() => downloadCanvasPng(chartWrapperRef.current, name)}
+          onResetZoom={showResetButton ? handleResetZoom : undefined}
+        />
       </div>
       <div className="mt-1 flex flex-wrap gap-1">
         {comparisonRunIds.map(rid => {
@@ -574,7 +613,7 @@ function ComparisonMetricBlock({
           ))}
         </div>
       )}
-      <div className="mt-1">
+      <div ref={chartWrapperRef} className="mt-1">
         <ComparisonChart
           type={type}
           name={name}
@@ -584,8 +623,26 @@ function ComparisonMetricBlock({
           allTags={allTags}
           activeLabels={activeLabels}
           allLabels={allLabels}
+          resetSignal={resetSignal}
         />
       </div>
+      {modalOpen && (
+        <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={name} widthClass="max-w-6xl">
+          <div className="h-[60vh] flex flex-col min-h-0">
+            <ComparisonChart
+              type={type}
+              name={name}
+              loggableId={loggableId}
+              runIds={runIds}
+              activeTags={activeTags}
+              allTags={allTags}
+              activeLabels={activeLabels}
+              allLabels={allLabels}
+              resetSignal={resetSignal}
+            />
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
@@ -599,6 +656,7 @@ function ComparisonChart({
   allTags,
   activeLabels,
   allLabels,
+  resetSignal,
 }: {
   type: string
   name: string
@@ -608,6 +666,7 @@ function ComparisonChart({
   allTags: string[]
   activeLabels: Set<string>
   allLabels: string[]
+  resetSignal?: number
 }) {
   const runs = useStore(s => s.runs)
   const runColors = useStore(s => s.runColors)
@@ -634,7 +693,7 @@ function ComparisonChart({
       // tagged entries when activeTags contains UNTAGGED_KEY). Line
       // metrics also bypass this filter — they use the mute-via-color
       // path on a single combined dataset instead.
-      const skipTagFilter = allTags.length === 0 || s.type === 'line'
+      const skipTagFilter = allTags.length === 0
       const tagFiltered = skipTagFilter
         ? s.entries
         : entriesMatchingTags(s.entries, activeTags)
@@ -659,10 +718,10 @@ function ComparisonChart({
     [runs, loggableId, name, activeTags, allTags.length, activeLabels, allLabels.length],
   )
 
-  if (type === 'line') return <ComparisonLine runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
+  if (type === 'line') return <ComparisonLine runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} resetSignal={resetSignal} />
   if (type === 'bar') return <ComparisonBar runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
-  if (type === 'histogram') return <ComparisonHistogram runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
-  if (type === 'scatter') return <ComparisonScatter runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} />
+  if (type === 'histogram') return <ComparisonHistogram runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} resetSignal={resetSignal} />
+  if (type === 'scatter') return <ComparisonScatter runIds={runIds} runColors={runColors} runNameFor={runNameFor} seriesFor={seriesFor} resetSignal={resetSignal} />
   // Pie: one pie per run, rendered in the standard split-panel layout
   // (matches Logs/Images/Audio comparison styling). The cell header
   // already shows the run name + color stripe, so we just render the

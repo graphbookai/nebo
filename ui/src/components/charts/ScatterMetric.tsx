@@ -9,6 +9,7 @@ import { useStore } from '@/store'
 import { attachWheelHandler, buildZoomOptions } from './zoomBindings'
 import { formatTick } from './formatTick'
 import { withAlpha } from './withAlpha'
+import { useChartDpr } from './ChartDprContext'
 
 type ScatterPoint = { x: number; y: number; step: number | null }
 
@@ -41,6 +42,7 @@ export const ScatterMetric = memo(function ScatterMetric({
   resetSignal?: number
 }) {
   const tokens = useChartTokens()
+  const dpr = useChartDpr()
   const timelineMode = useStore(s => s.timeline.mode)
   const timelineStep = useStore(s => s.timeline.step)
   const setTimelineMode = useStore(s => s.setTimelineMode)
@@ -191,6 +193,7 @@ export const ScatterMetric = memo(function ScatterMetric({
 
   const { canvasRef, containerRef, chartRef } = useChartJs<'scatter'>({
     config,
+    dpr,
     onChartReady: (chart) => attachWheelHandler(chart, 'xy'),
     formatTooltip: (tooltip) => ({
       title: undefined,

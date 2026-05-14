@@ -1,10 +1,8 @@
 import { memo, useMemo, useState } from 'react'
 import { useStore, type ImageEntry, type AudioEntry } from '@/store'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Button } from '@/components/ui/button'
-import { Modal } from '@/components/ui/modal'
 import { cn } from '@/lib/utils'
-import { Search, Maximize2 } from 'lucide-react'
+import { Search } from 'lucide-react'
 import { MetricBlock } from '@/components/node-tabs/NodeMetrics'
 import { VirtualizedImageList } from '@/components/node-tabs/NodeImages'
 import { AudioItem } from '@/components/node-tabs/NodeAudio'
@@ -22,15 +20,15 @@ interface LoggableGridViewProps {
 
 interface CardShellProps {
   title: string
-  onMaximize: () => void
   children: React.ReactNode
 }
 
 // Cards in the grid lock to a uniform height so the tile field stays
 // even regardless of how much data each loggable carries. Bodies that
 // can outgrow this height (long log feeds, dense metric histories,
-// stacks of images/audio) scroll inside the card; the modal expand
-// gives the user a larger viewport when they need it.
+// stacks of images/audio) scroll inside the card; per-block Expand
+// buttons inside metric/image headers give the user a larger viewport
+// when they need it.
 const CARD_HEIGHT_PX = 360
 const CARD_HEADER_PX = 36              // matches `px-3 py-2` + text-sm line height
 const CARD_BODY_PADDING_PX = 12 * 2    // p-3 top + bottom
@@ -38,7 +36,7 @@ const CARD_BODY_PADDING_PX = 12 * 2    // p-3 top + bottom
 // components that need an explicit pixel cap (e.g., VirtualizedImageList).
 const CARD_INNER_HEIGHT_PX = CARD_HEIGHT_PX - CARD_HEADER_PX - CARD_BODY_PADDING_PX
 
-const CardShell = memo(function CardShell({ title, onMaximize, children }: CardShellProps) {
+const CardShell = memo(function CardShell({ title, children }: CardShellProps) {
   return (
     <div
       className="border-2 border-border rounded-lg flex flex-col min-w-0"
@@ -46,15 +44,6 @@ const CardShell = memo(function CardShell({ title, onMaximize, children }: CardS
     >
       <div className="flex items-start gap-2 px-3 py-2 border-b border-border shrink-0">
         <span className="flex-1 min-w-0 text-sm font-medium truncate">{title}</span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6 shrink-0"
-          onClick={onMaximize}
-          title="Open in modal"
-        >
-          <Maximize2 className="h-3.5 w-3.5" />
-        </Button>
       </div>
       <div className="p-3 min-w-0 flex-1 min-h-0 overflow-auto">{children}</div>
     </div>
@@ -78,11 +67,13 @@ function EmptyForRange() {
 
 function MetricCardBody({
   runId,
+  loggableId,
   name,
   series,
   inModal,
 }: {
   runId: string
+  loggableId: string
   name: string
   series: LoggableMetricSeries
   inModal: boolean
@@ -103,11 +94,11 @@ function MetricCardBody({
   if (inModal) {
     return (
       <div className="h-[60vh] flex flex-col min-h-0">
-        <MetricBlock name={name} series={series} color={runColor} fill />
+        <MetricBlock name={name} series={series} color={runColor} fill runId={runId} loggableId={loggableId} inModal />
       </div>
     )
   }
-  return <MetricBlock name={name} series={series} color={runColor} fill />
+  return <MetricBlock name={name} series={series} color={runColor} fill runId={runId} loggableId={loggableId} />
 }
 
 function ImageCardBody({
@@ -202,7 +193,6 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('metrics')
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [modalCardId, setModalCardId] = useState<string | null>(null)
 
   // Section list: Global + Agent first, then function nodes in topo order.
   const sectionDescriptors = useMemo(() => {
@@ -271,7 +261,7 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
             cardId: `metric:${sectionId}:${name}`,
             title: `${label} > ${name}`,
             render: (inModal) => (
-              <MetricCardBody runId={runId} name={name} series={series} inModal={inModal} />
+              <MetricCardBody runId={runId} loggableId={sectionId} name={name} series={series} inModal={inModal} />
             ),
           })),
         })
@@ -367,19 +357,6 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
     }
     return out
   }, [sectionsForTab, activeSectionId, search])
-
-  // Resolve modal: walk every tab so the user can open a modal and then
-  // switch tabs without the modal closing or pointing at stale data.
-  const modalCard = useMemo(() => {
-    if (!modalCardId) return null
-    for (const list of Object.values(tabs)) {
-      for (const section of list) {
-        const c = section.cards.find(c => c.cardId === modalCardId)
-        if (c) return c
-      }
-    }
-    return null
-  }, [modalCardId, tabs])
 
   if (!graph) {
     return (
@@ -484,7 +461,7 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
             {flatCards.map(card => (
               <div key={card.cardId}>
-                <CardShell title={card.title} onMaximize={() => setModalCardId(card.cardId)}>
+                <CardShell title={card.title}>
                   {card.render(false)}
                 </CardShell>
               </div>
@@ -492,15 +469,6 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
           </div>
         )}
       </div>
-
-      <Modal
-        open={modalCard !== null}
-        onClose={() => setModalCardId(null)}
-        title={modalCard?.title}
-        widthClass="max-w-6xl"
-      >
-        {modalCard?.render(true)}
-      </Modal>
     </ScrollArea>
   )
 }

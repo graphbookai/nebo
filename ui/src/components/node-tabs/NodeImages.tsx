@@ -1,5 +1,5 @@
 // Renders a single loggable's tab; works for node- and global-kind loggables.
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useStore, type ImageEntry } from '@/store'
 import { useTimelineFilter } from '@/hooks/useTimelineFilter'
@@ -7,6 +7,9 @@ import { useMedia } from '@/hooks/useMedia'
 import { formatTimestamp } from '@/lib/utils'
 import { ComparisonGrid } from '@/components/shared/ComparisonGrid'
 import { ImageWithLabels } from '@/components/shared/ImageWithLabels'
+import { Modal } from '@/components/ui/modal'
+import { HeaderActions } from '@/components/node-tabs/HeaderActions'
+import { downloadImageElement } from '@/components/node-tabs/downloadHelpers'
 
 interface NodeImagesProps {
   runId: string
@@ -31,31 +34,58 @@ export function NodeImages({ runId, loggableId, comparisonRunIds, fillParent }: 
 
 export function ImageItem({ runId, loggableId, img, showTimestamp }: { runId: string; loggableId: string; img: ImageEntry; showTimestamp?: boolean }) {
   const { data, loading } = useMedia(runId, img.mediaId)
+  const [modalOpen, setModalOpen] = useState(false)
+  const imgWrapperRef = useRef<HTMLDivElement>(null)
+
+  const iframeUrl = `${window.location.origin}/?run=${encodeURIComponent(runId)}&image=${encodeURIComponent(img.name)}&node=${encodeURIComponent(loggableId)}`
 
   return (
     <div data-export-atom="image" className="space-y-1">
-      <div className="flex items-center justify-between">
-        <span className={`${showTimestamp ? 'text-xs' : 'text-[10px]'} font-medium`}>{img.name}</span>
-        <span className="text-[10px] text-muted-foreground">
-          {img.step != null && `step ${img.step}`}
-          {showTimestamp && img.step != null && ' · '}
-          {showTimestamp && formatTimestamp(img.timestamp)}
-        </span>
-      </div>
-      {loading ? (
-        <div className="rounded border border-border bg-muted/50 animate-pulse h-32 w-full" />
-      ) : data ? (
-        <ImageWithLabels
-          src={`data:image/png;base64,${data}`}
-          labels={img.labels}
-          loggableName={loggableId}
-          imageName={img.name ?? ''}
-          alt={img.name}
-        />
-      ) : (
-        <div className="rounded border border-border bg-muted/30 h-32 w-full flex items-center justify-center">
-          <span className="text-xs text-muted-foreground">Failed to load</span>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className={`${showTimestamp ? 'text-xs' : 'text-[10px]'} font-medium truncate`}>{img.name}</span>
+          <span className="text-[10px] text-muted-foreground shrink-0">
+            {img.step != null && `step ${img.step}`}
+            {showTimestamp && img.step != null && ' · '}
+            {showTimestamp && formatTimestamp(img.timestamp)}
+          </span>
         </div>
+        <HeaderActions
+          onExpand={() => setModalOpen(true)}
+          onDownloadPng={() => {
+            const el = imgWrapperRef.current?.querySelector('img') as HTMLImageElement | null
+            downloadImageElement(el, img.name)
+          }}
+          iframeUrl={iframeUrl}
+        />
+      </div>
+      <div ref={imgWrapperRef}>
+        {loading ? (
+          <div className="rounded border border-border bg-muted/50 animate-pulse h-32 w-full" />
+        ) : data ? (
+          <ImageWithLabels
+            src={`data:image/png;base64,${data}`}
+            labels={img.labels}
+            loggableName={loggableId}
+            imageName={img.name ?? ''}
+            alt={img.name}
+          />
+        ) : (
+          <div className="rounded border border-border bg-muted/30 h-32 w-full flex items-center justify-center">
+            <span className="text-xs text-muted-foreground">Failed to load</span>
+          </div>
+        )}
+      </div>
+      {modalOpen && data && (
+        <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={img.name} widthClass="max-w-6xl">
+          <ImageWithLabels
+            src={`data:image/png;base64,${data}`}
+            labels={img.labels}
+            loggableName={loggableId}
+            imageName={img.name ?? ''}
+            alt={img.name}
+          />
+        </Modal>
       )}
     </div>
   )

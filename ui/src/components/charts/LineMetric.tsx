@@ -15,11 +15,13 @@ import { useStore } from '@/store'
 import { UNTAGGED_KEY } from './scatterShape'
 import { attachWheelHandler, buildZoomOptions } from './zoomBindings'
 import { formatTick } from './formatTick'
+import { smoothLinePoints, type XYPoint } from './smoothing'
+import { useChartDpr } from './ChartDprContext'
 
 const MAX_DISPLAY_POINTS = 500
 const MUTED_COLOR = 'rgba(156, 163, 175, 0.45)' // tailwind text-muted-foreground feel
 
-type LinePoint = { x: number; y: number }
+type LinePoint = XYPoint
 
 function toLinePoints(entries: MetricEntry[]): LinePoint[] {
   const points: LinePoint[] = []
@@ -45,22 +47,6 @@ function downsample(series: LinePoint[]): LinePoint[] {
     result.push(series[series.length - 1])
   }
   return result
-}
-
-// Apply an exponential moving average to smooth a series.
-//   s_i = α * s_{i-1} + (1 - α) * x_i
-// `alpha` ∈ [0, 1]; 0 = no smoothing, → 1 = heavy smoothing.
-function smoothSeries(points: LinePoint[], alpha: number): LinePoint[] {
-  if (alpha <= 0 || points.length === 0) return points
-  const out: LinePoint[] = new Array(points.length)
-  let prev = points[0].y
-  out[0] = points[0]
-  for (let i = 1; i < points.length; i++) {
-    const y = alpha * prev + (1 - alpha) * points[i].y
-    out[i] = { x: points[i].x, y }
-    prev = y
-  }
-  return out
 }
 
 // Inline plugin that draws a vertical guideline at the active step plus a
@@ -170,6 +156,7 @@ export const LineMetric = memo(function LineMetric({
   resetSignal?: number
 }) {
   const tokens = useChartTokens()
+  const dpr = useChartDpr()
   const timelineMode = useStore(s => s.timeline.mode)
   const timelineStep = useStore(s => s.timeline.step)
   const setTimelineMode = useStore(s => s.setTimelineMode)
@@ -191,7 +178,7 @@ export const LineMetric = memo(function LineMetric({
       const step = e.step ?? i
       tagsByStep.set(step, e.tags)
     }
-    const data = smoothSeries(downsample(toLinePoints(sorted)), lineSmoothing)
+    const data = smoothLinePoints(downsample(toLinePoints(sorted)), lineSmoothing)
     const muted = inactiveTags ?? new Set<string>()
     const segmentBorderColor = inactiveTags
       ? (ctx: ScriptableLineSegmentContext) => {
@@ -212,7 +199,7 @@ export const LineMetric = memo(function LineMetric({
       label: 'value',
       data,
       borderColor: color,
-      borderWidth: 1.5,
+      borderWidth: 1,
       pointRadius: 0,
       pointHitRadius: 12,
       // tension=0 gives hard corners between datapoints; the smoothing
@@ -309,6 +296,7 @@ export const LineMetric = memo(function LineMetric({
       chartRefBox.current = chart
       return attachWheelHandler(chart, 'x')
     },
+    dpr,
   })
 
   // Reset on parent's signal change. Skip the initial value (0) so the

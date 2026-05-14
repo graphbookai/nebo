@@ -1,5 +1,5 @@
-import { memo, useMemo } from 'react'
-import type { ChartConfiguration } from 'chart.js'
+import { memo, useEffect, useMemo, useRef } from 'react'
+import type { Chart, ChartConfiguration } from 'chart.js'
 import { useChartJs } from '@/components/charts/useChartJs'
 import { useChartTokens } from '@/components/charts/useChartTokens'
 import { shapeForLabel } from '@/components/charts/scatterShape'
@@ -7,6 +7,9 @@ import { DEFAULT_RUN_COLOR } from '@/lib/colors'
 import type { SeriesFor } from '@/components/charts/seriesFor'
 import { useStore } from '@/store'
 import { withAlpha } from '@/components/charts/withAlpha'
+import { useChartDpr } from '@/components/charts/ChartDprContext'
+import { attachWheelHandler, buildZoomOptions } from '@/components/charts/zoomBindings'
+import { formatTick } from '@/components/charts/formatTick'
 
 type ScatterPoint = { x: number; y: number; step: number | null }
 
@@ -15,13 +18,16 @@ export const ComparisonScatter = memo(function ComparisonScatter({
   runColors,
   runNameFor,
   seriesFor,
+  resetSignal,
 }: {
   runIds: string[]
   runColors: Map<string, string>
   runNameFor: (rid: string) => string
   seriesFor: SeriesFor
+  resetSignal?: number
 }) {
   const tokens = useChartTokens()
+  const dpr = useChartDpr()
   const timelineMode = useStore(s => s.timeline.mode)
   const timelineStep = useStore(s => s.timeline.step)
   const pointOpacity = useStore(s => s.settings.scatterPointOpacity)
@@ -130,25 +136,40 @@ export const ComparisonScatter = memo(function ComparisonScatter({
         scales: {
           x: {
             type: 'linear',
-            ticks: { color: tokens.axisTickColor, font: { size: 10 } },
+            ticks: {
+              color: tokens.axisTickColor,
+              font: { size: 10 },
+              callback: (value) => formatTick(value as number),
+            },
             grid: { color: tokens.gridStroke, drawTicks: false },
             border: { display: false },
           },
           y: {
             type: 'linear',
-            ticks: { color: tokens.axisTickColor, font: { size: 10 } },
+            ticks: {
+              color: tokens.axisTickColor,
+              font: { size: 10 },
+              callback: (value) => formatTick(value as number),
+            },
             grid: { color: tokens.gridStroke, drawTicks: false },
             border: { display: false },
           },
         },
-        plugins: { legend: { display: false } },
+        plugins: {
+          legend: { display: false },
+          zoom: buildZoomOptions('xy'),
+        } as unknown as ChartConfiguration<'scatter'>['options'] extends { plugins?: infer P }
+          ? P
+          : never,
       },
     }),
     [datasets, tokens.axisTickColor, tokens.gridStroke],
   )
 
-  const { canvasRef, containerRef } = useChartJs<'scatter'>({
+  const { canvasRef, containerRef, chartRef } = useChartJs<'scatter'>({
     config,
+    dpr,
+    onChartReady: (chart) => attachWheelHandler(chart, 'xy'),
     formatTooltip: (tooltip) => ({
       title: undefined,
       items: (tooltip.dataPoints ?? []).map((dp) => {
@@ -168,6 +189,15 @@ export const ComparisonScatter = memo(function ComparisonScatter({
       }),
     }),
   })
+
+  const lastResetRef = useRef<number | undefined>(resetSignal)
+  useEffect(() => {
+    if (resetSignal === undefined) return
+    if (lastResetRef.current === resetSignal) return
+    lastResetRef.current = resetSignal
+    const chart = chartRef.current as Chart<'scatter'> | null
+    chart?.resetZoom()
+  }, [resetSignal, chartRef])
 
   // Keep the canvas mounted; see ComparisonLine for the useChartJs
   // mount-effect rationale.

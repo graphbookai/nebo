@@ -1,12 +1,15 @@
-import { memo, useMemo } from 'react'
-import type { ChartConfiguration } from 'chart.js'
+import { memo, useEffect, useMemo, useRef } from 'react'
+import type { Chart, ChartConfiguration } from 'chart.js'
 import { useChartJs } from '@/components/charts/useChartJs'
 import { useChartTokens } from '@/components/charts/useChartTokens'
 import { DEFAULT_RUN_COLOR } from '@/lib/colors'
 import type { SeriesFor } from '@/components/charts/seriesFor'
 import { withAlpha } from '@/components/charts/withAlpha'
-
-const NUM_BINS = 30
+import { emaSmooth } from '@/components/charts/smoothing'
+import { useChartDpr } from '@/components/charts/ChartDprContext'
+import { attachWheelHandler, buildZoomOptions } from '@/components/charts/zoomBindings'
+import { formatTick } from '@/components/charts/formatTick'
+import { useStore, DEFAULT_HISTOGRAM_BIN_COUNT } from '@/store'
 
 function minMax(xs: number[]): { min: number; max: number } {
   let min = Infinity
@@ -34,13 +37,18 @@ export const ComparisonHistogram = memo(function ComparisonHistogram({
   runColors,
   runNameFor,
   seriesFor,
+  resetSignal,
 }: {
   runIds: string[]
   runColors: Map<string, string>
   runNameFor: (rid: string) => string
   seriesFor: SeriesFor
+  resetSignal?: number
 }) {
   const tokens = useChartTokens()
+  const dpr = useChartDpr()
+  const binCount = useStore(s => s.settings.histogramBinCount ?? DEFAULT_HISTOGRAM_BIN_COUNT)
+  const histogramSmoothing = useStore(s => s.settings.histogramSmoothing ?? 0)
 
   const view = useMemo(() => {
     type Entry = { rid: string; label: string; samples: number[]; color: string }
@@ -67,11 +75,12 @@ export const ComparisonHistogram = memo(function ComparisonHistogram({
       return null
     }
     const range = gMax - gMin || 1
-    const size = range / NUM_BINS
+    const size = range / binCount
 
     const datasets = entries.map(({ rid, label, samples, color }) => {
-      const counts = binCounts(samples, gMin, size, NUM_BINS)
-      const data = counts.map((c, i) => ({ x: gMin + (i + 0.5) * size, y: c }))
+      const counts = binCounts(samples, gMin, size, binCount)
+      const smoothed = emaSmooth(counts, histogramSmoothing)
+      const data = smoothed.map((c, i) => ({ x: gMin + (i + 0.5) * size, y: c }))
       return {
         label: `${rid}::${label}`,
         data,
@@ -88,7 +97,7 @@ export const ComparisonHistogram = memo(function ComparisonHistogram({
       }
     })
     return { datasets, min: gMin, max: gMax }
-  }, [runIds, runColors, seriesFor])
+  }, [runIds, runColors, seriesFor, binCount, histogramSmoothing])
 
   const config: ChartConfiguration<'line'> = useMemo(
     () => ({
@@ -104,25 +113,36 @@ export const ComparisonHistogram = memo(function ComparisonHistogram({
             ticks: {
               color: tokens.axisTickColor,
               font: { size: 10 },
-              callback: (value) => Number(value).toFixed(2),
+              callback: (value) => formatTick(value as number),
             },
             grid: { color: tokens.gridStroke, drawTicks: false },
             border: { display: false },
           },
           y: {
-            ticks: { color: tokens.axisTickColor, font: { size: 10 } },
+            ticks: {
+              color: tokens.axisTickColor,
+              font: { size: 10 },
+              callback: (value) => formatTick(value as number),
+            },
             grid: { color: tokens.gridStroke, drawTicks: false },
             border: { display: false },
           },
         },
-        plugins: { legend: { display: false } },
+        plugins: {
+          legend: { display: false },
+          zoom: buildZoomOptions('x'),
+        } as unknown as ChartConfiguration<'line'>['options'] extends { plugins?: infer P }
+          ? P
+          : never,
       },
     }),
     [view, tokens.axisTickColor, tokens.gridStroke],
   )
 
-  const { canvasRef, containerRef } = useChartJs<'line'>({
+  const { canvasRef, containerRef, chartRef } = useChartJs<'line'>({
     config,
+    dpr,
+    onChartReady: (chart) => attachWheelHandler(chart, 'x'),
     formatTooltip: (tooltip) => ({
       title: tooltip.dataPoints?.[0]
         ? `x≈${(tooltip.dataPoints[0].parsed as { x: number }).x.toFixed(2)}`
@@ -141,6 +161,15 @@ export const ComparisonHistogram = memo(function ComparisonHistogram({
       }),
     }),
   })
+
+  const lastResetRef = useRef<number | undefined>(resetSignal)
+  useEffect(() => {
+    if (resetSignal === undefined) return
+    if (lastResetRef.current === resetSignal) return
+    lastResetRef.current = resetSignal
+    const chart = chartRef.current as Chart<'line'> | null
+    chart?.resetZoom()
+  }, [resetSignal, chartRef])
 
   // Keep the canvas mounted; see ComparisonLine for the useChartJs
   // mount-effect rationale.

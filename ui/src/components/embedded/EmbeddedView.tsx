@@ -179,7 +179,7 @@ function EmbeddedMetrics({ spec }: { spec: EmbeddedSpec }) {
           <p className="text-xs text-muted-foreground">No metrics</p>
         ) : (
           items.map(({ loggableId, name, series }) => (
-            <MetricBlock key={`${loggableId}:${name}`} name={name} series={series} color={runColor} />
+            <MetricBlock key={`${loggableId}:${name}`} name={name} series={series} color={runColor} runId={spec.runId} loggableId={loggableId} />
           ))
         )}
       </div>

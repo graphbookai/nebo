@@ -1,11 +1,15 @@
-import { memo, useMemo } from 'react'
-import type { ChartConfiguration, Plugin } from 'chart.js'
+import { memo, useEffect, useMemo, useRef } from 'react'
+import type { Chart, ChartConfiguration, Plugin } from 'chart.js'
 import { useChartJs } from '@/components/charts/useChartJs'
 import { useChartTokens } from '@/components/charts/useChartTokens'
 import { DEFAULT_RUN_COLOR } from '@/lib/colors'
 import type { SeriesFor } from '@/components/charts/seriesFor'
 import { useStore } from '@/store'
 import { withAlpha } from '@/components/charts/withAlpha'
+import { smoothLinePoints } from '@/components/charts/smoothing'
+import { useChartDpr } from '@/components/charts/ChartDprContext'
+import { attachWheelHandler, buildZoomOptions } from '@/components/charts/zoomBindings'
+import { formatTick } from '@/components/charts/formatTick'
 
 // Each dataset carries a precomputed `_stepIndex: Map<x, y>` so the
 // plugin doesn't have to scan the data array on every redraw. This
@@ -66,15 +70,21 @@ export const ComparisonLine = memo(function ComparisonLine({
   runColors,
   runNameFor,
   seriesFor,
+  resetSignal,
 }: {
   runIds: string[]
   runColors: Map<string, string>
   runNameFor: (rid: string) => string
   seriesFor: SeriesFor
+  // Counter the parent increments to trigger `chart.resetZoom()`. The
+  // reset button itself lives in the parent's chip row.
+  resetSignal?: number
 }) {
   const tokens = useChartTokens()
+  const dpr = useChartDpr()
   const timelineMode = useStore(s => s.timeline.mode)
   const timelineStep = useStore(s => s.timeline.step)
+  const lineSmoothing = useStore(s => s.settings.lineSmoothing ?? 0)
   // Fixed line opacity in comparison views — dialed down a hair from
   // fully opaque so overlapping runs read as distinct strokes instead
   // of stacking into a single thick band.
@@ -86,21 +96,25 @@ export const ComparisonLine = memo(function ComparisonLine({
       .map((rid) => {
         const s = seriesFor(rid)
         if (!s || s.type !== 'line') return null
-        const data: { x: number; y: number }[] = []
+        const raw: { x: number; y: number }[] = []
+        // Step index keys off RAW values so the active-step plugin still
+        // marks the user's actual datapoints; smoothing only affects the
+        // visible curve.
         const stepIndex = new Map<number, number>()
         for (let i = 0; i < s.entries.length; i++) {
           const e = s.entries[i]
           const step = e.step ?? i
           const v = typeof e.value === 'number' ? e.value : Number(e.value)
           if (!Number.isFinite(v)) continue
-          data.push({ x: step, y: v })
+          raw.push({ x: step, y: v })
           stepIndex.set(step, v)
         }
+        const data = smoothLinePoints(raw, lineSmoothing)
         return {
           label: rid,
           data,
           borderColor: withAlpha(runColors.get(rid) ?? DEFAULT_RUN_COLOR, LINE_OPACITY),
-          borderWidth: 1.5,
+          borderWidth: 1,
           pointRadius: 0,
           // tension=0 gives hard corners between datapoints; the
           // smoothing setting still softens the data via an EMA.
@@ -111,7 +125,7 @@ export const ComparisonLine = memo(function ComparisonLine({
         }
       })
       .filter((d): d is NonNullable<typeof d> => d !== null)
-  }, [runIds, runColors, seriesFor])
+  }, [runIds, runColors, seriesFor, lineSmoothing])
 
   const config: ChartConfiguration<'line'> = useMemo(
     () => {
@@ -121,6 +135,7 @@ export const ComparisonLine = memo(function ComparisonLine({
       const pluginOpts = {
         legend: { display: false },
         activeStepLine: { value: isFiltering ? timelineStep : null },
+        zoom: buildZoomOptions('x'),
       } as unknown as ChartConfiguration<'line'>['options'] extends { plugins?: infer P }
         ? P
         : never
@@ -134,12 +149,20 @@ export const ComparisonLine = memo(function ComparisonLine({
           scales: {
             x: {
               type: 'linear',
-              ticks: { color: tokens.axisTickColor, font: { size: 10 } },
+              ticks: {
+                color: tokens.axisTickColor,
+                font: { size: 10 },
+                callback: (value) => formatTick(value as number),
+              },
               grid: { color: tokens.gridStroke, drawTicks: false },
               border: { display: false },
             },
             y: {
-              ticks: { color: tokens.axisTickColor, font: { size: 10 } },
+              ticks: {
+                color: tokens.axisTickColor,
+                font: { size: 10 },
+                callback: (value) => formatTick(value as number),
+              },
               grid: { color: tokens.gridStroke, drawTicks: false },
               border: { display: false },
             },
@@ -153,8 +176,10 @@ export const ComparisonLine = memo(function ComparisonLine({
     [datasets, tokens.axisTickColor, tokens.gridStroke, isFiltering, timelineStep],
   )
 
-  const { canvasRef, containerRef } = useChartJs<'line'>({
+  const { canvasRef, containerRef, chartRef } = useChartJs<'line'>({
     config,
+    dpr,
+    onChartReady: (chart) => attachWheelHandler(chart, 'x'),
     formatTooltip: (tooltip) => ({
       title: tooltip.dataPoints?.[0]
         ? `Step ${(tooltip.dataPoints[0].parsed as { x: number }).x}`
@@ -172,6 +197,15 @@ export const ComparisonLine = memo(function ComparisonLine({
       }),
     }),
   })
+
+  const lastResetRef = useRef<number | undefined>(resetSignal)
+  useEffect(() => {
+    if (resetSignal === undefined) return
+    if (lastResetRef.current === resetSignal) return
+    lastResetRef.current = resetSignal
+    const chart = chartRef.current as Chart<'line'> | null
+    chart?.resetZoom()
+  }, [resetSignal, chartRef])
 
   // Keep the canvas mounted even when there are no datasets — useChartJs's
   // mount effect uses `[]` deps, so unmounting the canvas (early-returning a

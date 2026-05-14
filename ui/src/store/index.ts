@@ -82,14 +82,6 @@ document.documentElement.classList.toggle('dark', initialSettings.theme === 'dar
 
 export type NodeTab = 'logs' | 'metrics' | 'images' | 'audio'
 
-export interface PinnedPanel {
-  id: string
-  runId: string
-  nodeId: string
-  tab: NodeTab
-  title: string
-}
-
 export interface ImageEntry {
   node: string
   mediaId: string
@@ -194,9 +186,6 @@ interface NeboStore {
   // on graph refetch.
   appliedUiConfigRuns: Set<string>
 
-  // Pinned panels
-  pinnedPanels: PinnedPanel[]
-
   // Node positions & sizes (per run, session-only)
   nodePositions: Map<string, Map<string, { x: number; y: number }>>
   nodeSizes: Map<string, Map<string, { width: number; height: number }>>
@@ -272,8 +261,6 @@ interface NeboStore {
 
   selectRun: (runId: string | null) => void
   requestLayout: () => void
-  pinTab: (runId: string, nodeId: string, tab: NodeTab) => void
-  unpinPanel: (panelId: string) => void
 
   updateNodePosition: (runId: string, nodeId: string, pos: { x: number; y: number }) => void
   resetLayout: (runId: string) => void
@@ -363,8 +350,6 @@ export const useStore = create<NeboStore>((set, get) => ({
   })),
 
   appliedUiConfigRuns: new Set<string>(),
-
-  pinnedPanels: [],
 
   nodePositions: new Map(),
   nodeSizes: new Map(),
@@ -708,22 +693,6 @@ export const useStore = create<NeboStore>((set, get) => ({
 
   selectRun: (runId) => set({ selectedRunId: runId }),
   requestLayout: () => set(state => ({ layoutTrigger: state.layoutTrigger + 1 })),
-  pinTab: (runId, nodeId, tab) => set(state => {
-    const run = state.runs.get(runId)
-    const nodeName = run?.graph?.nodes[nodeId]?.func_name || nodeId
-    const panel: PinnedPanel = {
-      id: `${runId}:${nodeId}:${tab}:${Date.now()}`,
-      runId,
-      nodeId,
-      tab,
-      title: `${nodeName} — ${tab.charAt(0).toUpperCase() + tab.slice(1)}`,
-    }
-    return { pinnedPanels: [...state.pinnedPanels, panel] }
-  }),
-
-  unpinPanel: (panelId) => set(state => ({
-    pinnedPanels: state.pinnedPanels.filter(p => p.id !== panelId),
-  })),
 
   updateNodePosition: (runId, nodeId, pos) => set(state => {
     const positions = new Map(state.nodePositions)

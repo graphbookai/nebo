@@ -3,6 +3,7 @@ import type { ChartConfiguration } from 'chart.js'
 import type { MetricEntry } from '@/lib/api'
 import { useChartJs } from './useChartJs'
 import { useChartTokens } from './useChartTokens'
+import { useChartDpr } from './ChartDprContext'
 import { RUN_COLOR_PALETTE } from '@/lib/colors'
 
 // Pie inherently displays one slice per dict key, so we use the shared palette
@@ -18,6 +19,7 @@ export const PieMetric = memo(function PieMetric({
   fill?: boolean
 }) {
   const tokens = useChartTokens()
+  const dpr = useChartDpr()
 
   const data = useMemo(() => {
     const value = entry.value as Record<string, number> | undefined
@@ -61,6 +63,7 @@ export const PieMetric = memo(function PieMetric({
 
   const { canvasRef, containerRef } = useChartJs<'doughnut'>({
     config,
+    dpr,
     formatTooltip: (tooltip) => ({
       title: undefined,
       items: (tooltip.dataPoints ?? []).map((dp) => {

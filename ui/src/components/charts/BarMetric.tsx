@@ -3,6 +3,7 @@ import type { ChartConfiguration } from 'chart.js'
 import type { MetricEntry } from '@/lib/api'
 import { useChartJs } from './useChartJs'
 import { useChartTokens } from './useChartTokens'
+import { useChartDpr } from './ChartDprContext'
 
 // Single-step bar chart. x-axis is the dict's keys (categories); every bar
 // uses the same color (typically the run's color) so a chart from one run
@@ -18,6 +19,7 @@ export const BarMetric = memo(function BarMetric({
   fill?: boolean
 }) {
   const tokens = useChartTokens()
+  const dpr = useChartDpr()
 
   const data = useMemo(() => {
     const value = entry.value as Record<string, number> | undefined
@@ -68,6 +70,7 @@ export const BarMetric = memo(function BarMetric({
 
   const { canvasRef, containerRef } = useChartJs<'bar'>({
     config: config ?? { type: 'bar', data: { labels: [], datasets: [] } },
+    dpr,
     formatTooltip: (tooltip) => ({
       title: undefined,
       items: (tooltip.dataPoints ?? []).map((dp) => ({

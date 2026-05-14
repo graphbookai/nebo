@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { CheckSquare, Square, GitCompare, Palette } from 'lucide-react'
+import { CheckSquare, Square, GitCompare, Palette, Link as LinkIcon } from 'lucide-react'
 import { useStore } from '@/store'
 import { ContextMenu } from '@/components/shared/ContextMenu'
 import { ContextMenuItem } from '@/components/shared/ContextMenuItem'
@@ -55,6 +55,12 @@ export function RunContextMenu({ runId, isOpen, position, onClose }: RunContextM
     requestAnimationFrame(() => setColorPickerOpen(true))
   }, [onClose])
 
+  const handleCopyIframeUrl = useCallback(() => {
+    const url = `${window.location.origin}/?run=${encodeURIComponent(runId)}`
+    void navigator.clipboard?.writeText(url)
+    onClose()
+  }, [runId, onClose])
+
   // Lazily assign a color the first time this menu mounts for a run that
   // has none. Calling getOrAssignRunColor during render synchronously
   // mutates the store, which React 19 flags as "setState in render".
@@ -83,6 +89,11 @@ export function RunContextMenu({ runId, isOpen, position, onClose }: RunContextM
           label="Change Color"
           icon={<Palette className="w-4 h-4" />}
           onClick={handleOpenColorPicker}
+        />
+        <ContextMenuItem
+          label="Copy iframe URL"
+          icon={<LinkIcon className="w-4 h-4" />}
+          onClick={handleCopyIframeUrl}
         />
       </ContextMenu>
 

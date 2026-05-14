@@ -79,6 +79,36 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /* Native scrollbar styling for any raw `overflow-auto`/`overflow-scroll`
+     container — matches the Radix `<ScrollArea>` thumb so tab content,
+     log feeds, etc. blend with the rest of the UI. The Radix ScrollArea
+     wraps its viewport in `overflow-hidden` and renders its own thumb,
+     so it isn't affected. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--color-border);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-muted-foreground);
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
 }
 
 /* React Flow overrides for dark mode */

@@ -25,6 +25,12 @@ export interface UseChartJsParams<TType extends keyof ChartTypeRegistry> {
   // (if any) runs at chart-destroy time. Used by LineMetric / ScatterMetric
   // to attach the trackpad-aware wheel handler from zoomBindings.ts.
   onChartReady?: (chart: Chart<TType>) => void | (() => void)
+  // Effective devicePixelRatio for this chart. Chart.js consults
+  // `options.devicePixelRatio` when sizing the canvas bitmap; changing
+  // it requires a chart.resize() call (which we trigger on change).
+  // Lets the canvas stay sharp when a parent CSS-transform (e.g. the
+  // ReactFlow viewport zoom inside DAG nodes) magnifies the chart.
+  dpr?: number
 }
 
 // Single hook that owns Chart.js lifecycle for a per-type chart component.
@@ -79,6 +85,21 @@ export function useChartJs<TType extends keyof ChartTypeRegistry>(
 
     chartRef.current = new Chart(canvasRef.current, cfgNoExternal)
 
+    // Chart.js's internal initial resize measures the parent via
+    // `getBoundingClientRect()` (see `getContainerSize` in chart.js's
+    // helpers.dom), which INCLUDES ancestor CSS transforms. Inside a
+    // ReactFlow viewport that has been zoomed, that returns post-transform
+    // dimensions and the canvas is created at that bloated size, which
+    // ReactFlow's own transform then scales again on screen. Pass
+    // explicit layout-pixel dimensions (clientWidth/clientHeight ignore
+    // transforms) so the canvas always matches its CSS-box size.
+    if (containerRef.current) {
+      chartRef.current.resize(
+        containerRef.current.clientWidth,
+        containerRef.current.clientHeight,
+      )
+    }
+
     const cleanup = onChartReadyRef.current?.(chartRef.current)
 
     return () => {
@@ -107,6 +128,7 @@ export function useChartJs<TType extends keyof ChartTypeRegistry>(
           enabled: false,
         },
       },
+      ...(params.dpr !== undefined ? { devicePixelRatio: params.dpr } : {}),
     } as unknown as ChartOptions<TType>
     chart.update('none')
 
@@ -147,6 +169,28 @@ export function useChartJs<TType extends keyof ChartTypeRegistry>(
       }
     }
   })
+
+  // Chart.js reads devicePixelRatio at resize time, so changing the prop
+  // alone won't re-allocate the canvas bitmap. Track the last applied
+  // DPR and force a resize when it shifts so charts inside CSS-scaled
+  // ancestors (e.g. ReactFlow's zoomed viewport) stay sharp.
+  //
+  // Pass explicit CSS-pixel dimensions read from the container's
+  // clientWidth/clientHeight — `chart.resize()` with no args falls
+  // through Chart.js's `getContainerSize`, which measures the parent
+  // via `getBoundingClientRect()` and therefore includes ReactFlow's
+  // CSS transform. The result is a canvas whose CSS size grows with
+  // viewport zoom, which the transform then scales again on top of —
+  // making the chart visually expand on every zoom step.
+  const lastDprRef = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    const chart = chartRef.current
+    const container = containerRef.current
+    if (!chart || !container || params.dpr === undefined) return
+    if (lastDprRef.current === params.dpr) return
+    lastDprRef.current = params.dpr
+    chart.resize(container.clientWidth, container.clientHeight)
+  }, [params.dpr])
 
   // No manual ResizeObserver here. With `responsive: true` (Chart.js's
   // default after we stopped overriding it) the chart watches its parent

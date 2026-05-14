@@ -5,7 +5,6 @@ import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { useComparisonContext } from '@/hooks/useComparisonContext'
 import { DagGraph } from '@/components/graph/DagGraph'
 import { LoggableGridView } from '@/components/graph/LoggableGridView'
-import { PinnedPanelStack } from '@/components/layout/PinnedPanelStack'
 import { TimelineScrubber } from '@/components/timeline/TimelineScrubber'
 import { RunStatusBadge } from '@/components/runs/RunStatusBadge'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -20,7 +19,6 @@ export function RunDetailView() {
   const effectiveRunId = isComparison ? comparisonRunIds[0] ?? selectedRunId : selectedRunId
   const run = useRunData(effectiveRunId)
   const isDesktop = useIsDesktop()
-  const pinnedPanels = useStore(s => s.pinnedPanels)
   const viewMode = useStore(s => s.viewMode)
   const setViewMode = useStore(s => s.setViewMode)
   const effectiveViewMode = viewMode
@@ -139,11 +137,6 @@ export function RunDetailView() {
 
       {/* Timeline scrubber */}
       <TimelineScrubber runId={effectiveRunId!} />
-
-      {/* Pinned panel stack */}
-      {pinnedPanels.length > 0 && (
-        <PinnedPanelStack />
-      )}
     </div>
   )
 }

@@ -8,6 +8,8 @@ import { useStore, DEFAULT_HISTOGRAM_BIN_COUNT } from '@/store'
 import { formatTick } from './formatTick'
 import { attachWheelHandler, buildZoomOptions } from './zoomBindings'
 import { withAlpha } from './withAlpha'
+import { emaSmooth } from './smoothing'
+import { useChartDpr } from './ChartDprContext'
 
 function minMax(xs: number[]): { min: number; max: number } {
   let min = Infinity
@@ -64,6 +66,7 @@ export const HistogramMetric = memo(function HistogramMetric({
   resetSignal?: number
 }) {
   const tokens = useChartTokens()
+  const dpr = useChartDpr()
   const latest = entries.length > 0 ? entries[entries.length - 1] : null
   const colorsByLabel = latest?.colors === true
   const binCount = useStore(s => s.settings.histogramBinCount ?? DEFAULT_HISTOGRAM_BIN_COUNT)
@@ -98,17 +101,7 @@ export const HistogramMetric = memo(function HistogramMetric({
       const counts = binCounts(samplesByLabel[label], min, size, binCount)
       // Apply EMA over the bin counts when smoothing is on. Per-label so
       // overlapping distributions stay distinguishable.
-      let smoothed = counts
-      if (histogramSmoothing > 0) {
-        smoothed = new Array(counts.length)
-        let prev = counts[0]
-        smoothed[0] = prev
-        for (let i = 1; i < counts.length; i++) {
-          const v = histogramSmoothing * prev + (1 - histogramSmoothing) * counts[i]
-          smoothed[i] = v
-          prev = v
-        }
-      }
+      const smoothed = emaSmooth(counts, histogramSmoothing)
       const data = smoothed.map((c, i) => ({ x: min + (i + 0.5) * size, y: c }))
       const paletteIdx = allLabels ? allLabels.indexOf(label) : labels.indexOf(label)
       const labelColor = colorsByLabel
@@ -178,6 +171,7 @@ export const HistogramMetric = memo(function HistogramMetric({
 
   const { canvasRef, containerRef, chartRef } = useChartJs<'line'>({
     config: config ?? { type: 'line', data: { datasets: [] } },
+    dpr,
     onChartReady: (chart) => attachWheelHandler(chart, 'x'),
     formatTooltip: (tooltip) => ({
       title: tooltip.dataPoints?.[0]

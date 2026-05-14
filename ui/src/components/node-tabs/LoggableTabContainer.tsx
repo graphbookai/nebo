@@ -1,8 +1,6 @@
 import { useMemo } from 'react'
 import { useStore, type NodeTab } from '@/store'
 import { cn } from '@/lib/utils'
-import { Pin } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { LoggableTabContent } from './LoggableTabContent'
 import { useComparisonContext } from '@/hooks/useComparisonContext'
 
@@ -27,7 +25,6 @@ const allTabs: { key: NodeTab; label: string; alwaysShow: boolean }[] = [
 const VALID_TABS: readonly NodeTab[] = ['logs', 'metrics', 'images', 'audio']
 
 export function LoggableTabContainer({ runId, loggableId, fillParent = false }: LoggableTabContainerProps) {
-  const pinTab = useStore(s => s.pinTab)
   const run = useStore(s => s.runs.get(runId))
   const runs = useStore(s => s.runs)
   const userTab = useStore(s => s.selectedTabs.get(runId)?.get(loggableId))
@@ -148,18 +145,6 @@ export function LoggableTabContainer({ runId, loggableId, fillParent = false }: 
             </button>
           ))}
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 mr-1"
-          onClick={(e) => {
-            e.stopPropagation()
-            pinTab(runId, loggableId, resolvedTab)
-          }}
-          title="Pin this tab"
-        >
-          <Pin className="h-3 w-3" />
-        </Button>
       </div>
 
       {/* Tab content */}
