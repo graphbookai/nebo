@@ -209,34 +209,30 @@ def cmd_run(args: argparse.Namespace) -> None:
 
 def cmd_status(args: argparse.Namespace) -> None:
     """Show daemon status and recent runs."""
-    port = args.port
+    from nebo import client
 
-    if not _is_alive(port):
+    try:
+        runs = client.get_run_history(**_conn_kwargs(args))
+    except Exception:
         print("Nebo daemon is not running.")
         pid = _read_pid()
         if pid:
             print(f"  Stale PID file found: {pid}")
         return
 
-    import httpx
-
-    try:
-        health = httpx.get(f"http://localhost:{port}/health", timeout=2.0).json()
-        runs = httpx.get(f"http://localhost:{port}/runs", timeout=2.0).json()
-    except Exception as e:
-        print(f"Error connecting to daemon: {e}")
+    if args.json:
+        print(json.dumps({"daemon": "running", "runs": runs.get("runs", [])}))
         return
 
+    port = getattr(args, "port", None) or int(os.environ.get("NEBO_PORT", 7861))
     print(f"Nebo daemon: running on port {port}")
-    print(f"  Active run: {health.get('active_run', 'none')}")
-    print(f"  Total runs: {health.get('total_runs', 0)}")
 
     run_list = runs.get("runs", [])
     if run_list:
         print(f"\nRecent runs:")
         for r in run_list[-10:]:
-            status_icon = {"running": "↻", "completed": "✓", "crashed": "✗", "stopped": "■", "starting": "…"}.get(r["status"], "?")
-            print(f"  {status_icon} {r['id']}: {r['status']} | {r['script_path']} | "
+            status_icon = {"running": "↻", "completed": "✓", "crashed": "✗", "stopped": "■", "starting": "…"}.get(r.get("status", ""), "?")
+            print(f"  {status_icon} {r['id']}: {r.get('status', '?')} | {r.get('script_path', '')} | "
                   f"nodes={r.get('node_count', 0)}, errors={r.get('error_count', 0)}")
 
 
@@ -264,31 +260,24 @@ def cmd_stop(args: argparse.Namespace) -> None:
 
 def cmd_logs(args: argparse.Namespace) -> None:
     """View logs from runs."""
-    port = args.port
-
-    if not _is_alive(port):
-        print("Nebo daemon is not running.")
-        return
-
-    import httpx
+    from nebo import client
 
     try:
-        params = {"limit": args.limit}
-        if args.node:
-            params["loggable_id"] = args.node
-
-        if args.run:
-            url = f"http://localhost:{port}/runs/{args.run}/logs"
-        else:
-            url = f"http://localhost:{port}/logs"
-
-        resp = httpx.get(url, params=params, timeout=5.0)
-        data = resp.json()
+        result = client.get_logs(
+            loggable_id=args.node,
+            run_id=args.run,
+            limit=args.limit,
+            **_conn_kwargs(args),
+        )
     except Exception as e:
         print(f"Error: {e}")
         return
 
-    logs = data.get("logs", [])
+    if args.json:
+        print(json.dumps(result))
+        return
+
+    logs = result.get("logs", [])
     if not logs:
         print("No logs found.")
         return
@@ -300,27 +289,19 @@ def cmd_logs(args: argparse.Namespace) -> None:
 
 def cmd_errors(args: argparse.Namespace) -> None:
     """View errors from runs."""
-    port = args.port
-
-    if not _is_alive(port):
-        print("Nebo daemon is not running.")
-        return
-
-    import httpx
+    from nebo import client
 
     try:
-        if args.run:
-            url = f"http://localhost:{port}/runs/{args.run}/errors"
-        else:
-            url = f"http://localhost:{port}/errors"
-
-        resp = httpx.get(url, timeout=5.0)
-        data = resp.json()
+        result = client.get_errors(run_id=args.run, **_conn_kwargs(args))
     except Exception as e:
         print(f"Error: {e}")
         return
 
-    errors = data.get("errors", [])
+    if args.json:
+        print(json.dumps(result))
+        return
+
+    errors = result.get("errors", [])
     if not errors:
         print("No errors found.")
         return
@@ -421,11 +402,14 @@ def _replay_nebo_file_to_remote(filepath: str, base_url: str, api_token: str | N
 
 def cmd_load(args: argparse.Namespace) -> None:
     """Load a .nebo file into the daemon (local or remote)."""
+    from nebo import client
+
     filepath = os.path.abspath(args.file)
     if not os.path.exists(filepath):
         print(f"Error: File not found: {filepath}")
         sys.exit(1)
 
+    # --url triggers the event-replay path (daemon can't see our filesystem).
     url = getattr(args, "url", None) or os.environ.get("NEBO_URL")
     api_token = getattr(args, "api_token", None) or os.environ.get("NEBO_API_TOKEN")
 
@@ -435,22 +419,24 @@ def cmd_load(args: argparse.Namespace) -> None:
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
+        if args.json:
+            print(json.dumps({"status": "loaded", "filepath": filepath}))
         return
 
-    import httpx
-    port = args.port
-    if not _is_alive(port):
-        print(f"Nebo daemon is not running on port {port}.")
+    try:
+        data = client.load_file(filepath, **_conn_kwargs(args))
+    except Exception as e:
+        print(f"Error: {e}")
         sys.exit(1)
-    resp = httpx.post(
-        f"http://localhost:{port}/load",
-        json={"filepath": filepath},
-        timeout=10.0,
-    )
-    data = resp.json()
+
     if "error" in data:
         print(f"Error: {data['error']}")
         sys.exit(1)
+
+    if args.json:
+        print(json.dumps({"status": "loaded", "filepath": filepath, **data}))
+        return
+
     print(f"Loaded: {filepath}")
 
 
@@ -747,31 +733,33 @@ def main() -> None:
     p_run.add_argument("script_args", nargs="*", help="Arguments for the script")
 
     # status
-    p_status = subparsers.add_parser("status", help="Show daemon status")
-    p_status.add_argument("--port", type=int, default=7861)
+    p_status = subparsers.add_parser(
+        "status", parents=[_common_conn_parser()], help="Show daemon status",
+    )
 
     # stop
     p_stop = subparsers.add_parser("stop", help="Stop the daemon")
     p_stop.add_argument("--port", type=int, default=7861)
 
     # logs
-    p_logs = subparsers.add_parser("logs", help="View logs")
+    p_logs = subparsers.add_parser(
+        "logs", parents=[_common_conn_parser()], help="View logs",
+    )
     p_logs.add_argument("--run", help="Run ID")
     p_logs.add_argument("--node", help="Filter by node")
     p_logs.add_argument("--limit", type=int, default=100)
-    p_logs.add_argument("--port", type=int, default=7861)
 
     # errors
-    p_errors = subparsers.add_parser("errors", help="View errors")
+    p_errors = subparsers.add_parser(
+        "errors", parents=[_common_conn_parser()], help="View errors",
+    )
     p_errors.add_argument("--run", help="Run ID")
-    p_errors.add_argument("--port", type=int, default=7861)
 
     # load
-    p_load = subparsers.add_parser("load", help="Load a .nebo file into the daemon")
+    p_load = subparsers.add_parser(
+        "load", parents=[_common_conn_parser()], help="Load a .nebo file into the daemon",
+    )
     p_load.add_argument("file", help="Path to .nebo file")
-    p_load.add_argument("--port", type=int, default=7861, help="Local daemon port (ignored if --url is set)")
-    p_load.add_argument("--url", help="Remote daemon URL (e.g. an HF Space). Reads file locally and replays events. Defaults to NEBO_URL env.")
-    p_load.add_argument("--api-token", help="Token for the remote daemon. Defaults to NEBO_API_TOKEN env.")
 
     # mcp
     p_mcp = subparsers.add_parser("mcp", help="Print MCP config for Claude Code")

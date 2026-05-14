@@ -330,3 +330,130 @@ def test_audio_log_passes_entries(monkeypatch, tmp_path):
         "--json",
     ])
     assert received["entries"][0]["name"] == "snd"
+
+
+# ---------------------------------------------------------------------------
+# nebo logs | errors | load | status  (Task 20 — --json + nebo.client routing)
+# ---------------------------------------------------------------------------
+
+
+def test_logs_json(monkeypatch):
+    monkeypatch.setattr(
+        "nebo.client.get_logs",
+        lambda **c: {"logs": [{"timestamp": 1, "loggable_id": "n", "message": "m"}]},
+    )
+    out = _run_cli(["logs", "--json"])
+    assert json.loads(out)["logs"][0]["message"] == "m"
+
+
+def test_logs_human(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "nebo.client.get_logs",
+        lambda **c: {"logs": [{"loggable_id": "node_a", "message": "hello"}]},
+    )
+    buf = io.StringIO()
+    with redirect_stdout(buf), patch("sys.argv", ["nebo", "logs"]):
+        from nebo.cli import main
+        main()
+    out = buf.getvalue()
+    assert "hello" in out
+    assert "[node_a]" in out
+
+
+def test_logs_no_logs(monkeypatch):
+    monkeypatch.setattr(
+        "nebo.client.get_logs",
+        lambda **c: {"logs": []},
+    )
+    out = _run_cli(["logs"])
+    assert "No logs found" in out
+
+
+def test_errors_json(monkeypatch):
+    monkeypatch.setattr(
+        "nebo.client.get_errors",
+        lambda **c: {"errors": []},
+    )
+    out = _run_cli(["errors", "--json"])
+    assert json.loads(out) == {"errors": []}
+
+
+def test_errors_human(monkeypatch):
+    monkeypatch.setattr(
+        "nebo.client.get_errors",
+        lambda **c: {
+            "errors": [{"node_name": "train", "exception_type": "ValueError", "exception_message": "bad"}]
+        },
+    )
+    out = _run_cli(["errors"])
+    assert "train" in out
+    assert "ValueError" in out
+
+
+def test_load_json(monkeypatch, tmp_path):
+    f = tmp_path / "x.nebo"
+    f.write_bytes(b"fake")
+    monkeypatch.setattr(
+        "nebo.client.load_file",
+        lambda fp, **c: {"status": "loaded", "filepath": fp},
+    )
+    out = _run_cli(["load", str(f), "--json"])
+    parsed = json.loads(out)
+    assert parsed["status"] == "loaded"
+
+
+def test_load_human(monkeypatch, tmp_path):
+    f = tmp_path / "y.nebo"
+    f.write_bytes(b"fake")
+    monkeypatch.setattr(
+        "nebo.client.load_file",
+        lambda fp, **c: {"run_id": "abc"},
+    )
+    out = _run_cli(["load", str(f)])
+    assert "Loaded" in out
+
+
+def test_status_json(monkeypatch):
+    monkeypatch.setattr(
+        "nebo.client.get_run_history",
+        lambda **c: {"runs": [{"id": "r1", "status": "completed", "script_path": "x.py"}]},
+    )
+    out = _run_cli(["status", "--json"])
+    parsed = json.loads(out)
+    assert parsed["daemon"] == "running"
+    assert parsed["runs"][0]["id"] == "r1"
+
+
+def test_status_daemon_down(monkeypatch):
+    def boom(**c):
+        raise ConnectionError("refused")
+
+    monkeypatch.setattr("nebo.client.get_run_history", boom)
+    out = _run_cli(["status"])
+    assert "not running" in out
+
+
+def test_logs_passes_run_and_node(monkeypatch):
+    received: dict = {}
+
+    def fake_get_logs(**c):
+        received.update(c)
+        return {"logs": []}
+
+    monkeypatch.setattr("nebo.client.get_logs", fake_get_logs)
+    _run_cli(["logs", "--run", "r1", "--node", "train", "--limit", "5"])
+    assert received["run_id"] == "r1"
+    assert received["loggable_id"] == "train"
+    assert received["limit"] == 5
+
+
+def test_errors_passes_run(monkeypatch):
+    received: dict = {}
+
+    def fake_get_errors(**c):
+        received.update(c)
+        return {"errors": []}
+
+    monkeypatch.setattr("nebo.client.get_errors", fake_get_errors)
+    _run_cli(["errors", "--run", "r2"])
+    assert received["run_id"] == "r2"
