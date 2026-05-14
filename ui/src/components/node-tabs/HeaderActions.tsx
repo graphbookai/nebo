@@ -5,24 +5,13 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 
 interface HeaderActionsProps {
   onExpand: () => void
-  // Trigger a PNG download. Caller knows where the canvas/image lives
-  // (chart container ref or <img> src); this component only renders the
-  // affordance. Pass undefined to hide the Download button entirely.
   onDownloadPng?: () => void
-  // Iframe-embeddable URL for this specific block (e.g.
-  // `${origin}/?run=R&metric=NAME&node=NODE`). Pass undefined to omit the
-  // "Copy iframe URL" row from the Download popover — comparison-view
-  // blocks have no single run to embed so they hide the row.
+  // Iframe-embeddable URL. Comparison blocks omit this since they span
+  // multiple runs and the embedded-view schema only addresses one.
   iframeUrl?: string
-  // Reset chart pan/zoom. Pass undefined to hide the button — snapshot
-  // chart types (bar / pie) have no zoom state to reset.
   onResetZoom?: () => void
 }
 
-// Shared header chrome for metric and image blocks: Reset zoom (when
-// applicable) + Expand to a modal + Download popover (PNG download /
-// Copy iframe URL). Lives where the chart-type label used to sit on the
-// right of the block header.
 export function HeaderActions({ onExpand, onDownloadPng, iframeUrl, onResetZoom }: HeaderActionsProps) {
   const [copied, setCopied] = useState(false)
 

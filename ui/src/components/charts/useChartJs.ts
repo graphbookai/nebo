@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type RefObject } from 'react'
 import {
   Chart,
   type ChartConfiguration,
@@ -170,18 +170,10 @@ export function useChartJs<TType extends keyof ChartTypeRegistry>(
     }
   })
 
-  // Chart.js reads devicePixelRatio at resize time, so changing the prop
-  // alone won't re-allocate the canvas bitmap. Track the last applied
-  // DPR and force a resize when it shifts so charts inside CSS-scaled
-  // ancestors (e.g. ReactFlow's zoomed viewport) stay sharp.
-  //
-  // Pass explicit CSS-pixel dimensions read from the container's
-  // clientWidth/clientHeight — `chart.resize()` with no args falls
-  // through Chart.js's `getContainerSize`, which measures the parent
-  // via `getBoundingClientRect()` and therefore includes ReactFlow's
-  // CSS transform. The result is a canvas whose CSS size grows with
-  // viewport zoom, which the transform then scales again on top of —
-  // making the chart visually expand on every zoom step.
+  // Chart.js consults devicePixelRatio at resize time, so a prop change
+  // alone won't re-allocate the bitmap — we force a resize on change.
+  // See the mount effect for why we pass explicit dimensions instead of
+  // letting Chart.js measure the parent itself.
   const lastDprRef = useRef<number | undefined>(undefined)
   useEffect(() => {
     const chart = chartRef.current
@@ -201,6 +193,22 @@ export function useChartJs<TType extends keyof ChartTypeRegistry>(
   // the indefinite horizontal expansion of metric-bearing DAG nodes.
 
   return { canvasRef, containerRef, chartRef }
+}
+
+// Increment a counter in the parent to trigger `chart.resetZoom()`. Used
+// by both single-run and comparison charts to let a header-level "Reset
+// zoom" button reach into the chart instance.
+export function useResetZoomSignal<TType extends keyof ChartTypeRegistry>(
+  chartRef: RefObject<Chart<TType> | null>,
+  resetSignal: number | undefined,
+): void {
+  const lastSeen = useRef<number | undefined>(resetSignal)
+  useEffect(() => {
+    if (resetSignal === undefined) return
+    if (lastSeen.current === resetSignal) return
+    lastSeen.current = resetSignal
+    chartRef.current?.resetZoom()
+  }, [resetSignal, chartRef])
 }
 
 function defaultFormat<TType extends keyof ChartTypeRegistry>(

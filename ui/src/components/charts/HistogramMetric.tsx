@@ -1,7 +1,7 @@
-import { memo, useEffect, useMemo, useRef } from 'react'
-import type { Chart, ChartConfiguration } from 'chart.js'
+import { memo, useMemo } from 'react'
+import type { ChartConfiguration } from 'chart.js'
 import type { MetricEntry } from '@/lib/api'
-import { useChartJs } from './useChartJs'
+import { useChartJs, useResetZoomSignal } from './useChartJs'
 import { useChartTokens } from './useChartTokens'
 import { RUN_COLOR_PALETTE } from '@/lib/colors'
 import { useStore, DEFAULT_HISTOGRAM_BIN_COUNT } from '@/store'
@@ -188,14 +188,7 @@ export const HistogramMetric = memo(function HistogramMetric({
     }),
   })
 
-  const lastResetRef = useRef<number | undefined>(resetSignal)
-  useEffect(() => {
-    if (resetSignal === undefined) return
-    if (lastResetRef.current === resetSignal) return
-    lastResetRef.current = resetSignal
-    const chart = chartRef.current as Chart<'line'> | null
-    chart?.resetZoom()
-  }, [resetSignal, chartRef])
+  useResetZoomSignal(chartRef, resetSignal)
 
   if (!view) return null
 

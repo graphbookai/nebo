@@ -15,10 +15,7 @@ export function downloadCanvasPng(container: HTMLElement | null, name: string): 
   composed.width = canvas.width
   composed.height = canvas.height
   const ctx = composed.getContext('2d')
-  if (!ctx) {
-    triggerDownload(canvas.toDataURL('image/png'), sanitizeFileName(name) + '.png')
-    return
-  }
+  if (!ctx) return
   ctx.fillStyle = resolveThemeBg()
   ctx.fillRect(0, 0, composed.width, composed.height)
   ctx.drawImage(canvas, 0, 0)

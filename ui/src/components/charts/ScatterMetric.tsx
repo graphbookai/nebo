@@ -1,7 +1,7 @@
-import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
+import { memo, useCallback, useMemo } from 'react'
 import type { ChartConfiguration, ChartEvent, ActiveElement, Chart } from 'chart.js'
 import type { MetricEntry } from '@/lib/api'
-import { useChartJs } from './useChartJs'
+import { useChartJs, useResetZoomSignal } from './useChartJs'
 import { useChartTokens } from './useChartTokens'
 import { shapeForLabel } from './scatterShape'
 import { RUN_COLOR_PALETTE } from '@/lib/colors'
@@ -216,13 +216,7 @@ export const ScatterMetric = memo(function ScatterMetric({
     }),
   })
 
-  const lastResetRef = useRef<number | undefined>(resetSignal)
-  useEffect(() => {
-    if (resetSignal === undefined) return
-    if (lastResetRef.current === resetSignal) return
-    lastResetRef.current = resetSignal
-    chartRef.current?.resetZoom()
-  }, [resetSignal, chartRef])
+  useResetZoomSignal(chartRef, resetSignal)
 
   // Keep the canvas mounted even when there are zero datasets (e.g.
   // every label chip toggled off). Returning null here would detach the

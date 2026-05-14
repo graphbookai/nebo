@@ -17,6 +17,7 @@ import { useStore } from '@/store'
 import { Modal } from '@/components/ui/modal'
 import { HeaderActions } from '@/components/node-tabs/HeaderActions'
 import { downloadCanvasPng } from '@/components/node-tabs/downloadHelpers'
+import { buildEmbeddedUrl } from '@/hooks/useEmbeddedView'
 import type { MetricEntry, LoggableMetricSeries } from '@/lib/api'
 import { DEFAULT_RUN_COLOR, RUN_COLOR_PALETTE } from '@/lib/colors'
 import { LineMetric } from '@/components/charts/LineMetric'
@@ -38,6 +39,10 @@ import { cn } from '@/lib/utils'
 // Without scaling by row count, 4+ runs (which need ≥2 rows) would
 // squeeze each pie into ~100px and the chart effectively disappears.
 const PIE_ROW_PX = 220
+
+// Chart types whose renderers support zoom/pan and therefore expose a
+// Reset zoom affordance. Bar/pie are snapshots with no zoom state.
+const ZOOMABLE_CHART_TYPES = new Set(['line', 'scatter', 'histogram'])
 import {
   UNTAGGED_KEY,
   entriesMatchingTags,
@@ -110,7 +115,6 @@ export function MetricBlock({
   fill,
   runId,
   loggableId,
-  inModal,
 }: {
   name: string
   series: LoggableMetricSeries
@@ -125,10 +129,6 @@ export function MetricBlock({
   // the iframe row is hidden from the download popover.
   runId?: string
   loggableId?: string
-  // When this block is itself already rendered inside a modal (e.g.
-  // grid-view's expand modal), suppress the Expand button so we don't
-  // open a modal-inside-a-modal.
-  inModal?: boolean
 }) {
   // Tags only apply to line metrics — every other type is a snapshot
   // and the v3 SDK strips tags off non-line emissions before they go on
@@ -215,13 +215,12 @@ export function MetricBlock({
   // chips instead of floating over the canvas.
   const [resetSignal, setResetSignal] = useState(0)
   const handleResetZoom = useCallback(() => setResetSignal(c => c + 1), [])
-  const showResetButton =
-    series.type === 'line' || series.type === 'scatter' || series.type === 'histogram'
+  const showResetButton = ZOOMABLE_CHART_TYPES.has(series.type)
 
   const [modalOpen, setModalOpen] = useState(false)
   const chartWrapperRef = useRef<HTMLDivElement>(null)
   const iframeUrl = runId && loggableId
-    ? `${window.location.origin}/?run=${encodeURIComponent(runId)}&metric=${encodeURIComponent(name)}&node=${encodeURIComponent(loggableId)}`
+    ? buildEmbeddedUrl({ runId, node: loggableId, metric: name })
     : undefined
 
   return (
@@ -229,7 +228,7 @@ export function MetricBlock({
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-medium text-foreground truncate flex-1 min-w-0">{name}</span>
         <HeaderActions
-          onExpand={inModal ? () => {} : () => setModalOpen(true)}
+          onExpand={() => setModalOpen(true)}
           onDownloadPng={() => downloadCanvasPng(chartWrapperRef.current, name)}
           iframeUrl={iframeUrl}
           onResetZoom={showResetButton ? handleResetZoom : undefined}
@@ -284,7 +283,7 @@ export function MetricBlock({
           fill={fill}
         />
       </div>
-      {modalOpen && !inModal && (
+      {modalOpen && (
         <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={name} widthClass="max-w-6xl">
           <div className="h-[60vh] flex flex-col min-h-0">
             <SingleRunChart
@@ -548,7 +547,7 @@ function ComparisonMetricBlock({
   const chartWrapperRef = useRef<HTMLDivElement>(null)
   const [resetSignal, setResetSignal] = useState(0)
   const handleResetZoom = useCallback(() => setResetSignal((c) => c + 1), [])
-  const showResetButton = type === 'line' || type === 'scatter' || type === 'histogram'
+  const showResetButton = ZOOMABLE_CHART_TYPES.has(type)
 
   return (
     <div data-export-atom="chart">

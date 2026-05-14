@@ -102,3 +102,26 @@ export function resolveNodeRef(
   }
   return null
 }
+
+interface EmbeddedUrlSpec {
+  runId: string
+  // Optional single-item targets; only one of `metric`/`image`/`audio`
+  // should be set at a time (the parser above picks the first present).
+  node?: string
+  metric?: string
+  image?: string
+}
+
+/**
+ * Build an iframe-friendly URL using the same query-param schema that
+ * `parse()` above consumes. Producer side of the same contract — keeps
+ * the URL shape in one place.
+ */
+export function buildEmbeddedUrl(spec: EmbeddedUrlSpec): string {
+  const params = new URLSearchParams()
+  params.set('run', spec.runId)
+  if (spec.metric) params.set('metric', spec.metric)
+  if (spec.image) params.set('image', spec.image)
+  if (spec.node) params.set('node', spec.node)
+  return `${window.location.origin}/?${params.toString()}`
+}

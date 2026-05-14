@@ -1,6 +1,6 @@
-import { memo, useEffect, useMemo, useRef } from 'react'
-import type { Chart, ChartConfiguration, Plugin } from 'chart.js'
-import { useChartJs } from '@/components/charts/useChartJs'
+import { memo, useMemo } from 'react'
+import type { ChartConfiguration, Plugin } from 'chart.js'
+import { useChartJs, useResetZoomSignal } from '@/components/charts/useChartJs'
 import { useChartTokens } from '@/components/charts/useChartTokens'
 import { DEFAULT_RUN_COLOR } from '@/lib/colors'
 import type { SeriesFor } from '@/components/charts/seriesFor'
@@ -97,9 +97,8 @@ export const ComparisonLine = memo(function ComparisonLine({
         const s = seriesFor(rid)
         if (!s || s.type !== 'line') return null
         const raw: { x: number; y: number }[] = []
-        // Step index keys off RAW values so the active-step plugin still
-        // marks the user's actual datapoints; smoothing only affects the
-        // visible curve.
+        // Step index keys off raw values, not the smoothed curve, so
+        // the active-step plugin marks the user's actual datapoints.
         const stepIndex = new Map<number, number>()
         for (let i = 0; i < s.entries.length; i++) {
           const e = s.entries[i]
@@ -198,14 +197,7 @@ export const ComparisonLine = memo(function ComparisonLine({
     }),
   })
 
-  const lastResetRef = useRef<number | undefined>(resetSignal)
-  useEffect(() => {
-    if (resetSignal === undefined) return
-    if (lastResetRef.current === resetSignal) return
-    lastResetRef.current = resetSignal
-    const chart = chartRef.current as Chart<'line'> | null
-    chart?.resetZoom()
-  }, [resetSignal, chartRef])
+  useResetZoomSignal(chartRef, resetSignal)
 
   // Keep the canvas mounted even when there are no datasets — useChartJs's
   // mount effect uses `[]` deps, so unmounting the canvas (early-returning a

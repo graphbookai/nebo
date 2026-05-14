@@ -19,6 +19,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 import { ConfigChips } from '@/components/shared/ConfigChips'
 import { useLoggableHasContent } from '@/hooks/useLoggableHasContent'
 import { ChartDprContext } from '@/components/charts/ChartDprContext'
+import { buildEmbeddedUrl } from '@/hooks/useEmbeddedView'
 import { DragContext } from './DagGraph'
 
 interface NeboNodeData {
@@ -49,11 +50,8 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
   const storedSize = useStore(s => s.nodeSizes.get(runId)?.get(nodeId))
   const contextMenu = useContextMenu()
   const hasContent = useLoggableHasContent(runId, nodeId)
-  // Live ReactFlow viewport zoom. Drives the Chart.js devicePixelRatio
-  // inside this node so chart canvases stay sharp when the user zooms
-  // the DAG (which CSS-scales every node card). Subscribing to a single
-  // scalar keeps re-renders down vs `useViewport` (which fires on pan
-  // too).
+  // Drives Chart.js devicePixelRatio inside this node so chart canvases
+  // stay sharp when the DAG is zoomed (which CSS-scales every node card).
   const flowZoom = useFlowStore((s) => s.transform[2])
 
   const onResize = useCallback((_event: unknown, params: { width: number; height: number }) => {
@@ -144,8 +142,7 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
           label="Copy iframe URL"
           icon={<LinkIcon className="w-4 h-4" />}
           onClick={() => {
-            const url = `${window.location.origin}/?run=${encodeURIComponent(runId)}&node=${encodeURIComponent(nodeId)}`
-            void navigator.clipboard?.writeText(url)
+            void navigator.clipboard?.writeText(buildEmbeddedUrl({ runId, node: nodeId }))
             contextMenu.close()
           }}
         />

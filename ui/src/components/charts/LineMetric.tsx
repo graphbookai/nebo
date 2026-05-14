@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
+import { memo, useCallback, useMemo } from 'react'
 import type {
   ChartConfiguration,
   ChartDataset,
@@ -9,7 +9,7 @@ import type {
   ScriptableLineSegmentContext,
 } from 'chart.js'
 import type { MetricEntry } from '@/lib/api'
-import { useChartJs } from './useChartJs'
+import { useChartJs, useResetZoomSignal } from './useChartJs'
 import { useChartTokens } from './useChartTokens'
 import { useStore } from '@/store'
 import { UNTAGGED_KEY } from './scatterShape'
@@ -21,10 +21,8 @@ import { useChartDpr } from './ChartDprContext'
 const MAX_DISPLAY_POINTS = 500
 const MUTED_COLOR = 'rgba(156, 163, 175, 0.45)' // tailwind text-muted-foreground feel
 
-type LinePoint = XYPoint
-
-function toLinePoints(entries: MetricEntry[]): LinePoint[] {
-  const points: LinePoint[] = []
+function toLinePoints(entries: MetricEntry[]): XYPoint[] {
+  const points: XYPoint[] = []
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i]
     const step = e.step ?? i
@@ -36,10 +34,10 @@ function toLinePoints(entries: MetricEntry[]): LinePoint[] {
   return points
 }
 
-function downsample(series: LinePoint[]): LinePoint[] {
+function downsample(series: XYPoint[]): XYPoint[] {
   if (series.length <= MAX_DISPLAY_POINTS) return series
   const step = Math.ceil(series.length / MAX_DISPLAY_POINTS)
-  const result: LinePoint[] = []
+  const result: XYPoint[] = []
   for (let i = 0; i < series.length; i += step) {
     result.push(series[i])
   }
@@ -162,7 +160,6 @@ export const LineMetric = memo(function LineMetric({
   const setTimelineMode = useStore(s => s.setTimelineMode)
   const setTimelineStep = useStore(s => s.setTimelineStep)
   const lineSmoothing = useStore(s => s.settings.lineSmoothing ?? 0)
-  const chartRefBox = useRef<Chart<'line'> | null>(null)
 
   const isFiltering = timelineMode === 'step' && timelineStep != null
 
@@ -217,7 +214,7 @@ export const LineMetric = memo(function LineMetric({
     (_evt: ChartEvent, elements: ActiveElement[], chart: Chart) => {
       if (!elements.length) return
       const el = elements[0]
-      const ds = chart.data.datasets[el.datasetIndex] as { data: LinePoint[] } | undefined
+      const ds = chart.data.datasets[el.datasetIndex] as { data: XYPoint[] } | undefined
       const point = ds?.data?.[el.index]
       if (!point) return
       const step = point.x
@@ -292,23 +289,11 @@ export const LineMetric = memo(function LineMetric({
         color: String((dp.dataset as { borderColor?: string }).borderColor ?? color),
       })),
     }),
-    onChartReady: (chart) => {
-      chartRefBox.current = chart
-      return attachWheelHandler(chart, 'x')
-    },
+    onChartReady: (chart) => attachWheelHandler(chart, 'x'),
     dpr,
   })
 
-  // Reset on parent's signal change. Skip the initial value (0) so the
-  // chart isn't reset on every mount.
-  const lastResetRef = useRef<number | undefined>(resetSignal)
-  useEffect(() => {
-    if (resetSignal === undefined) return
-    if (lastResetRef.current === resetSignal) return
-    lastResetRef.current = resetSignal
-    const chart = (chartRef ?? chartRefBox).current as Chart<'line'> | null
-    chart?.resetZoom()
-  }, [resetSignal, chartRef])
+  useResetZoomSignal(chartRef, resetSignal)
 
   const hasData = datasets.some(d => d.data.length > 0)
   if (!hasData) return null

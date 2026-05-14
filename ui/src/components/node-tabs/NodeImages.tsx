@@ -10,6 +10,7 @@ import { ImageWithLabels } from '@/components/shared/ImageWithLabels'
 import { Modal } from '@/components/ui/modal'
 import { HeaderActions } from '@/components/node-tabs/HeaderActions'
 import { downloadImageElement } from '@/components/node-tabs/downloadHelpers'
+import { buildEmbeddedUrl } from '@/hooks/useEmbeddedView'
 
 interface NodeImagesProps {
   runId: string
@@ -37,7 +38,7 @@ export function ImageItem({ runId, loggableId, img, showTimestamp }: { runId: st
   const [modalOpen, setModalOpen] = useState(false)
   const imgWrapperRef = useRef<HTMLDivElement>(null)
 
-  const iframeUrl = `${window.location.origin}/?run=${encodeURIComponent(runId)}&image=${encodeURIComponent(img.name)}&node=${encodeURIComponent(loggableId)}`
+  const iframeUrl = buildEmbeddedUrl({ runId, node: loggableId, image: img.name })
 
   return (
     <div data-export-atom="image" className="space-y-1">

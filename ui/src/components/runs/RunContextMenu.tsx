@@ -5,6 +5,7 @@ import { ContextMenu } from '@/components/shared/ContextMenu'
 import { ContextMenuItem } from '@/components/shared/ContextMenuItem'
 import { ColorPicker } from '@/components/shared/ColorPicker'
 import { DEFAULT_RUN_COLOR } from '@/lib/colors'
+import { buildEmbeddedUrl } from '@/hooks/useEmbeddedView'
 
 interface RunContextMenuProps {
   runId: string
@@ -56,8 +57,7 @@ export function RunContextMenu({ runId, isOpen, position, onClose }: RunContextM
   }, [onClose])
 
   const handleCopyIframeUrl = useCallback(() => {
-    const url = `${window.location.origin}/?run=${encodeURIComponent(runId)}`
-    void navigator.clipboard?.writeText(url)
+    void navigator.clipboard?.writeText(buildEmbeddedUrl({ runId }))
     onClose()
   }, [runId, onClose])
 

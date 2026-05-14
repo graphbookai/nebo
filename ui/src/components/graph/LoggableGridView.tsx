@@ -70,13 +70,11 @@ function MetricCardBody({
   loggableId,
   name,
   series,
-  inModal,
 }: {
   runId: string
   loggableId: string
   name: string
   series: LoggableMetricSeries
-  inModal: boolean
 }) {
   const runColor = useStore(s => s.runColors.get(runId)) ?? DEFAULT_RUN_COLOR
   // The step scrubber doesn't filter metric entries here. Line/scatter
@@ -84,20 +82,6 @@ function MetricCardBody({
   // (vertical guideline / dimmed non-matching points); bar/pie/histogram
   // are stepless snapshots. Filtering would only ever hide context.
   if (series.entries.length === 0) return <EmptyForRange />
-
-  // `MetricBlock fill` resolves the chart height against its parent's
-  // height. The grid card pins that to CARD_HEIGHT_PX, so it works
-  // there. The Modal body is `flex-1 min-h-0` inside `max-h-[90vh]`,
-  // so without an explicit height the chart collapses to 0px. Wrap
-  // the modal version in a definite-height container so `h-full`
-  // chart sizing has something to grow into.
-  if (inModal) {
-    return (
-      <div className="h-[60vh] flex flex-col min-h-0">
-        <MetricBlock name={name} series={series} color={runColor} fill runId={runId} loggableId={loggableId} inModal />
-      </div>
-    )
-  }
   return <MetricBlock name={name} series={series} color={runColor} fill runId={runId} loggableId={loggableId} />
 }
 
@@ -105,12 +89,10 @@ function ImageCardBody({
   runId,
   loggableId,
   entries,
-  inModal,
 }: {
   runId: string
   loggableId: string
   entries: ImageEntry[]
-  inModal: boolean
 }) {
   const timelineFilter = useTimelineFilter()
   const visible = useMemo(() => {
@@ -124,7 +106,7 @@ function ImageCardBody({
       loggableId={loggableId}
       images={visible}
       showTimestamp
-      maxHeight={inModal ? 720 : CARD_INNER_HEIGHT_PX}
+      maxHeight={CARD_INNER_HEIGHT_PX}
     />
   )
 }
@@ -152,7 +134,7 @@ type TabKey = 'logs' | 'metrics' | 'images' | 'audio'
 interface CardSpec {
   cardId: string                       // unique per (section, tab, name)
   title: string                        // "Section > Item" displayed in card header
-  render: (inModal: boolean) => React.ReactNode
+  render: () => React.ReactNode
 }
 
 interface SectionSpec {
@@ -260,8 +242,8 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
           cards: metricEntries.map(([name, series]) => ({
             cardId: `metric:${sectionId}:${name}`,
             title: `${label} > ${name}`,
-            render: (inModal) => (
-              <MetricCardBody runId={runId} loggableId={sectionId} name={name} series={series} inModal={inModal} />
+            render: () => (
+              <MetricCardBody runId={runId} loggableId={sectionId} name={name} series={series} />
             ),
           })),
         })
@@ -283,12 +265,11 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
           cards: [...byName.entries()].map(([name, entries]) => ({
             cardId: `image:${sectionId}:${name}`,
             title: `${label} > ${name}`,
-            render: (inModal) => (
+            render: () => (
               <ImageCardBody
                 runId={runId}
                 loggableId={sectionId}
                 entries={entries}
-                inModal={inModal}
               />
             ),
           })),
@@ -462,7 +443,7 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
             {flatCards.map(card => (
               <div key={card.cardId}>
                 <CardShell title={card.title}>
-                  {card.render(false)}
+                  {card.render()}
                 </CardShell>
               </div>
             ))}

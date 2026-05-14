@@ -1,6 +1,6 @@
-import { memo, useEffect, useMemo, useRef } from 'react'
-import type { Chart, ChartConfiguration } from 'chart.js'
-import { useChartJs } from '@/components/charts/useChartJs'
+import { memo, useMemo } from 'react'
+import type { ChartConfiguration } from 'chart.js'
+import { useChartJs, useResetZoomSignal } from '@/components/charts/useChartJs'
 import { useChartTokens } from '@/components/charts/useChartTokens'
 import { DEFAULT_RUN_COLOR } from '@/lib/colors'
 import type { SeriesFor } from '@/components/charts/seriesFor'
@@ -162,14 +162,7 @@ export const ComparisonHistogram = memo(function ComparisonHistogram({
     }),
   })
 
-  const lastResetRef = useRef<number | undefined>(resetSignal)
-  useEffect(() => {
-    if (resetSignal === undefined) return
-    if (lastResetRef.current === resetSignal) return
-    lastResetRef.current = resetSignal
-    const chart = chartRef.current as Chart<'line'> | null
-    chart?.resetZoom()
-  }, [resetSignal, chartRef])
+  useResetZoomSignal(chartRef, resetSignal)
 
   // Keep the canvas mounted; see ComparisonLine for the useChartJs
   // mount-effect rationale.
