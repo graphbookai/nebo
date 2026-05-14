@@ -216,3 +216,17 @@ def test_log_audio_defaults_sr(monkeypatch, tmp_path):
     log_audio([{"name": "snd", "path": str(f)}], run_id="r1")
     audio_evt = next(e for e in posted[0][1] if e["type"] == "audio")
     assert audio_evt["sr"] == 16000
+
+
+from nebo.client import wait_for_alert
+
+
+def test_wait_for_alert_hits_alerts_wait_endpoint(monkeypatch):
+    cap = _stub_urlopen(monkeypatch, b'{"status": "timeout"}')
+    result = wait_for_alert(run_id="r1", timeout=5, min_level=30, url="http://h")
+    assert result == {"status": "timeout"}
+    url = cap["calls"][0]["url"]
+    assert "/runs/r1/alerts/wait" in url
+    qs = dict(p.split("=", 1) for p in url.split("?", 1)[1].split("&"))
+    assert qs["timeout"] == "5"
+    assert qs["min_level"] == "30"

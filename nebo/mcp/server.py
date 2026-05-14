@@ -94,19 +94,16 @@ MCP_TOOLS = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
-        "name": "nebo_wait_for_event",
-        "description": "Block until a pipeline event occurs or timeout. Returns event details on match, or timeout status.",
+        "name": "nebo_wait_for_alert",
+        "description": "Block until an alert at or above `min_level` fires (via `nb.alert(...)`), or timeout elapses.",
         "inputSchema": {
             "type": "object",
             "properties": {
+                "run_id": {"type": "string", "description": "Run ID to monitor for alerts."},
                 "timeout": {"type": "number", "description": "Max seconds to wait (default 300)."},
-                "events": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Event types to wait for: error, completed (default both).",
-                },
-                "run_id": {"type": "string", "description": "Run ID. Uses latest run if omitted."},
+                "min_level": {"type": "integer", "description": "Minimum alert level to trigger on (default 20)."},
             },
+            "required": ["run_id"],
         },
     },
     {
@@ -237,7 +234,7 @@ async def handle_tool_call(name: str, arguments: dict[str, Any], server_url: str
         # Action
         "nebo_get_run_status": lambda a: tools.get_run_status(a["run_id"], server_url),
         "nebo_get_run_history": lambda a: tools.get_run_history(server_url),
-        "nebo_wait_for_event": lambda a: tools.wait_for_event(a.get("timeout", 300), a.get("events"), a.get("run_id"), server_url),
+        "nebo_wait_for_alert": lambda a: tools.wait_for_alert(a["run_id"], a.get("timeout", 300), a.get("min_level", 20), server_url),
         "nebo_load_file": lambda a: tools.load_file(a["filepath"], server_url),
         # Write
         "nebo_log_metric": lambda a: tools.log_metric(a["entries"], a.get("run_id"), server_url),

@@ -225,6 +225,44 @@ class TestMCPWriteTools:
         assert all(e["loggable_id"] == "__agent__" for e in log_events)
 
 
+class TestMCPWaitForAlert:
+    """Tests for the nebo_wait_for_alert MCP tool."""
+
+    def test_wait_for_alert_tool_registered(self) -> None:
+        from nebo.mcp.server import MCP_TOOLS
+        names = [t["name"] for t in MCP_TOOLS]
+        assert "nebo_wait_for_alert" in names
+        assert "nebo_wait_for_event" not in names
+
+    def test_wait_for_alert_schema(self) -> None:
+        from nebo.mcp.server import MCP_TOOLS
+        tool = next(t for t in MCP_TOOLS if t["name"] == "nebo_wait_for_alert")
+        props = tool["inputSchema"]["properties"]
+        assert "run_id" in props
+        assert "timeout" in props
+        assert "min_level" in props
+        assert props["min_level"]["type"] == "integer"
+        assert "run_id" in tool["inputSchema"].get("required", [])
+
+    @pytest.mark.asyncio
+    async def test_wait_for_alert_daemon_unreachable(self) -> None:
+        from nebo.mcp.tools import wait_for_alert
+        result = await wait_for_alert("r1", server_url="http://localhost:19999")
+        assert "error" in result
+        assert "daemon unreachable" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_dispatcher_routes_wait_for_alert(self) -> None:
+        from nebo.mcp.server import handle_tool_call
+        result = await handle_tool_call(
+            "nebo_wait_for_alert",
+            {"run_id": "r1", "timeout": 5, "min_level": 30},
+            "http://localhost:19999",
+        )
+        assert "error" in result
+        assert "Unknown tool" not in str(result.get("error", ""))
+
+
 class TestMCPDispatcher:
     """Tests for the MCP tool dispatcher."""
 

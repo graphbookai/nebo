@@ -173,6 +173,24 @@ def load_file(filepath: str, **conn) -> Any:
     return _post("/load", {"filepath": filepath}, **conn)
 
 
+def wait_for_alert(
+    run_id: str,
+    *,
+    timeout: float = 300.0,
+    min_level: int = 20,
+    **conn,
+) -> Any:
+    """Block until an alert at or above min_level fires, or timeout.
+
+    Returns `{"status": "alert", "alert": {...}}` or `{"status": "timeout"}`.
+    """
+    path = (
+        f"/runs/{urllib.parse.quote(run_id)}/alerts/wait"
+        f"?timeout={timeout}&min_level={int(min_level)}"
+    )
+    return _get(path, timeout=max(timeout + 5, 30), **conn)
+
+
 def _ensure_loggable_event(loggable_id: str) -> dict[str, Any]:
     """Idempotent register event so the daemon doesn't drop entries on
     unknown loggables. Matches the kind used elsewhere for the two

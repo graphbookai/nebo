@@ -14,22 +14,12 @@ explicitly rather than silently returning empty SDK state.
 
 from __future__ import annotations
 
-import json
-import time
-import urllib.request
 from typing import Any, Optional
 
 from nebo import client as _client
 
 
 _DEFAULT_URL = "http://localhost:7861"
-
-
-def _get(url: str, timeout: float = 5.0) -> Any:
-    """HTTP GET returning parsed JSON. Raises on failure."""
-    req = urllib.request.Request(url, method="GET")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
 
 
 def _daemon_unreachable(server_url: str, exc: Exception) -> dict[str, Any]:
@@ -130,46 +120,19 @@ async def get_run_history(server_url: str = _DEFAULT_URL) -> dict[str, Any]:
         return {"error": f"Could not get run history: {e}"}
 
 
-async def wait_for_event(
-    timeout: float = 300,
-    events: Optional[list[str]] = None,
-    run_id: Optional[str] = None,
+async def wait_for_alert(
+    run_id: str,
+    timeout: float = 300.0,
+    min_level: int = 20,
     server_url: str = _DEFAULT_URL,
 ) -> dict[str, Any]:
-    """Block until a pipeline event occurs or timeout elapses.
-
-    Args:
-        timeout: Max seconds to wait (default 300).
-        events: Event types to wait for (default: error, completed).
-        run_id: Run ID. Uses latest run if omitted.
-    """
-    if events is None:
-        events = ["error", "completed"]
-
-    # Resolve run_id to latest if not provided
-    if not run_id:
-        try:
-            runs = _get(f"{server_url}/runs")
-            active = runs.get("active_run")
-            if active:
-                run_id = active
-            else:
-                run_list = runs.get("runs", [])
-                if run_list:
-                    run_id = run_list[-1]["id"]
-                else:
-                    return {"error": "No runs found"}
-        except Exception as e:
-            return {"error": f"Could not resolve run_id: {e}"}
-
-    types_str = ",".join(events)
-    since = time.time()
-    url = f"{server_url}/runs/{run_id}/events/wait?types={types_str}&timeout={timeout}&since={since}"
-
+    """Block until an alert at or above min_level fires, or timeout."""
     try:
-        return _get(url, timeout=timeout + 5)
+        return _client.wait_for_alert(
+            run_id, timeout=timeout, min_level=min_level, url=server_url,
+        )
     except Exception as e:
-        return {"error": f"wait_for_event failed: {e}"}
+        return _daemon_unreachable(server_url, e)
 
 
 async def load_file(filepath: str, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
