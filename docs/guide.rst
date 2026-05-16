@@ -334,7 +334,7 @@ When you run a script directly (``python my_pipeline.py``), nebo operates in loc
 Server Mode
 -----------
 
-When the daemon is running, events are streamed to it via HTTP. This is activated automatically when using ``nebo run``, which sets the ``NEBO_MODE``, ``NEBO_SERVER_PORT``, and ``NEBO_RUN_ID`` environment variables.
+When the daemon is running, events are streamed to it via HTTP.
 
 You can also trigger server mode manually:
 

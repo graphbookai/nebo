@@ -255,7 +255,7 @@ Initialization
 
     .. note::
 
-        You rarely need to call ``init()`` explicitly. When using ``nebo run``, the SDK auto-initializes from environment variables on the first ``@fn`` execution. To target a remote daemon, set ``NEBO_URL`` and ``NEBO_API_TOKEN`` in the environment so the same code works against a local or remote target.
+        You rarely need to call ``init()`` explicitly. The SDK auto-initializes from environment variables on the first ``@fn`` execution. To target a remote daemon, set ``NEBO_URL`` and ``NEBO_API_TOKEN`` in the environment so the same code works against a local or remote target.
 
 
 Notebook Embedding
@@ -371,19 +371,6 @@ Commands
     ``--write public|private``
         Write-access mode (default: ``private``). Only matters when
         ``--api-token`` is set.
-
-``run``
-    Run a pipeline script managed by the daemon.
-
-    .. code-block:: console
-
-        $ nebo run <script> [--name NAME] [--port PORT] [--flush-interval SECS] [args...]
-
-    ``<script>``
-        Path to the Python script.
-
-    ``--name``
-        Run name/ID (auto-generated if not provided).
 
 ``status``
     Show daemon status and recent runs.
@@ -625,8 +612,6 @@ values aren't silently dropped.
 
 Environment Variables
 ======================
-
-These are set automatically by ``nebo run`` and read by the SDK during auto-initialization:
 
 ``NEBO_MODE``
     Execution mode: ``"server"`` or ``"local"``.

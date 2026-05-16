@@ -521,7 +521,7 @@ class TestGetNodeEndpoint:
 class TestRunCompletedEventClearsActiveRun:
     """Regression test for Bug 10 via the `/events` ingest path.
 
-    Pipelines started with `nebo run` finalize by POSTing a `run_completed`
+    Pipelines started finalize by POSTing a `run_completed`
     event to `/events`, which is handled inline in `ingest_events` — not
     by `mark_run_completed`. That inline branch updates `run.status` but
     previously never cleared `self.active_run_id`, so `/health` and

@@ -569,10 +569,6 @@ class _FakeClient:
 
 class TestRunStartEmission:
     """Regression tests for `run_start` event emission in nb.init().
-
-    Without these, the daemon never opens its `.nebo` file writer because
-    `nebo run` sets NEBO_RUN_ID, which previously suppressed the `run_start`
-    event from the SDK side.
     """
 
     def setup_method(self) -> None:
@@ -607,12 +603,7 @@ class TestRunStartEmission:
         monkeypatch.setattr(client_mod, "DaemonClient", TrackingFake)
 
     def test_run_start_emitted_when_run_id_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When `nebo run` sets NEBO_RUN_ID, SDK init must still emit run_start.
-
-        Previously, script_name was only computed if run_id was falsy, so the
-        whole `run_start` emission was suppressed under `nebo run` and the daemon
-        never opened its file writer — no .nebo file got written.
-        """
+        """Run start event is emitted when Run ID is defined in an environment variable"""
         import os
         os.environ["NEBO_RUN_ID"] = "nbrun_test"
         os.environ["NEBO_MODE"] = "server"

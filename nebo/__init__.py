@@ -58,20 +58,19 @@ def _ensure_init() -> None:
         _auto_init_done = True
         return
 
-    # Auto-connect to daemon. Env vars from `nebo run`
+    # Auto-connect to daemon.
     # take priority if present.
     init(mode="auto", _internal=True)
 
 
 def init(
+    url: Optional[str] = None,
     port: int = 7861,
     host: str = "localhost",
-    mode: Literal["auto", "server", "local"] = "auto",
+    store: bool = True,
     terminal: bool = True,
     dag_strategy: Literal["object", "stack", "both", "linear", "none"] = "object",
     flush_interval: float = 0.1,
-    store: bool = True,
-    url: Optional[str] = None,
     api_token: Optional[str] = None,
     webhook_url: Optional[str] = None,
     webhook_min_level: Optional[int] = None,
@@ -79,11 +78,6 @@ def init(
 ) -> None:
     """Initialize nebo.
 
-    Mode detection (when mode='auto'):
-    1. Check environment variables (set by 'nebo run')
-    2. Check for daemon at host:port (or `url` if set)
-    3. If found -> server mode (stream events to daemon)
-    4. If not found -> local mode (in-process rich terminal only)
 
     Remote daemon: pass `url` (full URL, e.g. a Hugging Face Space at
     `https://username-space.hf.space`) and optionally `api_token`. When
@@ -94,8 +88,11 @@ def init(
     against a local or remote daemon without code changes.
 
     Args:
+        url: Full URL of a remote daemon. Overrides host+port. Defaults
+        to env var NEBO_URL.
         port: Daemon server port (default 7861).
         host: Daemon server host (default localhost).
+        store: Whether to persist events to .nebo files (default True).
         mode: 'auto', 'server', or 'local'.
         terminal: Whether to show Rich terminal display in local mode.
         dag_strategy: How DAG edges are inferred between steps.
@@ -106,9 +103,7 @@ def init(
             single edge from the previously-encountered one). 'none'
             disables automatic edge inference.
         flush_interval: Seconds between event flushes (default 0.1).
-        store: Whether to persist events to .nebo files (default True).
-        url: Full URL of a remote daemon. Overrides host+port. Defaults
-            to env var NEBO_URL.
+
         api_token: Token for daemons that require auth. Sent as
             `X-Nebo-Token`. Defaults to env var NEBO_API_TOKEN.
         webhook_url: Slack-compatible webhook URL for `nb.alert()`. When
@@ -138,7 +133,7 @@ def init(
     if webhook_min_level is not None:
         state.webhook_min_level = int(webhook_min_level)
 
-    # Check environment overrides (set by `nebo run`)
+    # Check environment overrides
     env_mode = os.environ.get("NEBO_MODE")
     env_port = os.environ.get("NEBO_SERVER_PORT")
     env_run_id = os.environ.get("NEBO_RUN_ID")
@@ -159,8 +154,6 @@ def init(
     # Compute script_name whenever we may end up in a non-local mode, so the
     # `run_start` event fires regardless of whether run_id came from the
     # environment (nebo run) or was freshly generated (direct python execution).
-    # Without this, `nebo run` would set NEBO_RUN_ID, skip script_name, skip
-    # run_start, and the daemon would never open its .nebo file writer.
     run_id = env_run_id
     script_name: Optional[str] = None
     if resolved_mode != "local":

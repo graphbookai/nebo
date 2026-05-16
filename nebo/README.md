@@ -324,7 +324,7 @@ Runs are persisted as `.nebo` binary files using MessagePack serialization. Each
 Two execution modes:
 
 - **Local mode** (default): In-process only. No daemon needed.
-- **Server mode**: Events stream to a persistent daemon via HTTP. Use `nebo serve` to start the daemon, then `nebo run` to execute pipelines.
+- **Server mode**: Events stream to a persistent daemon via HTTP. Use `nebo serve` to start the daemon.
 
 ## API Reference
 

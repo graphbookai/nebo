@@ -178,5 +178,5 @@ def log(data: dict, step: Optional[int] = None, commit: bool = True) -> None:
 
 def finish(exit_code: int = 0, *, quiet: Optional[bool] = None) -> None:
     """Drop-in replacement for ``wandb.finish``. No-op — nebo's run lifecycle
-    is handled by ``nb.start_run`` / ``nebo run``."""
+    is handled by ``nb.start_run``."""
     del exit_code, quiet
