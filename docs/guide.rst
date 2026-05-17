@@ -328,47 +328,56 @@ future UI features.
 Execution Modes
 ===============
 
-Local Mode (Default)
---------------------
+Nebo has two transports, selected by the ``uri=`` argument to
+``nb.init()`` (or the ``NEBO_URI`` environment variable):
 
-When you run a script directly (``python my_pipeline.py``), nebo operates in local mode. A Rich terminal display shows the DAG, node execution counts, progress bars, and logs. No daemon is required.
+File Mode (Default)
+-------------------
 
-Server Mode
------------
+When you run a script directly (``python my_pipeline.py``), nebo
+writes events to ``./.nebo/<timestamp>_<run_id>.nebo`` — an
+append-only file. No daemon is required. Point ``nebo serve --logdir
+<dir>`` at the directory later to inspect runs in the web UI.
 
-When the daemon is running, events are streamed to it via HTTP.
-
-You can also trigger server mode manually:
+You can change the output directory explicitly:
 
 .. code-block:: python
 
     import nebo as nb
-    nb.init(mode="server", port=7861)
+    nb.init(uri="runs/today/")
 
-Auto Mode
----------
+Network Mode
+------------
 
-The default mode is ``auto``. On initialization, nebo checks for a running daemon — if found, it uses server mode; otherwise it falls back to local mode.
+When the ``uri`` is an HTTP URL or a ``host:port`` pair, nebo streams
+events to a running daemon over HTTP instead of writing files
+locally:
+
+.. code-block:: python
+
+    import nebo as nb
+    nb.init(uri="localhost:7861")
+    # or
+    nb.init(uri="https://my-space.hf.space", api_token="nb_...")
 
 
 Persistent .nebo Files
 =======================
 
-Nebo can persist runs to append-only binary ``.nebo`` files using MessagePack. Storage is enabled by default and managed by the daemon.
+In file mode the SDK writes ``.nebo/<timestamp>_<run_id>.nebo``
+directly. To make a particular invocation a no-op (no file opened),
+set ``NEBO_NO_STORE=1`` — used by the test suite.
 
-When the daemon starts, it creates a ``.nebo/`` directory in its working directory. Each run is stored as ``.nebo/<timestamp>_<run_id>.nebo``.
-
-To disable storage for a specific run:
-
-.. code-block:: python
-
-    nb.init(store=False)
-
-To disable storage globally when starting the daemon:
+In network mode the daemon stays in-memory by default. Pass
+``--save-files PATH`` to persist incoming events to disk:
 
 .. code-block:: bash
 
-    nebo serve --no-store
+    nebo serve --save-files ./.nebo/
+
+The watcher (``--logdir``) and the writer (``--save-files``) can't
+share a directory — the daemon refuses to start if they resolve to
+the same path.
 
 To load a ``.nebo`` file into a *local* daemon for viewing and Q&A:
 
@@ -518,7 +527,7 @@ Connect the SDK from anywhere:
     import nebo as nb
 
     nb.init(
-        url="https://<user>-nebo-test.hf.space",
+        uri="https://<user>-nebo-test.hf.space",
         api_token="nb_…",
     )
 
@@ -529,7 +538,7 @@ Connect the SDK from anywhere:
 
     step()
 
-Or set ``NEBO_URL`` / ``NEBO_API_TOKEN`` in the environment so the
+Or set ``NEBO_URI`` / ``NEBO_API_TOKEN`` in the environment so the
 same script works locally and remotely without a code change.
 
 Access modes

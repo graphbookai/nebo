@@ -66,7 +66,7 @@ if __name__ == "__main__":
     run()
 ```
 
-Running this produces a Rich terminal display showing the DAG, node execution counts, logs, and progress bars. The DAG edges (`run -> load_data`, `load_data -> transform`) are inferred automatically from data flow -- no manual wiring required.
+Running this writes events to `./.nebo/<timestamp>_<run_id>.nebo`. Point `nebo serve --logdir ./.nebo` at the directory to inspect runs in the web UI. The DAG edges (`run -> load_data`, `load_data -> transform`) are inferred automatically from data flow -- no manual wiring required.
 
 ## Core Concepts
 
@@ -308,8 +308,8 @@ After the Space builds, point the SDK at it:
 
 ```python
 import nebo as nb
-nb.init(url="https://<user>-nebo-test.hf.space", api_token="nb_…")
-# or set NEBO_URL / NEBO_API_TOKEN in the environment.
+nb.init(uri="https://<user>-nebo-test.hf.space", api_token="nb_…")
+# or set NEBO_URI / NEBO_API_TOKEN in the environment.
 ```
 
 ### Check status, logs, errors
@@ -428,7 +428,7 @@ The daemon can run on your laptop, in CI, or on a Hugging Face Space (`nebo depl
 | `track` | `track(iterable, name=None, total=None)` | Progress tracking |
 | `md` | `md(description: str)` | Set workflow description |
 | `ui` | `ui(layout, view, collapsed, minimap, theme)` | Set run-level UI defaults |
-| `init` | `init(port, host, mode, terminal, dag_strategy, flush_interval, store, url=None, api_token=None)` | Manual initialization. Pass `url`+`api_token` (or set `NEBO_URL`/`NEBO_API_TOKEN` env vars) to target a remote daemon |
+| `init` | `init(uri=None, *, dag_strategy="object", flush_interval=0.1, api_token=None, webhook_url=None, webhook_min_level=None)` | Manual initialization. `uri` selects file mode (path, default `.nebo/`) or network mode (`http://…` or `host:port`). Pass `api_token` (or set `NEBO_URI`/`NEBO_API_TOKEN` env vars) to target a remote daemon |
 | `show` | `show(*, run=None, node=None, metric=None, image=None, audio=None, logs=False, dag=False, width="100%", height=600)` | Jupyter-renderable iframe of a slice of a run |
 | `get_state` | `get_state() -> SessionState` | Access the global state singleton |
 

@@ -34,13 +34,13 @@ also install ``huggingface_hub``:
 Quick Start
 ===========
 
-Run a pipeline in local mode (Rich terminal display, no daemon needed):
+Run a pipeline (writes events to ``./.nebo/`` by default, no daemon needed):
 
 .. code-block:: bash
 
     python my_pipeline.py
 
-Or use the daemon for persistent observability with a web UI:
+Or start the daemon for live observability with a web UI:
 
 .. code-block:: bash
 

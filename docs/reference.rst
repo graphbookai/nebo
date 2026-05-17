@@ -233,29 +233,30 @@ UI Configuration
 Initialization
 --------------
 
-.. function:: nb.init(port: int = 7861, host: str = "localhost", mode: str = "auto", terminal: bool = True, dag_strategy: str = "object", flush_interval: float = 0.1, store: bool = True, url: str | None = None, api_token: str | None = None) -> None
+.. function:: nb.init(uri: str | None = None, *, dag_strategy: str = "object", flush_interval: float = 0.1, api_token: str | None = None, webhook_url: str | None = None, webhook_min_level: int | None = None) -> None
 
     Explicitly initialize nebo.
 
-    :param port: Daemon server port (default: 7861).
-    :param host: Daemon server host (default: ``"localhost"``).
-    :param mode: ``"auto"``, ``"server"``, or ``"local"``.
-    :param terminal: Whether to show the Rich terminal display in local mode.
+    :param uri: Destination for events. Selects the transport by shape:
+
+        * ``None`` or a path-like string (default: ``".nebo/"``) — **file
+          mode**. The SDK writes ``<uri>/<timestamp>_<run_id>.nebo``
+          directly via ``FileTransport``. No daemon required.
+        * An HTTP URL (``"http://localhost:7861"``, ``"https://my-space.hf.space"``)
+          or bare ``"host:port"`` — **network mode**. Events are POSTed
+          to the daemon via ``NetworkTransport``.
+
+        Overridable via the ``NEBO_URI`` environment variable.
+
     :param dag_strategy: How DAG edges are inferred: ``"object"`` (default), ``"stack"``, ``"both"``, ``"linear"``, or ``"none"``. ``"linear"`` chains nodes in first-execution order.
     :param flush_interval: Seconds between event flushes (default: 0.1).
-    :param store: Whether the daemon should persist this run to a ``.nebo`` file (default: True).
-    :param url: Full URL of a remote daemon (e.g. a Hugging Face Space at ``https://username-space.hf.space``). Overrides ``host``+``port``. Defaults to env var ``NEBO_URL``.
-    :param api_token: Token for daemons that require auth. Sent as the ``X-Nebo-Token`` header. Defaults to env var ``NEBO_API_TOKEN``.
-
-    Mode detection (when ``mode="auto"``):
-
-    1. Check ``NEBO_MODE`` and ``NEBO_SERVER_PORT`` environment variables.
-    2. Try connecting to the daemon at ``host:port`` (or ``url`` if set).
-    3. If found, use server mode. If not, use local mode.
+    :param api_token: Token for daemons that require auth (network mode only). Sent as the ``X-Nebo-Token`` header. Defaults to env var ``NEBO_API_TOKEN``.
+    :param webhook_url: Slack-compatible webhook URL for ``nb.alert()``.
+    :param webhook_min_level: Minimum ``AlertLevel`` that fires the webhook.
 
     .. note::
 
-        You rarely need to call ``init()`` explicitly. The SDK auto-initializes from environment variables on the first ``@fn`` execution. To target a remote daemon, set ``NEBO_URL`` and ``NEBO_API_TOKEN`` in the environment so the same code works against a local or remote target.
+        You rarely need to call ``init()`` explicitly. The SDK auto-initializes on the first ``@fn`` execution or ``nb.log*`` call. Set ``NEBO_URI`` and ``NEBO_API_TOKEN`` in the environment so the same code works in file mode locally and against a remote daemon without a change.
 
 
 Notebook Embedding
@@ -613,44 +614,45 @@ values aren't silently dropped.
 Environment Variables
 ======================
 
-``NEBO_MODE``
-    Execution mode: ``"server"`` or ``"local"``.
+SDK-side (read by ``nb.init()``):
 
-``NEBO_SERVER_PORT``
-    The daemon server port.
+``NEBO_URI``
+    Destination for events. A path (file mode, default ``".nebo/"``) or an
+    HTTP URL / ``host:port`` (network mode). Overrides the ``uri=`` arg.
 
 ``NEBO_RUN_ID``
     The current run identifier.
 
-``NEBO_DAEMON_PORT``
-    Used internally by the daemon process itself.
-
-``NEBO_NO_STORE``
-    When set, disables ``.nebo`` file storage globally. The daemon's
-    auto-create and ``run_start`` paths skip opening the file writer.
-    Useful for ephemeral test daemons and embedders that don't want
-    runs persisted to disk.
-
-``NEBO_NO_TERMINAL``
-    When set, ``nb.init()`` skips the Rich live terminal dashboard even
-    if ``terminal=True`` (the default). Mirrors the per-call
-    ``terminal=False`` argument as a process-wide override and is the
-    recommended way to suppress the dashboard from headless contexts
-    (CI, notebooks, subprocess wrappers).
-
 ``NEBO_FLUSH_INTERVAL``
     Override the event flush interval (seconds).
 
-SDK-side (read by ``nb.init()``):
+``NEBO_QUIET``
+    When set, suppresses the one-line startup banner.
 
-``NEBO_URL``
-    Full URL of a remote daemon (e.g. ``https://username-space.hf.space``).
-    Overrides ``host``+``port`` so the same SDK code targets either a
-    local or remote daemon depending on the environment.
+``NEBO_NO_STORE``
+    In file mode, opens no ``.nebo`` file — events are dropped. Used by
+    the test suite. No effect in network mode.
 
 ``NEBO_API_TOKEN``
-    Token sent on every request as the ``X-Nebo-Token`` header.
-    Required when the target daemon enforces auth.
+    Token sent on every network-mode request as the ``X-Nebo-Token``
+    header. Required when the target daemon enforces auth.
+
+Daemon-side (read by ``nebo serve``):
+
+``NEBO_LOGDIR``
+    Directory the watcher tails for ``.nebo`` files written by SDK
+    file-mode runs. Set automatically by ``nebo serve --logdir``.
+
+``NEBO_SAVE_FILES``
+    Directory the daemon persists network-mode events into. Off by
+    default. Set automatically by ``nebo serve --save-files``.
+
+``NEBO_NO_LOCAL``
+    When set, the daemon's directory watcher is disabled. Set
+    automatically by ``nebo serve --no-local``.
+
+``NEBO_DAEMON_PORT``
+    Used internally by the daemon process itself.
 
 Daemon-side (read by ``nebo serve`` / the deployed Space):
 
