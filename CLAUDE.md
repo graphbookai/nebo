@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Nebo is a modern logging SDK for multi-modal data. Users decorate functions with `@nb.fn()` and emit events with `nb.log()` (text), `nb.log_line` / `log_bar` / `log_pie` / `log_scatter` / `log_histogram` (one helper per chart type), `nb.log_image` (with `nb.labels.{Points, Boxes, Circles, Polygons, Bitmasks}` overlays), `nb.log_audio`, `nb.log_cfg`, and `nb.track()`. Nebo infers a DAG from the call graph and surfaces everything through a Rich terminal, a FastAPI daemon, a React web UI, and MCP tools. The repo contains the Python package (`nebo/`), the web UI (`ui/`), tests (`tests/`), docs (`docs/`), and runnable examples (`examples/`).
+Nebo is a modern logging SDK for multi-modal data. Users decorate functions with `@nb.fn()` and emit events with `nb.log()` (text), `nb.log_line` / `log_bar` / `log_pie` / `log_scatter` / `log_histogram` (one helper per chart type), `nb.log_image` (with `nb.labels.{Points, Boxes, Circles, Polygons, Bitmasks}` overlays), `nb.log_audio`, `nb.log_cfg`, and `nb.track()`. Nebo infers a DAG from the call graph and surfaces everything through append-only `.nebo` files, a FastAPI daemon, a React web UI, and MCP tools. The repo contains the Python package (`nebo/`), the web UI (`ui/`), tests (`tests/`), docs (`docs/`), and runnable examples (`examples/`).
 
 Nebo is a **logging** SDK — it does not run human-in-the-loop interactive features (no `nb.ask`, no pauseable nodes). Anything that needs to block on user input belongs outside the SDK.
 
@@ -38,16 +38,40 @@ The dev UI only works when `nebo serve` is running on port 7861.
 
 ### Execution modes
 
-Two execution modes coexist and share the same SDK surface:
+Two transports share the same SDK surface, selected by the `uri=` arg
+on `nb.init()` (or `NEBO_URI`):
 
-- **Local mode** (default): in-process. The SDK renders a Rich terminal dashboard directly; no daemon involved.
-- **Server mode**: the SDK sends events over HTTP to a long-lived FastAPI daemon (`nebo serve`, port 7861). The daemon persists runs as `.nebo` files (MessagePack, append-only) and fans events out to the web UI (WebSocket at `/stream`) and MCP tools.
+- **File mode** (default, `uri=".nebo/"` or any path): the SDK writes
+  events directly to an append-only `.nebo` file via
+  `nebo/core/transport.py:FileTransport`. No daemon required. Each
+  run lives at `<uri>/<timestamp>_<run_id>.nebo`.
+- **Network mode** (`uri="http://…"` or `host:port`): the SDK pushes
+  events to a long-lived FastAPI daemon (`nebo serve`, port 7861) via
+  `nebo/core/client.py:NetworkTransport`. The daemon fans events out
+  to the web UI (WebSocket at `/stream`) and MCP tools.
 
-Mode is resolved in `nebo/__init__.py::init()`. `mode="auto"` probes the daemon for liveness and connects in server mode if it answers. Env vars `NEBO_MODE`, `NEBO_SERVER_PORT`, `NEBO_RUN_ID`, `NEBO_FLUSH_INTERVAL` override user args — these are typically set by external runners (HF Spaces, CI, custom wrappers), since pipelines are otherwise launched directly from the shell. `_ensure_init()` lazily auto-initializes on first `nb.*` call, so pipelines never need an explicit `nb.init()`.
+Mode is resolved by `nebo.core.uri.resolve_uri()` in `nb.init()`. URIs
+starting with `http(s)://` or matching `host:port` are network; anything
+else is a directory path. `_ensure_init()` lazily auto-initializes on
+first `nb.*` call, so pipelines never need an explicit `nb.init()`.
 
-Two process-wide escape hatches let headless contexts (CI, embedders, tests) suppress side-effects without threading kwargs through every entry point:
-- `NEBO_NO_STORE=1` — daemon's auto-create and `run_start` paths skip the on-disk `.nebo` writer.
-- `NEBO_NO_TERMINAL=1` — `nb.init()` skips the Rich live dashboard even if `terminal=True` (the default).
+Daemon side: `nebo serve` watches `--logdir` (default `./.nebo`) for
+files written by SDK file-mode runs and ingests them as they grow
+(`nebo/server/watcher.py:DirectoryWatcher`). With `--save-files PATH`,
+network-received runs are also persisted to disk. The watcher and the
+writer can't share a directory — the daemon refuses to start when
+`--logdir` and `--save-files` resolve to the same path.
+
+Env vars: `NEBO_URI` overrides the constructor arg.
+`NEBO_RUN_ID`, `NEBO_FLUSH_INTERVAL`, `NEBO_API_TOKEN` are unchanged.
+`NEBO_QUIET=1` suppresses the startup banner.
+`NEBO_NO_STORE=1` makes file mode a no-op (used by the test suite).
+
+Two process-wide escape hatches let headless contexts (CI, embedders,
+tests) suppress side-effects:
+- `NEBO_NO_STORE=1` — SDK file mode opens no file; events are dropped.
+- The daemon's `--save-files` flag is opt-in, so no daemon-side
+  persistence happens by default.
 
 ### DAG inference
 
@@ -119,8 +143,8 @@ Smoothed values are rendered, not persisted: raw entries in the store remain unt
 - `nebo/labels.py` — public dataclasses (`Points`, `Boxes`, `Circles`, `Polygons`, `Bitmasks`) for `nb.log_image` overlays. Re-exported as `nb.labels`.
 - `nebo/server/` — `daemon.py` (FastAPI app, created via `create_daemon_app` factory), `runner.py` (vestigial subprocess manager; the agent surface no longer launches pipelines, but the daemon's `POST /run` route still uses it), `protocol.py` (`MessageType` enum + `decode_batch`).
 - `nebo/mcp/` — MCP tools (`tools.py`) and stdio/server entry points. Split into observation (graph, logs, metrics, errors, description, run status/history), utility (`wait_for_alert`, `load_file`), and write (`log_metric/text/image/audio`). Run lifecycle is NOT exposed — pipelines start/stop via the user's shell.
-- `nebo/client.py` — single HTTP client shared by `nebo/mcp/tools.py` and `nebo/cli.py`. Owns all daemon-bound `urllib` traffic; resolves `--url`/`--port`/`--api-token` from kwargs → `NEBO_URL`/`NEBO_PORT`/`NEBO_API_TOKEN` → defaults.
-- `nebo/terminal/` — Rich dashboard used in local mode.
+- `nebo/client.py` — single HTTP client shared by `nebo/mcp/tools.py` and `nebo/cli.py`. Owns all daemon-bound `urllib` traffic; resolves `--url`/`--port`/`--api-token` from kwargs → `NEBO_SERVER_URL`/`NEBO_SERVER_PORT`/`NEBO_API_TOKEN` → defaults.
+- `nebo/transport.py` — abstract `Transport` base class; `FileTransport` and `NetworkTransport` implementations for file mode and network mode respectively.
 - `nebo/cli.py` — subcommands split into two groups:
   - **Server/admin:** `serve`, `status`, `stop`, `mcp`, `mcp-stdio`, `skill`, `deploy`. PID file at `~/.nebo/server.pid`.
   - **Agent-callable Q&A:** `runs list|show|wait`, `graph show`, `loggables show`, `describe`, `logs`, `errors`, `metrics list|get|log`, `text|images|audio log`, `load`. Each takes `--url`/`--port`/`--api-token`/`--json` via the shared `_common_conn_parser()` and routes through `nebo/client.py`.
@@ -134,12 +158,12 @@ React 19 + Vite 7 + TypeScript + Tailwind v4 + shadcn-style components. State vi
 
 Plain `pytest` + `pytest-asyncio`. Tests are self-contained and exercise the public surface (`test_decorators.py`, `test_client.py`, `test_daemon.py`, `test_mcp_tools.py`, `test_fileformat.py`, …). There is no separate lint/type-check step in CI — only the pytest matrix in `.github/workflows/ci.yml`.
 
-`tests/conftest.py` carries an autouse `monkeypatch.setenv` fixture that pins both `NEBO_NO_STORE=1` and `NEBO_NO_TERMINAL=1` for every test. This keeps the suite from creating real `.nebo` files in the working directory and from spawning the Rich live display thread (which would otherwise paint into pytest's captured stdout and leak `ResourceWarning` into `-W error` runs). Tests that specifically exercise the file writer or the dashboard import `NeboFileWriter` / `TerminalDisplay` directly.
+`tests/conftest.py` carries an autouse `monkeypatch.setenv` fixture that pins `NEBO_NO_STORE=1` for every test. This keeps the suite from creating real `.nebo` files in the working directory. Tests that specifically exercise the file writer import `FileTransport` directly.
 
 ## Conventions to preserve
 
 - **Auto-init is load-bearing.** Any new public SDK function that touches state must call `_ensure_init()` before reading/writing it (see `ui()` and `start_run()` for examples). Breaking this makes nebo require an explicit `nb.init()`, which it is explicitly designed not to need.
-- **Run lifecycle flows through events.** The daemon only opens a `.nebo` writer after receiving a `run_start` event — so any code path that connects a client in non-local mode must also emit `run_start` (see the comment block in `init()` around `script_name`).
+- **Run lifecycle flows through events.** The daemon only opens a `.nebo` writer after receiving a `run_start` event — so any code path that connects a client in network mode must also emit `run_start` (see the comment block in `init()` around `script_name`).
 - **`MessageType` is the source of truth for protocol events.** Add new event kinds to `nebo/server/protocol.py` and handle them in the daemon, not ad-hoc strings.
 - **The Global loggable is always present.** `SessionState.loggables["__global__"]` is seeded on init/reset/clear. `nb.log*` calls outside any `@nb.fn()` context route there. Any code that iterates loggables and assumes node-only fields (`func_name`, `exec_count`, etc.) must filter by `isinstance(l, NodeInfo)` or `kind == "node"`.
 - **`@nb.fn(ui={})` keys.** Production code reads `color` and `default_tab`. `default_tab` values are `"info"` / `"logs"` / `"metrics"` / `"images"` / `"audio"` (no `"ask"` — that tab was removed along with `nb.ask`). Unknown keys are forwarded to the UI verbatim so adding a new hint requires only a UI consumer, no SDK change.
