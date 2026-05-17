@@ -195,11 +195,15 @@ def cmd_deploy(args: argparse.Namespace) -> None:
     print(f"  Access:   read={read_mode}, write={write_mode}")
     print()
     print("Connect your SDK by setting these env vars locally:")
-    print(f"  export NEBO_URL={space_url}")
+    print(f"  export NEBO_URI={space_url}")
     print(f"  export NEBO_API_TOKEN={api_token}")
     print()
     print("Or in code:")
-    print(f"  nb.init(url={space_url!r}, api_token={api_token!r})")
+    print(f"  nb.init(uri={space_url!r}, api_token={api_token!r})")
+    print()
+    print("To point the `nebo` CLI at this Space (for `nebo logs`,")
+    print("`nebo runs list`, etc.), also set:")
+    print(f"  export NEBO_URL={space_url}")
     print()
     if not args.api_token:
         print(
