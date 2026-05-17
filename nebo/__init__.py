@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 import uuid
 import logging as _stdlib_logging
 from typing import Any, Literal, Optional, TypeVar
@@ -181,7 +182,7 @@ def init(
         })
         state._send_to_client({
             "type": "run_start",
-            "data": {"script_path": script_name},
+            "data": {"script_path": script_name, "timestamp": time.time()},
         })
 
     if not quiet:
@@ -312,7 +313,7 @@ class _RunContext:
             exit_code = 1 if exc_type is not None else 0
             client.send_event({
                 "type": "run_completed",
-                "data": {"exit_code": exit_code},
+                "data": {"exit_code": exit_code, "timestamp": time.time()},
             })
             client.flush()
             client._run_completed = True
@@ -350,7 +351,7 @@ def start_run(
         if client is not None:
             client.send_event({
                 "type": "run_completed",
-                "data": {"exit_code": 0},
+                "data": {"exit_code": 0, "timestamp": time.time()},
             })
             client.flush()
 
@@ -399,6 +400,7 @@ def start_run(
     if client is not None:
         run_start_data: dict[str, Any] = {
             "script_path": script_path,
+            "timestamp": time.time(),
         }
         if name is not None:
             run_start_data["run_name"] = name

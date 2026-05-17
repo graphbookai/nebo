@@ -187,7 +187,7 @@ class NetworkTransport:
         if self._connected and not self._run_completed:
             self._queue.put({
                 "type": "run_completed",
-                "data": {"exit_code": 0},
+                "data": {"exit_code": 0, "timestamp": time.time()},
             })
         self._running = False
         if self._thread and self._thread.is_alive():
