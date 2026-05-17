@@ -18,17 +18,31 @@ The nebo daemon must be running:
 
 The `nebo` CLI must be on `$PATH`. No MCP configuration required.
 
-If the user asks about a finished run not loaded into the daemon, suggest:
+If the user asks about a finished run not currently in the daemon's state,
+there are two options:
 
-    nebo load <path-to-.nebo>
+1. The user can point `nebo serve --logdir <dir>` at the directory containing
+   the `.nebo` file — the watcher will auto-discover it within a tick.
+
+2. For ad-hoc loading of a file outside `--logdir`, use:
+
+       nebo load <path-to-.nebo>
 
 ## Finding the run id
 
-When the user runs a script, the SDK prints a banner to their terminal:
+When the user runs a script, the SDK prints a banner to their terminal.
 
-    Nebo daemon fully connected. Your run id is: abc123def456.
+In **file mode** (default — SDK writes .nebo files directly):
 
-Use that 12-character hex id in every subsequent command. If the user
+    nebo: writing to .nebo/2026-05-16_140513_abc123def456.nebo
+    run_id=abc123def456
+
+In **network mode** (SDK pushes events to a running daemon):
+
+    nebo: connected to http://localhost:7861
+    run_id=abc123def456
+
+Either way, extract the 12-char hex id from the `run_id=...` line. If the user
 hasn't shared their terminal output:
 
     nebo runs list --json
