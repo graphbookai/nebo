@@ -129,8 +129,8 @@ class TestNamespaceImports:
         import nebo.extensions
         assert nebo.extensions is not None
 
-    def test_init_reads_server_mode_env_vars(self) -> None:
-        """nebo.init must read NEBO_MODE / NEBO_SERVER_PORT / NEBO_RUN_ID.
+    def test_init_reads_env_vars(self) -> None:
+        """nebo.init must read NEBO_URI / NEBO_RUN_ID / NEBO_FLUSH_INTERVAL.
 
         These env vars are the contract external runners use (HF Spaces,
         CI wrappers) to override SDK defaults at process start. Removing
@@ -139,9 +139,9 @@ class TestNamespaceImports:
         import nebo
         import inspect
         source = inspect.getsource(nebo.init)
-        assert "NEBO_MODE" in source
-        assert "NEBO_SERVER_PORT" in source
+        assert "NEBO_URI" in source
         assert "NEBO_RUN_ID" in source
+        assert "NEBO_FLUSH_INTERVAL" in source
 
     def test_pyproject_has_nebo_script(self) -> None:
         """pyproject.toml should have nebo = nebo.cli:main entry point."""

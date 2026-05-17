@@ -11,10 +11,10 @@ from nebo.core.dag import get_sources, get_topology_order, get_dag_summary
 
 
 def _reset_gb() -> None:
-    """Reset nebo state and force local mode so tests never contact a daemon."""
+    """Reset nebo state so tests never contact a daemon."""
     SessionState.reset_singleton()
     nb._auto_init_done = False
-    nb.init(mode="local")
+    nb.init()
 
 
 class TestFnDecorator:

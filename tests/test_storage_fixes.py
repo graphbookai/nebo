@@ -39,7 +39,7 @@ def test_get_graph_dict_filters_unmaterialized():
     SessionState.reset_singleton()
     import nebo as nb
     nb._auto_init_done = False
-    nb.init(mode="local")
+    nb.init()
 
     state = get_state()
     # Register a node but don't materialize it

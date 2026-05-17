@@ -512,34 +512,31 @@ class TestModeDetection:
         SessionState.reset_singleton()
         nb._auto_init_done = False
 
-    def test_local_mode_when_no_daemon(self) -> None:
-        """Should fall back to local mode when daemon is not running."""
-        import os
-        # Clear any environment overrides
-        for key in ["NEBO_MODE", "NEBO_SERVER_PORT", "NEBO_RUN_ID"]:
-            os.environ.pop(key, None)
-
+    def test_file_mode_when_no_daemon(self) -> None:
+        """Should use file mode (default) when no uri given."""
         import nebo as nb
-        nb.init(port=19999, mode="auto", terminal=False)
+        # Default uri=None -> file mode
+        nb.init()
 
         from nebo.core.state import get_state
         state = get_state()
-        assert state._mode == "local"
+        assert state._mode == "file"
 
-    def test_explicit_local_mode(self) -> None:
-        """Should use local mode when explicitly set."""
+    def test_network_mode_falls_back_when_no_daemon(self) -> None:
+        """Should stay in network mode even when daemon unreachable (buffering)."""
         import nebo as nb
-        nb.init(mode="local", terminal=False)
+        nb.init(uri="localhost:19999")  # unlikely to be running
 
         from nebo.core.state import get_state
         state = get_state()
-        assert state._mode == "local"
+        assert state._mode == "network"
 
 
 class _FakeClient:
     """In-memory stand-in for DaemonClient used to capture events."""
 
-    def __init__(self, host=None, port=None, run_id=None, flush_interval=None):  # noqa: ARG002
+    def __init__(self, host=None, port=None, run_id=None, flush_interval=None,  # noqa: ARG002
+                 base_url=None, api_token=None):  # noqa: ARG002
         self._run_id = run_id
         self._connected = False
         self.events: list[dict] = []
@@ -580,7 +577,7 @@ class TestRunStartEmission:
         nb._auto_init_done = False
         self._saved_env = {
             k: os.environ.pop(k, None)
-            for k in ["NEBO_MODE", "NEBO_SERVER_PORT", "NEBO_RUN_ID", "NEBO_FLUSH_INTERVAL"]
+            for k in ["NEBO_URI", "NEBO_RUN_ID", "NEBO_FLUSH_INTERVAL"]
         }
         self._captured: list[_FakeClient] = []
 
@@ -604,13 +601,11 @@ class TestRunStartEmission:
 
     def test_run_start_emitted_when_run_id_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Run start event is emitted when Run ID is defined in an environment variable"""
-        import os
-        os.environ["NEBO_RUN_ID"] = "nbrun_test"
-        os.environ["NEBO_MODE"] = "server"
+        monkeypatch.setenv("NEBO_RUN_ID", "abcdef012345")
         self._install_fake_client(monkeypatch)
 
         import nebo as nb
-        nb.init(terminal=False)
+        nb.init(uri="localhost:7861")
 
         assert len(self._captured) == 1
         client = self._captured[0]
@@ -620,34 +615,20 @@ class TestRunStartEmission:
         )
         data = run_starts[0]["data"]
         assert data.get("script_path"), "script_path must be non-empty"
-        assert data.get("store") is True
+        # store field is no longer emitted by the SDK (NEBO_NO_STORE env controls it)
+        assert "store" not in data
 
     def test_run_start_emitted_without_env_run_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Direct script execution path must also emit run_start (existing behavior)."""
         self._install_fake_client(monkeypatch)
 
         import nebo as nb
-        nb.init(mode="server", terminal=False)
+        nb.init(uri="localhost:7861")
 
         assert len(self._captured) == 1
         client = self._captured[0]
         run_starts = [e for e in client.events if e.get("type") == "run_start"]
         assert len(run_starts) == 1
-
-    def test_run_start_carries_store_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """`nb.init(store=False)` must propagate into the run_start event."""
-        import os
-        os.environ["NEBO_RUN_ID"] = "nbrun_no_store"
-        os.environ["NEBO_MODE"] = "server"
-        self._install_fake_client(monkeypatch)
-
-        import nebo as nb
-        nb.init(store=False, terminal=False)
-
-        client = self._captured[0]
-        run_starts = [e for e in client.events if e.get("type") == "run_start"]
-        assert len(run_starts) == 1
-        assert run_starts[0]["data"]["store"] is False
 
     def test_run_start_script_path_is_absolute(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """run_start.data.script_path must be an absolute path.
@@ -661,8 +642,7 @@ class TestRunStartEmission:
         import os
         import sys
 
-        os.environ["NEBO_RUN_ID"] = "nbrun_abs"
-        os.environ["NEBO_MODE"] = "server"
+        monkeypatch.setenv("NEBO_RUN_ID", "abcdef012345")
         self._install_fake_client(monkeypatch)
 
         # Simulate a script invoked with only a basename in argv[0]
@@ -670,7 +650,7 @@ class TestRunStartEmission:
         monkeypatch.setattr(sys, "argv", fake_argv)
 
         import nebo as nb
-        nb.init(terminal=False)
+        nb.init(uri="localhost:7861")
 
         client = self._captured[0]
         run_starts = [e for e in client.events if e.get("type") == "run_start"]
@@ -700,7 +680,7 @@ class TestUiConfigEmission:
         nb._auto_init_done = False
         self._saved_env = {
             k: os.environ.pop(k, None)
-            for k in ["NEBO_MODE", "NEBO_SERVER_PORT", "NEBO_RUN_ID", "NEBO_FLUSH_INTERVAL"]
+            for k in ["NEBO_URI", "NEBO_RUN_ID", "NEBO_FLUSH_INTERVAL"]
         }
         self._captured: list[_FakeClient] = []
 
@@ -727,7 +707,7 @@ class TestUiConfigEmission:
         self._install_fake_client(monkeypatch)
 
         import nebo as nb
-        nb.init(mode="server", terminal=False)
+        nb.init(uri="localhost:7861")
         nb.ui(layout="horizontal", view="dag", minimap=True, theme="dark")
 
         assert len(self._captured) == 1
@@ -749,7 +729,7 @@ class TestUiConfigEmission:
         import nebo as nb
         from nebo.core.state import get_state
 
-        nb.init(mode="server", terminal=False)
+        nb.init(uri="localhost:7861")
         nb.ui(layout="vertical", theme="light")
 
         state = get_state()
@@ -760,7 +740,7 @@ class TestUiConfigEmission:
         self._install_fake_client(monkeypatch)
 
         import nebo as nb
-        nb.init(mode="server", terminal=False)
+        nb.init(uri="localhost:7861")
         nb.ui(minimap=False)
 
         client = self._captured[0]

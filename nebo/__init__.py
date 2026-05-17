@@ -43,32 +43,20 @@ logger = _stdlib_logging.getLogger(__name__)
 
 
 def _ensure_init() -> None:
-    """Lazily auto-initialize on first nb.* call.
-
-    Called by the @fn decorator wrapper and logging functions on first
-    execution. If the user already called nb.init(), this is a no-op.
-    """
+    """Lazily auto-initialize on first nb.* call."""
     global _auto_init_done
     if _auto_init_done:
         return
-
     state = get_state()
-    # If user already called init() and connected, skip
-    if state._mode != "file" or state._transport is not None:
+    if state._transport is not None:
         _auto_init_done = True
         return
-
-    # Auto-connect to daemon.
-    # take priority if present.
-    init(mode="auto", _internal=True)
+    init(_internal=True)
 
 
 def init(
-    url: Optional[str] = None,
-    port: int = 7861,
-    host: str = "localhost",
-    store: bool = True,
-    terminal: bool = True,
+    uri: Optional[str] = None,
+    *,
     dag_strategy: Literal["object", "stack", "both", "linear", "none"] = "object",
     flush_interval: float = 0.1,
     api_token: Optional[str] = None,
@@ -78,42 +66,36 @@ def init(
 ) -> None:
     """Initialize nebo.
 
+    The ``uri`` argument selects the transport:
 
-    Remote daemon: pass `url` (full URL, e.g. a Hugging Face Space at
-    `https://username-space.hf.space`) and optionally `api_token`. When
-    set, `url` overrides `host`+`port`. If `api_token` is provided, an
-    `X-Nebo-Token` header is added to every request — required when the
-    target daemon is configured with `NEBO_API_TOKEN`. Defaults read
-    from `NEBO_URL` and `NEBO_API_TOKEN`, so the same SDK call works
-    against a local or remote daemon without code changes.
+      * Omitted or a path-like string -> **file mode**. Events are written
+        to ``<uri>/<timestamp>_<run_id>.nebo`` via the local SDK.
+        Default is ``.nebo/``.
+      * ``http://``/``https://`` URL or a bare ``host:port`` -> **network mode**.
+        Events are POSTed to the daemon at that address.
+
+    Env overrides: ``NEBO_URI`` overrides ``uri``; ``NEBO_RUN_ID``,
+    ``NEBO_FLUSH_INTERVAL``, ``NEBO_API_TOKEN`` work as before.
+    ``NEBO_QUIET=1`` suppresses the one-line startup banner.
+    ``NEBO_NO_STORE=1`` makes file mode a no-op (no file is opened) —
+    used by the test suite.
 
     Args:
-        url: Full URL of a remote daemon. Overrides host+port. Defaults
-        to env var NEBO_URL.
-        port: Daemon server port (default 7861).
-        host: Daemon server host (default localhost).
-        store: Whether to persist events to .nebo files (default True).
-        mode: 'auto', 'server', or 'local'.
-        terminal: Whether to show Rich terminal display in local mode.
+        uri: Destination. See above. Defaults to ``.nebo/``.
         dag_strategy: How DAG edges are inferred between steps.
             'object' (default) uses sibling data-flow edges with parent
             fallback. 'stack' uses caller-to-callee edges only. 'both'
             is the union of object and stack edges. 'linear' chains nodes
-            in first-execution order (each newly-encountered node gets a
-            single edge from the previously-encountered one). 'none'
-            disables automatic edge inference.
+            in first-execution order. 'none' disables automatic inference.
         flush_interval: Seconds between event flushes (default 0.1).
-
         api_token: Token for daemons that require auth. Sent as
-            `X-Nebo-Token`. Defaults to env var NEBO_API_TOKEN.
-        webhook_url: Slack-compatible webhook URL for `nb.alert()`. When
-            unset, `nb.alert()` is a no-op.
-        webhook_min_level: Minimum `AlertLevel` that fires the webhook.
-            Defaults to ``AlertLevel.INFO``.
+            ``X-Nebo-Token``. Defaults to env var NEBO_API_TOKEN.
+            Network mode only; ignored in file mode.
+        webhook_url: Slack-compatible webhook URL for ``nb.alert()``.
+        webhook_min_level: Minimum ``AlertLevel`` that fires the webhook.
     """
     global _auto_init_done
 
-    # If already initialized, warn and no-op (unless called internally by _ensure_init)
     if _auto_init_done and not _internal:
         import warnings
         warnings.warn(
@@ -125,143 +107,107 @@ def init(
         return
 
     _auto_init_done = True
+
+    from nebo.core.uri import Mode, resolve_uri
+    from nebo.core.transport import FileTransport
+    from nebo.core.client import NetworkTransport
+
     state = get_state()
-    state.port = port
     state.dag_strategy = dag_strategy
     if webhook_url is not None:
         state.webhook_url = webhook_url
     if webhook_min_level is not None:
         state.webhook_min_level = int(webhook_min_level)
 
-    # Check environment overrides
-    env_mode = os.environ.get("NEBO_MODE")
-    env_port = os.environ.get("NEBO_SERVER_PORT")
+    env_uri = os.environ.get("NEBO_URI")
     env_run_id = os.environ.get("NEBO_RUN_ID")
+    env_flush = os.environ.get("NEBO_FLUSH_INTERVAL")
+    quiet = bool(os.environ.get("NEBO_QUIET"))
+    no_store = bool(os.environ.get("NEBO_NO_STORE"))
 
-    env_flush_interval = os.environ.get("NEBO_FLUSH_INTERVAL")
-
-    if env_port:
-        port = int(env_port)
-        state.port = port
-    if env_mode:
-        mode = env_mode  # type: ignore
-    if env_flush_interval:
-        flush_interval = float(env_flush_interval)
-
-    resolved_mode = mode
-
-    # Generate a run_id if not provided by env (e.g. direct script execution).
-    # Compute script_name whenever we may end up in a non-local mode, so the
-    # `run_start` event fires regardless of whether run_id came from the
-    # environment (nebo run) or was freshly generated (direct python execution).
-    run_id = env_run_id
-    script_name: Optional[str] = None
-    if resolved_mode != "local":
-        script_name = os.path.abspath(sys.argv[0]) if sys.argv else "script"
-        if not run_id:
-            run_id = f"{uuid.uuid4().hex[:12]}"
-
-    # Env vars override args; `url` (when provided) takes precedence
-    # over host+port. `api_token` is sent on every request when a
-    # token-protected daemon is the target.
-    url = url or os.environ.get("NEBO_URL")
+    if env_uri:
+        uri = env_uri
+    if env_flush:
+        flush_interval = float(env_flush)
     api_token = api_token or os.environ.get("NEBO_API_TOKEN")
 
-    def _make_client():
-        from nebo.core.client import NetworkTransport
-        if url:
-            return NetworkTransport(
-                base_url=url,
-                api_token=api_token,
+    mode, dest = resolve_uri(uri)
+    run_id = env_run_id or uuid.uuid4().hex[:12]
+    script_name = os.path.abspath(sys.argv[0]) if sys.argv else "script"
+
+    _install_text_logger()
+
+    transport: Any = None
+    banner_endpoint: str = ""
+
+    if mode is Mode.FILE:
+        if not no_store:
+            transport = FileTransport(
+                logdir=dest,
                 run_id=run_id,
+                script_path=script_name,
                 flush_interval=flush_interval,
             )
-        return NetworkTransport(
-            host=host, port=port, run_id=run_id, flush_interval=flush_interval
-        )
-
-    _endpoint_label = url or f"{host}:{port}"
-
-    def _connect_and_warmup(client: Any) -> bool:
-        """connect() then optionally warm up if a router is in front.
-
-        Returns True if the SDK can start sending events.
-        """
-        if not client.connect():
-            return False
-        # warmup() is a no-op unless the target exposes /api/daemon/warmup
-        # (the multi-tenant router pattern). For a directly-reachable
-        # daemon (local or HF Space) it's silent.
-        if url and api_token:
-            client.warmup(timeout=180.0)
-        return True
-
-    if resolved_mode == "auto":
-        # Try to connect to daemon
-        try:
-            client = _make_client()
-            if _connect_and_warmup(client):
-                resolved_mode = "network"
-                state._transport = client
-            else:
-                resolved_mode = "file"
-        except Exception:
-            resolved_mode = "file"
-    elif resolved_mode == "server":
-        client = _make_client()
-        if not _connect_and_warmup(client):
-            print(f"Warning: Could not connect to nebo daemon at {_endpoint_label}. Falling back to local mode.")
-            resolved_mode = "file"
+            banner_endpoint = str(transport.filepath)
         else:
-            state._transport = client
+            banner_endpoint = f"{dest} (NEBO_NO_STORE=1; events dropped)"
+        state._mode = "file"
+    else:
+        transport = NetworkTransport(
+            base_url=dest,
+            api_token=api_token,
+            run_id=run_id,
+            flush_interval=flush_interval,
+        )
+        banner_endpoint = dest
+        if not transport.connect():
+            print(
+                f"warning: could not reach nebo daemon at {dest}. "
+                "events will be buffered locally and dropped on exit.",
+                file=sys.stderr,
+            )
+        else:
+            if api_token:
+                transport.warmup(timeout=180.0)
+        state._mode = "network"
 
-    # Seed the "__global__" loggable on the daemon side so logs emitted
-    # outside any @fn context have a home in the run's loggables dict.
-    # The daemon (Task 5) will also seed it on run_start; emitting here
-    # covers the one-time per-client-connection case before a run starts.
-    if state._transport is not None:
+    state._transport = transport
+
+    if transport is not None:
         state._send_to_client({
             "type": "loggable_register",
             "loggable_id": "__global__",
             "data": {"loggable_id": "__global__", "kind": "global"},
         })
-
-    # Send run_start event so the daemon knows the script name
-    if state._transport is not None and script_name:
         state._send_to_client({
             "type": "run_start",
-            "data": {"script_path": script_name, "store": store},
+            "data": {"script_path": script_name},
         })
 
-    state._mode = resolved_mode
+    if not quiet:
+        if mode is Mode.FILE:
+            print(f"nebo: writing to {banner_endpoint}")
+        else:
+            print(f"nebo: connected to {banner_endpoint}")
+        print(f"run_id={run_id}")
 
-    # Print the run-id banner in network mode so agent skills (and humans)
-    # can pick up the run id from stdout. Suppressed via NEBO_NO_TERMINAL=1.
-    if resolved_mode == "network" and run_id and not os.environ.get("NEBO_NO_TERMINAL"):
-        print(f"Nebo daemon fully connected. Your run id is: {run_id}.")
 
-    # NEBO_NO_TERMINAL is the environment escape hatch used by the test
-    # suite and headless embedders to suppress the Rich live dashboard
-    # without having to thread `terminal=False` through every entry point.
-    if not terminal:
-        # terminal=False means "release the terminal to stdout" — prints,
-        # tracebacks, and warnings are already untouched (we only intercept
-        # stdout via the Rich live dashboard, which we just skipped). But
-        # nb.log() would otherwise be silent because it writes only into
-        # in-memory state, so route it through the stdlib "nebo" logger to
-        # stdout. NEBO_NO_TERMINAL alone (with terminal=True) preserves the
-        # legacy fully-silent path used by the test suite.
-        nebo_logger = _stdlib_logging.getLogger("nebo")
-        nebo_logger.handlers = [
-            h for h in nebo_logger.handlers
-            if not getattr(h, "_nebo_managed", False)
-        ]
-        handler = _stdlib_logging.StreamHandler(sys.stdout)
-        handler.setFormatter(_stdlib_logging.Formatter("%(message)s"))
-        handler._nebo_managed = True  # type: ignore[attr-defined]
-        nebo_logger.addHandler(handler)
-        if nebo_logger.level == _stdlib_logging.NOTSET:
-            nebo_logger.setLevel(_stdlib_logging.INFO)
+def _install_text_logger() -> None:
+    """Route nb.log()'s text messages to stdout via the 'nebo' stdlib logger.
+
+    Idempotent — repeated calls don't stack handlers.
+    """
+    nebo_logger = _stdlib_logging.getLogger("nebo")
+    nebo_logger.handlers = [
+        h for h in nebo_logger.handlers
+        if not getattr(h, "_nebo_managed", False)
+    ]
+    handler = _stdlib_logging.StreamHandler(sys.stdout)
+    handler.setFormatter(_stdlib_logging.Formatter("%(message)s"))
+    handler._nebo_managed = True  # type: ignore[attr-defined]
+    nebo_logger.addHandler(handler)
+    if nebo_logger.level == _stdlib_logging.NOTSET:
+        nebo_logger.setLevel(_stdlib_logging.INFO)
 
 
 def flush(timeout: float = 5.0) -> bool:
@@ -422,18 +368,19 @@ def start_run(
         client._run_completed = False
     state._active_run_id = run_id
 
-    # Print the run-id banner so agent skills (and humans) can pick up the
-    # run id by grepping stdout. Suppressed in CI / headless mode via
-    # NEBO_NO_TERMINAL=1 (the test suite's autouse fixture sets this).
-    if not os.environ.get("NEBO_NO_TERMINAL"):
-        print(f"Nebo daemon fully connected. Your run id is: {run_id}.")
+    if not os.environ.get("NEBO_QUIET"):
+        from nebo.core.transport import FileTransport as _FT
+        if state._mode == "file" and isinstance(state._transport, _FT):
+            print(f"nebo: writing to {state._transport.filepath}")
+        elif state._mode == "network":
+            print(f"nebo: connected (run continuing)")
+        print(f"run_id={run_id}")
 
     # Send run_start event
     script_path = os.path.abspath(sys.argv[0]) if sys.argv else "script"
     if client is not None:
         run_start_data: dict[str, Any] = {
             "script_path": script_path,
-            "store": True,
         }
         if name is not None:
             run_start_data["run_name"] = name

@@ -81,8 +81,6 @@ class TestAlerts:
     def test_init_threads_through_state(self) -> None:
         """nb.init(webhook_url=, webhook_min_level=) populates SessionState."""
         nb.init(
-            mode="local",
-            terminal=False,
             webhook_url="https://example.com/hook",
             webhook_min_level=AlertLevel.ERROR,
         )

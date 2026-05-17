@@ -11,10 +11,8 @@ from nebo.core.state import MetricCursor, _current_node, get_state
 
 GLOBAL_LOGGABLE_ID = "__global__"
 
-# Surface for nb.log() text messages. nb.init(terminal=False) attaches a
-# stdout StreamHandler to this logger so users in "released terminal" mode
-# see their logs; with the default terminal=True, no handler is attached and
-# emissions here are silent (the Rich panel renders them instead).
+# Surface for nb.log() text messages. nb.init() always attaches a
+# stdout StreamHandler via _install_text_logger() so text logs are visible.
 _text_logger = _stdlib_logging.getLogger("nebo")
 
 
@@ -123,10 +121,8 @@ def log(message: Union[str, Any], *, step: Optional[int] = None) -> None:
 
     state._send_to_client(entry)
 
-    # Mirror to the stdlib "nebo" logger. With terminal=False this surfaces
-    # the message on stdout (init() attaches a StreamHandler in that mode);
-    # with the default terminal=True no handler is attached and the call is
-    # a no-op, leaving the Rich panel as the only renderer.
+    # Mirror to the stdlib "nebo" logger. init() always attaches a StreamHandler
+    # via _install_text_logger() so messages surface on stdout.
     if _text_logger.handlers:
         loggable = state.loggables.get(node_id)
         if node_id == GLOBAL_LOGGABLE_ID or loggable is None:

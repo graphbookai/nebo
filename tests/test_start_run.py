@@ -13,7 +13,7 @@ def _reset() -> None:
     """Reset nebo state and force local mode."""
     SessionState.reset_singleton()
     nb._auto_init_done = False
-    nb.init(mode="local")
+    nb.init()
 
 
 def _node_count(state: SessionState) -> int:

@@ -10,7 +10,7 @@ def reset_state():
     SessionState.reset_singleton()
     import nebo as nb
     nb._auto_init_done = False
-    nb.init(mode="local")
+    nb.init()
     yield
     SessionState.reset_singleton()
 
