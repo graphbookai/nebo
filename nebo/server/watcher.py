@@ -106,6 +106,10 @@ class DirectoryWatcher:
         try:
             with path.open("rb") as f:
                 f.seek(tracked.offset)
+                # Note: we seek past the header here, so reader._version stays None.
+                # This is safe because the watcher only tails growing files, which
+                # are always v3 (current format). Historical v1/v2 files don't grow
+                # and are loaded via `nebo load`, not the watcher.
                 reader = NeboFileReader(f)
                 entries = [
                     {"type": e["type"], **e["payload"]}

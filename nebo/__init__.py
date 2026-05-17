@@ -362,8 +362,24 @@ def start_run(
         run_id = run_id or uuid.uuid4().hex[:12]
         state.clear_run_state()
 
-    # Update client run_id and reset completion guard
-    if client is not None:
+    # Update client run_id. For FileTransport, this also means rolling
+    # the underlying file to one named after the new run.
+    from nebo.core.transport import FileTransport
+    if isinstance(client, FileTransport):
+        old_filepath = client.filepath
+        logdir = old_filepath.parent
+        flush_interval = client._flush_interval
+        client.close()
+        script_path = os.path.abspath(sys.argv[0]) if sys.argv else "script"
+        new_transport = FileTransport(
+            logdir=logdir,
+            run_id=run_id,
+            script_path=script_path,
+            flush_interval=flush_interval,
+        )
+        state._transport = new_transport
+        client = new_transport
+    elif client is not None:
         client._run_id = run_id
         client._run_completed = False
     state._active_run_id = run_id
@@ -372,6 +388,8 @@ def start_run(
         from nebo.core.transport import FileTransport as _FT
         if state._mode == "file" and isinstance(state._transport, _FT):
             print(f"nebo: writing to {state._transport.filepath}")
+        elif state._mode == "file":
+            print(f"nebo: events dropped (NEBO_NO_STORE=1)")
         elif state._mode == "network":
             print(f"nebo: connected (run continuing)")
         print(f"run_id={run_id}")

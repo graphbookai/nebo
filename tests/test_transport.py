@@ -81,3 +81,41 @@ def test_file_transport_seeds_global_and_agent_loggables(tmp_path):
     ]
     assert "__global__" in seeded
     assert "__agent__" in seeded
+
+
+def test_file_transport_rolls_on_new_run(tmp_path, monkeypatch):
+    """nb.start_run() in file mode must roll the underlying file so each
+    run gets its own .nebo file (otherwise events from later runs leak
+    into the first run's file)."""
+    import nebo as nb
+    from nebo.core.state import SessionState
+
+    monkeypatch.setenv("NEBO_QUIET", "1")
+    monkeypatch.delenv("NEBO_NO_STORE", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    SessionState.reset_singleton()
+    nb._auto_init_done = False
+    try:
+        nb.init(uri=str(tmp_path / "runs"))
+        with nb.start_run() as r1:
+            nb.log("first run log")
+        with nb.start_run() as r2:
+            nb.log("second run log")
+        nb.flush(timeout=2.0)
+    finally:
+        # Make sure the transport is closed so the file handles are released
+        state = nb.get_state()
+        if state._transport is not None:
+            state._transport.close()
+        SessionState.reset_singleton()
+        nb._auto_init_done = False
+
+    files = sorted((tmp_path / "runs").glob("*.nebo"))
+    # init() creates a file for the auto-generated run; start_run() rolls
+    # to a new file each time. So we expect at least 3 files: the implicit
+    # init run + r1 + r2. (May be 2 if init's run is reused for r1, depends
+    # on the rolling policy; document the actual behavior in this test.)
+    run_ids_in_filenames = {f.stem.split("_")[-1] for f in files}
+    assert r1.run_id in run_ids_in_filenames, f"r1 file missing; got {[f.name for f in files]}"
+    assert r2.run_id in run_ids_in_filenames, f"r2 file missing; got {[f.name for f in files]}"
