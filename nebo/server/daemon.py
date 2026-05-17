@@ -557,13 +557,40 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
     Returns:
         FastAPI application instance.
     """
+    from contextlib import asynccontextmanager
+
     from fastapi import FastAPI
     from fastapi.responses import JSONResponse
+    from nebo.server.watcher import DirectoryWatcher
 
     if state is None:
         state = DaemonState()
 
-    app = FastAPI(title="Nebo Daemon Server")
+    logdir = os.environ.get("NEBO_LOGDIR")
+    save_files = os.environ.get("NEBO_SAVE_FILES")
+    no_local = bool(os.environ.get("NEBO_NO_LOCAL"))
+
+    if state._save_files_path is None and save_files:
+        state._save_files_path = Path(save_files)
+    if state._logdir is None and logdir and not no_local:
+        state._logdir = Path(logdir)
+
+    @asynccontextmanager
+    async def lifespan(app):
+        watcher = None
+        watcher_task = None
+        if state._logdir is not None:
+            watcher = DirectoryWatcher(state, logdir=state._logdir)
+            watcher_task = asyncio.create_task(watcher.run())
+        try:
+            yield
+        finally:
+            if watcher is not None:
+                watcher.stop()
+            if watcher_task is not None:
+                await watcher_task
+
+    app = FastAPI(title="Nebo Daemon Server", lifespan=lifespan)
     app.state.daemon = state
 
     # CORS for development (Vite dev server)

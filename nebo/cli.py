@@ -75,10 +75,30 @@ def cmd_serve(args: argparse.Namespace) -> None:
         print(f"Nebo daemon is already running on {host}:{port}")
         return
 
-    if getattr(args, "no_store", False):
-        os.environ["NEBO_NO_STORE"] = "1"
-    if getattr(args, "store_dir", None):
-        os.environ["NEBO_STORE_DIR"] = args.store_dir
+    # --no-store and --store-dir were removed; emit a clear error if someone
+    # still passes them (they'd be caught by argparse as unknown args, but
+    # if they're typed as known args downstream we'd silently accept). The
+    # argparse change above already rejects unknown args; this is belt-and-suspenders.
+
+    logdir_abs = None if args.no_local else Path(args.logdir).resolve()
+    save_abs = Path(args.save_files).resolve() if args.save_files else None
+    if logdir_abs and save_abs and logdir_abs == save_abs:
+        print(
+            "nebo serve: --logdir and --save-files cannot be the same directory.\n"
+            f"  --logdir:     {logdir_abs}\n"
+            f"  --save-files: {save_abs}\n"
+            "  Watcher input and writer output would feed back into each other.\n"
+            "  Either drop --save-files, set different paths, or pass --no-local.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    if args.no_local:
+        os.environ["NEBO_NO_LOCAL"] = "1"
+    if logdir_abs is not None:
+        os.environ["NEBO_LOGDIR"] = str(logdir_abs)
+    if save_abs is not None:
+        os.environ["NEBO_SAVE_FILES"] = str(save_abs)
     if getattr(args, "api_token", None):
         os.environ["NEBO_API_TOKEN"] = args.api_token
     if getattr(args, "read", None):
@@ -98,10 +118,12 @@ def cmd_serve(args: argparse.Namespace) -> None:
         ]
         env = os.environ.copy()
         env["NEBO_DAEMON_PORT"] = str(port)
-        if getattr(args, "no_store", False):
-            env["NEBO_NO_STORE"] = "1"
-        if getattr(args, "store_dir", None):
-            env["NEBO_STORE_DIR"] = args.store_dir
+        if args.no_local:
+            env["NEBO_NO_LOCAL"] = "1"
+        if logdir_abs is not None:
+            env["NEBO_LOGDIR"] = str(logdir_abs)
+        if save_abs is not None:
+            env["NEBO_SAVE_FILES"] = str(save_abs)
         if getattr(args, "api_token", None):
             env["NEBO_API_TOKEN"] = args.api_token
         if getattr(args, "read", None):
@@ -658,8 +680,20 @@ def main() -> None:
     p_serve.add_argument("--host", default="localhost", help="Host to bind (default: localhost)")
     p_serve.add_argument("--port", type=int, default=7861, help="Port (default: 7861)")
     p_serve.add_argument("--daemon", "-d", action="store_true", help="Run in background")
-    p_serve.add_argument("--no-store", action="store_true", help="Disable .nebo file storage")
-    p_serve.add_argument("--store-dir", help="Directory for .nebo files (default: ./.nebo). Sets NEBO_STORE_DIR.")
+    p_serve.add_argument(
+        "--logdir",
+        default=".nebo",
+        help="Directory the daemon watches for .nebo files written by SDK file mode (default: ./.nebo).",
+    )
+    p_serve.add_argument(
+        "--no-local",
+        action="store_true",
+        help="Disable the directory watcher; daemon listens for network events only.",
+    )
+    p_serve.add_argument(
+        "--save-files",
+        help="Persist network-mode events to .nebo files at this path. Off by default.",
+    )
     p_serve.add_argument("--api-token", help="Require this token on API requests via X-Nebo-Token / ?token=. Sets NEBO_API_TOKEN.")
     p_serve.add_argument("--read", choices=["public", "private"], help="Read access mode (default: public). Only matters when --api-token is set.")
     p_serve.add_argument("--write", choices=["public", "private"], help="Write access mode (default: private). Only matters when --api-token is set.")

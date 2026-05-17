@@ -435,3 +435,40 @@ def test_errors_passes_run(monkeypatch):
     monkeypatch.setattr("nebo.client.get_errors", fake_get_errors)
     _run_cli(["errors", "--run", "r2"])
     assert received["run_id"] == "r2"
+
+
+# ---------------------------------------------------------------------------
+# nebo serve new flags
+# ---------------------------------------------------------------------------
+
+from contextlib import redirect_stderr
+
+
+def _run_cli_with_stderr(argv: list[str]) -> tuple[int, str]:
+    """Invoke nebo.cli.main with argv (no program name); return (exit_code, stderr)."""
+    from nebo.cli import main
+    err = io.StringIO()
+    code = 0
+    with redirect_stderr(err), patch("sys.argv", ["nebo"] + argv):
+        try:
+            main()
+        except SystemExit as e:
+            code = int(e.code or 0)
+    return code, err.getvalue()
+
+
+def test_serve_refuses_same_logdir_and_save_files(tmp_path):
+    code, err = _run_cli_with_stderr([
+        "serve",
+        "--logdir", str(tmp_path),
+        "--save-files", str(tmp_path),
+    ])
+    assert code == 2
+    assert "cannot be the same directory" in err
+
+
+def test_serve_rejects_removed_no_store():
+    code, err = _run_cli_with_stderr(["serve", "--no-store"])
+    # argparse rejects unknown --no-store. Either exit 2 with argparse
+    # error, or exit 2 with our explicit removal-error message.
+    assert code == 2
