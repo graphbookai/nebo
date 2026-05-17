@@ -317,6 +317,9 @@ class _RunContext:
             })
             client.flush()
             client._run_completed = True
+            from nebo.core.transport import FileTransport
+            if isinstance(client, FileTransport):
+                client._run_completed_sent = True
         state._active_run_id = None
 
 
@@ -354,6 +357,9 @@ def start_run(
                 "data": {"exit_code": 0, "timestamp": time.time()},
             })
             client.flush()
+            from nebo.core.transport import FileTransport
+            if isinstance(client, FileTransport):
+                client._run_completed_sent = True
 
     if resuming:
         # Restore snapshot for resumed run

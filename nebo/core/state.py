@@ -150,6 +150,9 @@ class SessionState:
         # Webhook alerts (configured via nb.init)
         self.webhook_url: Optional[str] = None
         self.webhook_min_level: int = 20  # AlertLevel.INFO
+        # Populated by the chained sys.excepthook in nebo/__init__.py.
+        # FileTransport's atexit handler reads this to choose exit_code.
+        self.last_unhandled_exception: Optional[BaseException] = None
 
     def _send_to_client(self, event: dict) -> None:
         """Forward an event to the active transport (file or network)."""
@@ -416,6 +419,7 @@ class SessionState:
             self.ui_config = None
             self._run_snapshots.clear()
             self._active_run_id = None
+            self.last_unhandled_exception = None
 
     @classmethod
     def reset_singleton(cls) -> None:
