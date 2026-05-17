@@ -99,11 +99,6 @@ class TestNamespaceImports:
         from nebo.server.protocol import MessageType, Message
         assert MessageType is not None
 
-    def test_import_server_runner(self) -> None:
-        """nebo.server.runner should be importable."""
-        from nebo.server.runner import PipelineRunner
-        assert PipelineRunner is not None
-
     def test_import_mcp_server(self) -> None:
         """nebo.mcp.server should be importable."""
         from nebo.mcp.server import MCP_TOOLS, handle_tool_call

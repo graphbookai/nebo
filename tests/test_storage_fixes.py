@@ -23,16 +23,6 @@ def test_no_store_env_disables_storage():
         assert run._file_stream is None
 
 
-def test_run_endpoint_passes_store():
-    """The /run endpoint must read NEBO_NO_STORE and pass store to create_run."""
-    import inspect
-    from nebo.server.daemon import create_daemon_app
-    # Read the source of create_daemon_app to verify store logic
-    source = inspect.getsource(create_daemon_app)
-    assert "NEBO_NO_STORE" in source, "create_daemon_app should check NEBO_NO_STORE"
-    assert "store=store" in source, "create_daemon_app should pass store to create_run"
-
-
 def test_get_graph_dict_filters_unmaterialized():
     """get_graph_dict() must only include materialized nodes."""
     from nebo.core.state import SessionState, get_state

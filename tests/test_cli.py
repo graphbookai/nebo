@@ -49,28 +49,6 @@ class TestCLI:
         assert nebo_args == ["mcp-stdio", "--port", "9000"]
 
 
-class TestRunnerModule:
-    """Tests for the PipelineRunner."""
-
-    def test_runner_import(self) -> None:
-        """PipelineRunner should be importable."""
-        from nebo.server.runner import PipelineRunner
-        runner = PipelineRunner()
-        assert runner is not None
-
-    def test_runner_not_running(self) -> None:
-        """is_running should return False for unknown run IDs."""
-        from nebo.server.runner import PipelineRunner
-        runner = PipelineRunner()
-        assert runner.is_running("nonexistent") is False
-
-    def test_runner_stop_unknown(self) -> None:
-        """stop() should return None for unknown run IDs."""
-        from nebo.server.runner import PipelineRunner
-        runner = PipelineRunner()
-        assert runner.stop("nonexistent") is None
-
-
 class TestLoadRemote:
     """`nebo load --url ...` reads the file locally and replays its
     events through /events on the remote daemon — covers the case

@@ -84,7 +84,6 @@ class Run:
     script_path: str
     args: list[str] = field(default_factory=list)
     status: RunStatus = "starting"
-    process: Any = None  # subprocess.Popen, not serializable
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
     exit_code: Optional[int] = None
@@ -98,8 +97,6 @@ class Run:
     workflow_description: Optional[str] = None
     config: dict = field(default_factory=dict)
     ui_config: Optional[dict] = None
-    stdout_lines: list[str] = field(default_factory=list)
-    stderr_lines: list[str] = field(default_factory=list)
     significant_events: list[dict] = field(default_factory=list)
     alerts: list[dict] = field(default_factory=list)
     run_name: Optional[str] = None
@@ -550,16 +547,6 @@ class DaemonState:
             })
             self.finalize_run(run.id)
 
-    def mark_run_completed(self, run_id: str, exit_code: int = 0) -> None:
-        """Mark a run as completed."""
-        if run_id in self.runs:
-            run = self.runs[run_id]
-            run.status = "completed" if exit_code == 0 else "crashed"
-            run.exit_code = exit_code
-            run.ended_at = datetime.now()
-            if self.active_run_id == run_id:
-                self.active_run_id = None
-
     def mark_run_stopped(self, run_id: str) -> None:
         """Mark a run as manually stopped."""
         if run_id in self.runs:
@@ -575,8 +562,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
 
     Args:
         state: Optional pre-existing DaemonState. Creates new if None.
-        port: Daemon port for injecting into pipeline subprocess env.
-              Falls back to NEBO_DAEMON_PORT env var, then 7861.
+        port: Unused; kept for backwards-compatible call sites.
 
     Returns:
         FastAPI application instance.
@@ -584,32 +570,11 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
     from fastapi import FastAPI
     from fastapi.responses import JSONResponse
 
-    from nebo.server.runner import PipelineRunner
-
-    if port is None:
-        port = int(os.environ.get("NEBO_DAEMON_PORT", "7861"))
-
     if state is None:
         state = DaemonState()
 
-    # --- Pipeline runner wired into daemon state ---
-    runner = PipelineRunner(
-        on_started=lambda rid: None,  # Run already created in /run handler
-        on_completed=lambda rid, code: state.mark_run_completed(rid, code),
-        on_output=lambda rid, stream, line: _capture_output(state, rid, stream, line),
-    )
-
-    def _capture_output(st: DaemonState, run_id: str, stream: str, line: str) -> None:
-        run = st.runs.get(run_id)
-        if run:
-            if stream == "stdout":
-                run.stdout_lines.append(line)
-            else:
-                run.stderr_lines.append(line)
-
     app = FastAPI(title="Nebo Daemon Server")
     app.state.daemon = state
-    app.state.runner = runner
 
     # CORS for development (Vite dev server)
     from starlette.middleware.cors import CORSMiddleware
@@ -703,43 +668,6 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
     async def ingest_legacy(events: list[dict[str, Any]]):
         await state.ingest_events(events)
         return {"status": "ok", "count": len(events)}
-
-    @app.post("/run")
-    async def start_run(body: dict[str, Any]):
-        """Start a pipeline script as a managed subprocess."""
-        script_path = body.get("script_path", "")
-        args = body.get("args", [])
-        run_id = body.get("run_id") or f"run_{int(time.time())}_{len(state.runs)}"
-        store = not os.environ.get("NEBO_NO_STORE")
-        if not script_path:
-            return JSONResponse(status_code=400, content={"error": "script_path is required"})
-        try:
-            run = state.create_run(script_path, args, run_id, store=store)
-            proc = runner.start(
-                run_id=run_id,
-                script_path=script_path,
-                args=args,
-                port=port,
-            )
-            run.process = proc
-            run.status = "running"
-            return {"run_id": run_id, "pid": proc.pid, "status": "started"}
-        except FileNotFoundError as e:
-            return JSONResponse(status_code=404, content={"error": str(e)})
-        except Exception as e:
-            return JSONResponse(status_code=500, content={"error": str(e)})
-
-    @app.post("/runs/{run_id}/stop")
-    async def stop_run(run_id: str):  # noqa: path param only
-        """Stop a running pipeline."""
-        if run_id not in state.runs:
-            return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
-        exit_code = runner.stop(run_id)
-        if exit_code is None and not runner.is_running(run_id):
-            state.mark_run_stopped(run_id)
-            return {"run_id": run_id, "status": "stopped", "exit_code": None}
-        state.mark_run_stopped(run_id)
-        return {"run_id": run_id, "status": "stopped", "exit_code": exit_code}
 
     @app.get("/runs")
     async def list_runs():

@@ -51,57 +51,17 @@ class TestDaemonState:
         assert latest is not None
         assert latest.id == "r2"
 
-    def test_mark_run_completed(self) -> None:
-        """Should mark a run as completed with exit code."""
-        run = self.state.create_run("s.py", run_id="r1")
-        self.state.mark_run_completed("r1", exit_code=0)
-        assert run.status == "completed"
-        assert run.exit_code == 0
-        assert run.ended_at is not None
-
-    def test_mark_run_crashed(self) -> None:
-        """Should mark a run as crashed on non-zero exit."""
-        run = self.state.create_run("s.py", run_id="r1")
-        self.state.mark_run_completed("r1", exit_code=1)
-        assert run.status == "crashed"
-        assert run.exit_code == 1
-
     def test_mark_run_stopped(self) -> None:
         """Should mark a run as manually stopped."""
         run = self.state.create_run("s.py", run_id="r1")
         self.state.mark_run_stopped("r1")
         assert run.status == "stopped"
 
-    def test_mark_run_completed_clears_active_run_id(self) -> None:
-        """Completing the active run must clear active_run_id.
-
-        Without this, `/health` and the MCP `nebo_status` tool keep
-        reporting a stale run as "active" forever after it finishes.
-        """
-        self.state.create_run("s.py", run_id="r1")
-        assert self.state.active_run_id == "r1"
-        self.state.mark_run_completed("r1", exit_code=0)
-        assert self.state.active_run_id is None
-
-    def test_mark_run_crashed_clears_active_run_id(self) -> None:
-        """A crashed run must also clear active_run_id."""
-        self.state.create_run("s.py", run_id="r1")
-        self.state.mark_run_completed("r1", exit_code=1)
-        assert self.state.active_run_id is None
-
     def test_mark_run_stopped_clears_active_run_id(self) -> None:
         """A manually stopped run must also clear active_run_id."""
         self.state.create_run("s.py", run_id="r1")
         self.state.mark_run_stopped("r1")
         assert self.state.active_run_id is None
-
-    def test_mark_run_completed_preserves_other_active_run(self) -> None:
-        """Completing a non-active run must not clear active_run_id."""
-        self.state.create_run("a.py", run_id="r1")
-        self.state.create_run("b.py", run_id="r2")
-        assert self.state.active_run_id == "r2"
-        self.state.mark_run_completed("r1", exit_code=0)
-        assert self.state.active_run_id == "r2"
 
 
 class TestDaemonEventIngestion:
@@ -521,11 +481,11 @@ class TestGetNodeEndpoint:
 class TestRunCompletedEventClearsActiveRun:
     """Regression test for Bug 10 via the `/events` ingest path.
 
-    Pipelines started finalize by POSTing a `run_completed`
-    event to `/events`, which is handled inline in `ingest_events` — not
-    by `mark_run_completed`. That inline branch updates `run.status` but
-    previously never cleared `self.active_run_id`, so `/health` and
-    `nebo status` kept reporting a finished run as "active" indefinitely.
+    Pipelines finalize by POSTing a `run_completed` event to `/events`,
+    which is handled inline in `ingest_events`. Previously that branch
+    updated `run.status` but never cleared `self.active_run_id`, so
+    `/health` and `nebo status` kept reporting a finished run as "active"
+    indefinitely.
     """
 
     def test_run_completed_event_clears_active_run_id(self) -> None:
