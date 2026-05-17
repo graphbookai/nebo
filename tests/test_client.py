@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from nebo.core.client import DaemonClient
+from nebo.core.client import NetworkTransport as DaemonClient
 
 
 class TestDaemonClient:
@@ -600,7 +600,7 @@ class TestRunStartEmission:
                 super().__init__(*a, **kw)
                 captured.append(self)
 
-        monkeypatch.setattr(client_mod, "DaemonClient", TrackingFake)
+        monkeypatch.setattr(client_mod, "NetworkTransport", TrackingFake)
 
     def test_run_start_emitted_when_run_id_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Run start event is emitted when Run ID is defined in an environment variable"""
@@ -720,7 +720,7 @@ class TestUiConfigEmission:
                 super().__init__(*a, **kw)
                 captured.append(self)
 
-        monkeypatch.setattr(client_mod, "DaemonClient", TrackingFake)
+        monkeypatch.setattr(client_mod, "NetworkTransport", TrackingFake)
 
     def test_ui_sends_ui_config_event(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """`nb.ui(...)` must emit a ui_config event to the client."""

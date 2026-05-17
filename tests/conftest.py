@@ -27,7 +27,7 @@ def _quiet_nebo(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class CapturingClient:
-    """Stand-in for DaemonClient used by tests that assert on the
+    """Stand-in for NetworkTransport used by tests that assert on the
     SDK's wire output.
 
     The SDK no longer keeps metric/image/audio values in process —

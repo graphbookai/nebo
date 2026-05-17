@@ -168,15 +168,15 @@ def init(
     api_token = api_token or os.environ.get("NEBO_API_TOKEN")
 
     def _make_client():
-        from nebo.core.client import DaemonClient
+        from nebo.core.client import NetworkTransport
         if url:
-            return DaemonClient(
+            return NetworkTransport(
                 base_url=url,
                 api_token=api_token,
                 run_id=run_id,
                 flush_interval=flush_interval,
             )
-        return DaemonClient(
+        return NetworkTransport(
             host=host, port=port, run_id=run_id, flush_interval=flush_interval
         )
 

@@ -58,7 +58,7 @@ class TestNamespaceImports:
 
     def test_import_core_client(self) -> None:
         """nebo.core.client should be importable."""
-        from nebo.core.client import DaemonClient
+        from nebo.core.client import NetworkTransport as DaemonClient
         assert DaemonClient is not None
 
     def test_import_logging_logger(self) -> None:

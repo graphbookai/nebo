@@ -40,7 +40,7 @@ class DrainResult:
     last_error: Optional[str]
 
 
-class DaemonClient:
+class NetworkTransport:
     """Client that streams events from the SDK to the daemon server.
 
     Thread-safe. Uses a background thread for batched HTTP flushing.

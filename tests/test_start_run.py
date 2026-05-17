@@ -456,7 +456,7 @@ class TestClientRunCompletedGuard:
 
     def test_guard_field_exists(self) -> None:
         """DaemonClient should have a _run_completed field."""
-        from nebo.core.client import DaemonClient
+        from nebo.core.client import NetworkTransport as DaemonClient
         client = DaemonClient()
         assert hasattr(client, "_run_completed")
         assert client._run_completed is False

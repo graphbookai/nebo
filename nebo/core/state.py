@@ -137,7 +137,7 @@ class SessionState:
         self._display: Any = None
         self._initialized_display: bool = False
         self._initialized_server: bool = False
-        self._client: Any = None  # DaemonClient when in server mode
+        self._client: Any = None  # NetworkTransport when in server mode
         self._mode: str = "local"  # "local" or "server"
         self._return_origins: dict[int, tuple[str, Any]] = {}  # id(value) -> (producing node_id, value ref)
         self._node_parents: dict[str, Optional[str]] = {}  # node_id -> parent node_id
@@ -163,7 +163,7 @@ class SessionState:
             self._initialized_display = True
 
     def _send_to_client(self, event: dict) -> None:
-        """Forward an event to the DaemonClient if connected."""
+        """Forward an event to the NetworkTransport if connected."""
         if self._client is not None:
             try:
                 self._client.send_event(event)
