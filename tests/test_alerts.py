@@ -98,7 +98,7 @@ def test_alert_emits_wire_event_when_client_connected():
     SessionState.reset_singleton()
     state = SessionState()
     fake_client = MagicMock()
-    state._client = fake_client
+    state._transport = fake_client
     alert("oops", "details", level=AlertLevel.WARN)
 
     sent = [call.args[0] for call in fake_client.send_event.call_args_list]

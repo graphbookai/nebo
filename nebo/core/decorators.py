@@ -200,7 +200,6 @@ def _decorate_function(f, depends_on, group=None, ui_hints=None):
         # graph and act as real links in dependency chains.
         state.ensure_loggable(node_id)
 
-        state.ensure_display()
         parent = _current_node.get()
         token = _current_node.set(node_id)
 

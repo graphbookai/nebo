@@ -45,7 +45,7 @@ class TestWandbLog:
         from tests.conftest import CapturingClient
         wandb.init(name="t")
         client = CapturingClient()
-        get_state()._client = client
+        get_state()._transport = client
         return client
 
     def test_log_numeric_scalars_become_metrics(self) -> None:

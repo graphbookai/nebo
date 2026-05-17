@@ -54,7 +54,7 @@ def _ensure_init() -> None:
 
     state = get_state()
     # If user already called init() and connected, skip
-    if state._mode != "local" or state._client is not None:
+    if state._mode != "file" or state._transport is not None:
         _auto_init_done = True
         return
 
@@ -201,25 +201,25 @@ def init(
         try:
             client = _make_client()
             if _connect_and_warmup(client):
-                resolved_mode = "server"
-                state._client = client
+                resolved_mode = "network"
+                state._transport = client
             else:
-                resolved_mode = "local"
+                resolved_mode = "file"
         except Exception:
-            resolved_mode = "local"
+            resolved_mode = "file"
     elif resolved_mode == "server":
         client = _make_client()
         if not _connect_and_warmup(client):
             print(f"Warning: Could not connect to nebo daemon at {_endpoint_label}. Falling back to local mode.")
-            resolved_mode = "local"
+            resolved_mode = "file"
         else:
-            state._client = client
+            state._transport = client
 
     # Seed the "__global__" loggable on the daemon side so logs emitted
     # outside any @fn context have a home in the run's loggables dict.
     # The daemon (Task 5) will also seed it on run_start; emitting here
     # covers the one-time per-client-connection case before a run starts.
-    if state._client is not None:
+    if state._transport is not None:
         state._send_to_client({
             "type": "loggable_register",
             "loggable_id": "__global__",
@@ -227,7 +227,7 @@ def init(
         })
 
     # Send run_start event so the daemon knows the script name
-    if state._client is not None and script_name:
+    if state._transport is not None and script_name:
         state._send_to_client({
             "type": "run_start",
             "data": {"script_path": script_name, "store": store},
@@ -235,24 +235,15 @@ def init(
 
     state._mode = resolved_mode
 
-    # Print the run-id banner in server mode so agent skills (and humans)
+    # Print the run-id banner in network mode so agent skills (and humans)
     # can pick up the run id from stdout. Suppressed via NEBO_NO_TERMINAL=1.
-    if resolved_mode == "server" and run_id and not os.environ.get("NEBO_NO_TERMINAL"):
+    if resolved_mode == "network" and run_id and not os.environ.get("NEBO_NO_TERMINAL"):
         print(f"Nebo daemon fully connected. Your run id is: {run_id}.")
 
     # NEBO_NO_TERMINAL is the environment escape hatch used by the test
     # suite and headless embedders to suppress the Rich live dashboard
     # without having to thread `terminal=False` through every entry point.
-    if terminal and not os.environ.get("NEBO_NO_TERMINAL"):
-        try:
-            from nebo.terminal.display import TerminalDisplay
-            import atexit
-            if state._display is None:
-                state._display = TerminalDisplay()
-                atexit.register(state._display.stop)
-        except ImportError:
-            pass
-    elif not terminal:
+    if not terminal:
         # terminal=False means "release the terminal to stdout" — prints,
         # tracebacks, and warnings are already untouched (we only intercept
         # stdout via the Rich live dashboard, which we just skipped). But
@@ -294,7 +285,7 @@ def flush(timeout: float = 5.0) -> bool:
     daemon has been disconnected.
     """
     state = get_state()
-    client = state._client
+    client = state._transport
     if client is None:
         return True
     return client.flush(timeout=timeout)
@@ -368,7 +359,7 @@ class _RunContext:
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         state = get_state()
-        client = state._client
+        client = state._transport
         # Save state snapshot before completing
         state.save_run_state(self.run_id)
         if client is not None:
@@ -401,7 +392,7 @@ def start_run(
     """
     _ensure_init()
     state = get_state()
-    client = state._client
+    client = state._transport
 
     resolved_config = _resolve_config(config) if config is not None else None
     resuming = run_id is not None and run_id in state._run_snapshots

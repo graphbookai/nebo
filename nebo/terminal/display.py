@@ -179,9 +179,9 @@ class TerminalDisplay:
                 })
 
         # Check if also forwarding to daemon
-        client = state._client
+        client = state._transport
         connected = client is not None and client.is_connected()
-        mode = "server" if connected else "local"
+        mode = "network" if connected else "file"
 
         return {
             "runs": [],

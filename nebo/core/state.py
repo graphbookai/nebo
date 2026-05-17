@@ -134,11 +134,8 @@ class SessionState:
         self.workflow_description: Optional[str] = None
         self.port: int = 7861
         self.server_process: Any = None
-        self._display: Any = None
-        self._initialized_display: bool = False
-        self._initialized_server: bool = False
-        self._client: Any = None  # NetworkTransport when in server mode
-        self._mode: str = "local"  # "local" or "server"
+        self._transport: Any = None  # Transport instance (file or network)
+        self._mode: str = "file"  # "file" or "network"
         self._return_origins: dict[int, tuple[str, Any]] = {}  # id(value) -> (producing node_id, value ref)
         self._node_parents: dict[str, Optional[str]] = {}  # node_id -> parent node_id
         # For dag_strategy="linear": id of the most recent first-execution node,
@@ -154,19 +151,11 @@ class SessionState:
         self.webhook_url: Optional[str] = None
         self.webhook_min_level: int = 20  # AlertLevel.INFO
 
-    def ensure_display(self) -> None:
-        """Ensure the terminal display is created and started."""
-        if self._initialized_display:
-            return
-        if self._display is not None:
-            self._display.start()
-            self._initialized_display = True
-
     def _send_to_client(self, event: dict) -> None:
-        """Forward an event to the NetworkTransport if connected."""
-        if self._client is not None:
+        """Forward an event to the active transport (file or network)."""
+        if self._transport is not None:
             try:
-                self._client.send_event(event)
+                self._transport.send_event(event)
             except Exception:
                 pass
 
@@ -422,9 +411,8 @@ class SessionState:
             self._linear_last = None
             self.dag_strategy = "object"
             self.workflow_description = None
-            self._initialized_server = False
-            self._client = None
-            self._mode = "local"
+            self._transport = None
+            self._mode = "file"
             self.ui_config = None
             self._run_snapshots.clear()
             self._active_run_id = None

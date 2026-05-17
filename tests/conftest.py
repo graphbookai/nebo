@@ -33,7 +33,7 @@ class CapturingClient:
     The SDK no longer keeps metric/image/audio values in process —
     those go straight to ``state._send_to_client``. Tests that need
     to inspect what the SDK *would have sent* attach one of these to
-    ``state._client`` and read ``self.events``.
+    ``state._transport`` and read ``self.events``.
     """
 
     def __init__(self) -> None:
@@ -65,9 +65,9 @@ def capturing_client():
 
     SessionState.reset_singleton()
     client = CapturingClient()
-    get_state()._client = client
+    get_state()._transport = client
     try:
         yield client
     finally:
-        get_state()._client = None
+        get_state()._transport = None
         SessionState.reset_singleton()

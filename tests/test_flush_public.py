@@ -9,7 +9,7 @@ from nebo.core.state import get_state
 def test_returns_true_when_no_client(monkeypatch) -> None:
     """In local mode (no daemon client), flush is a no-op returning True."""
     state = get_state()
-    monkeypatch.setattr(state, "_client", None)
+    monkeypatch.setattr(state, "_transport", None)
     assert nb.flush() is True
     assert nb.flush(timeout=10.0) is True
 
@@ -26,7 +26,7 @@ def test_delegates_to_client_flush_with_timeout(monkeypatch) -> None:
             return True
 
     fake = FakeClient()
-    monkeypatch.setattr(state, "_client", fake)
+    monkeypatch.setattr(state, "_transport", fake)
 
     assert nb.flush(timeout=3.0) is True
     assert fake.calls == [3.0]
@@ -39,7 +39,7 @@ def test_propagates_false_return(monkeypatch) -> None:
         def flush(self, timeout: float = 5.0) -> bool:
             return False
 
-    monkeypatch.setattr(state, "_client", FailingClient())
+    monkeypatch.setattr(state, "_transport", FailingClient())
 
     assert nb.flush() is False
 
@@ -58,7 +58,7 @@ def test_default_timeout_matches_public_default(monkeypatch) -> None:
             return True
 
     fake = FakeClient()
-    monkeypatch.setattr(state, "_client", fake)
+    monkeypatch.setattr(state, "_transport", fake)
 
     nb.flush()
     assert fake.last_timeout == 5.0

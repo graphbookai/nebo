@@ -67,7 +67,7 @@ class TestTracker:
 
 
 class _EventCapturingClient:
-    """Minimal fake for SessionState._client used to capture forwarded events."""
+    """Minimal fake for SessionState._transport used to capture forwarded events."""
 
     def __init__(self) -> None:
         self.events: list[dict] = []
@@ -96,7 +96,7 @@ class TestTrackerProgressForwarding:
         """Each iteration of a tracked iterable inside @nb.fn emits a progress event."""
         state = get_state()
         client = _EventCapturingClient()
-        state._client = client
+        state._transport = client
 
         @fn()
         def do_work():
