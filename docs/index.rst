@@ -5,7 +5,17 @@ Nebo
 
     A modern logging SDK for multi-modal data.
 
-Nebo is a modern logging SDK for multi-modal data. Decorate functions and classes with ``@nb.fn()``, and nebo automatically infers the DAG from your runtime call graph. Logs, metrics, images, audio, text, and errors are captured per-loggable and surfaced through a web UI, a Rich terminal dashboard, a persistent daemon, or MCP tools for AI agents.
+Nebo is a modern logging SDK that lets you track experiments containing multi-modal data (text, images, audio) and inspect metrics with function-level granularity.
+
+.. code-block:: python
+
+    import nebo as nb
+
+    nb.log("Hello world!")
+
+Following the Tensorboard model, Nebo is local-first, so you don't need to start another separate service, or worse, create an account to log data.
+Each run is stored in one .nebo file, a self-contained file format for simplicity, so that managing them is easy. 
+Nebo also supports function-level logging which allows you to decorate functions ``@nb.fn()``, and nebo automatically infers the DAG from your runtime call graph.
 
 .. code-block:: python
 
@@ -24,7 +34,6 @@ Nebo is a modern logging SDK for multi-modal data. Decorate functions and classe
         nb.log_line("count", float(len(records)))
         return records
 
-    @nb.fn()
     def run():
         data = load_data()
         return process(data)
@@ -32,24 +41,22 @@ Nebo is a modern logging SDK for multi-modal data. Decorate functions and classe
     if __name__ == "__main__":
         run()
 
+Logs, metrics, images, audio, text, and errors are captured and surfaced through a web UI, an MCP server, and a nebo CLI that comes with agent skills.
+The UI is mobile-first supporting live viewing of metrics while you walk away from your desk.
 
 Features
 ********
 
-* **Decorator-based**: Add ``@nb.fn()`` to functions or classes — no inheritance or boilerplate
-* **Automatic DAG inference**: Edges are created from data flow between decorated functions
-* **Zero-config DAG**: Decorated functions appear in the graph automatically as soon as they run — no explicit registration step
-* **Class decoration**: Decorate a class to group its methods under a transparent bounding box in the DAG
 * **Multimodal logging**: Text, scalar metrics, images (PIL/numpy/torch), and audio
-* **Progress tracking**: ``nb.track()`` for tqdm-like progress bars in the terminal and UI
+* **Progress tracking**: ``nb.track()`` for tqdm-like progress bars in the and UI
 * **Persistent .nebo files**: Append-only binary log files using MessagePack for crash-safe persistence
-* **Web UI**: Real-time DAG visualization, metrics charting, image/audio viewers, and run comparison
-* **Agent tracing**: Linear timeline view for agentic workflows
-* **Q&A via AI**: Ask questions about runs — nebo delegates to Claude Code CLI via MCP
-* **MCP integration**: 21 tools for AI agents to observe, control, and *push data into* pipelines (incl. ``log_metric`` / ``log_image`` / ``log_audio`` / ``log_text``)
+* **Web UI**: Mobile-first viewing of metrics charting, image/audio viewers, run comparison, and DAG visualization
+* **Skills & MCP integration**: A full nebo CLI, 2 agent skills, and MCP server for AI agents to observe, control, and *push data into* pipelines (incl. ``log_line`` / ``log_image`` / ``log_audio`` / ``log_text``)
 * **UI configuration from code**: ``nb.ui()`` and ``@nb.fn(ui={})`` set display defaults
 * **Notebook embedding**: ``nb.show()`` returns a Jupyter-renderable iframe of any slice of a run
 * **Hugging Face Spaces deploy**: ``nebo deploy`` ships the daemon to a Space with shared-secret auth and configurable public/private read+write modes
+* **Decorator-based**: Add ``@nb.fn()`` to functions or classes for function-level logging
+* **Automatic DAG inference**: Edges are created from data flow between decorated functions
 
 .. toctree::
    :caption: Docs

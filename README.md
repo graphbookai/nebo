@@ -16,7 +16,6 @@ Nebo offers function-level logging capturing metrics, images, audio, and text at
 * CLI, MCP and agent skill for AI agent query support
 * MCP write tools so external agents can push metrics, images, audio, and text into a run
 * Fully self-contained log file per run
-* Rich terminal UI
 * Mobile-first web UI
 * Notebook embedding via `nb.show()` (Jupyter-renderable iframe of any slice of a run)
 * One-command deploy to a Hugging Face Space (`nebo deploy`) with public/private read+write modes
@@ -405,7 +404,7 @@ graph LR
 Two execution modes:
 
 - **Local mode** (default): In-process only. No daemon needed.
-- **Server mode**: Events stream to a persistent daemon via HTTP. Use `nebo serve` to start the daemon, then `nebo run` to execute pipelines.
+- **Server mode**: Events stream to a persistent daemon via HTTP. Use `nebo serve` to start the daemon.
 
 The daemon can run on your laptop, in CI, or on a Hugging Face Space (`nebo deploy`). The same SDK code works against any of them — set `NEBO_URL` and `NEBO_API_TOKEN` to point at the target. When the daemon enforces auth, every API request must carry the token via the `X-Nebo-Token` header (HTTP) or the `?token=…` query param (browsers / WebSocket).
 

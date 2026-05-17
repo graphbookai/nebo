@@ -215,10 +215,9 @@ def init(
 
     if not quiet:
         if mode is Mode.FILE:
-            print(f"nebo: writing to {banner_endpoint}")
+            print(f"nebo: writing run (run_id={run_id}) to {banner_endpoint}")
         else:
-            print(f"nebo: connected to {banner_endpoint}")
-        print(f"run_id={run_id}")
+            print(f"nebo: connected run (run_id={run_id}) to {banner_endpoint}")
 
 
 def _install_text_logger() -> None:
@@ -243,7 +242,7 @@ def flush(timeout: float = 5.0) -> bool:
     """Block until queued events are sent to the daemon.
 
     Useful for fencing a logging-heavy section before something
-    irreversible (saving artifacts, sending an email, etc.) so the
+    irreversible (saving artifacts, saving videos etc.) so the
     UI shows everything that was logged before that point.
 
     Args:
@@ -427,7 +426,7 @@ def start_run(
             print(f"nebo: events dropped (NEBO_NO_STORE=1)")
         elif state._mode == "network":
             print(f"nebo: connected (run continuing)")
-        print(f"run_id={run_id}")
+        print(f"nebo: new run_id={run_id}")
 
     # Send run_start event
     script_path = os.path.abspath(sys.argv[0]) if sys.argv else "script"

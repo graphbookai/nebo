@@ -3,6 +3,8 @@
 Guide
 #####
 
+Humans may read this to get started. Agent skills are avaiable in the nebo CLI.
+
 This guide walks through building observable Python pipelines with Nebo, from basic usage to advanced features like class decoration, persistent log files, MCP integration, and Q&A.
 
 
