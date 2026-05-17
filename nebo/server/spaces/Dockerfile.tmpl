@@ -1,10 +1,8 @@
 FROM python:3.12-slim
 
 # Hugging Face Spaces persistent volume mounts at /data. We point the
-# .nebo writer there so runs survive Space restarts. Disable the rich
-# terminal renderer — there's no TTY in the container.
+# .nebo writer there so runs survive Space restarts.
 ENV NEBO_STORE_DIR=/data \
-    NEBO_NO_TERMINAL=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 

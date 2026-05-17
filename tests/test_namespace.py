@@ -119,11 +119,6 @@ class TestNamespaceImports:
         from nebo.cli import main
         assert main is not None
 
-    def test_import_terminal_display(self) -> None:
-        """nebo.terminal.display should be importable."""
-        from nebo.terminal.display import TerminalDisplay
-        assert TerminalDisplay is not None
-
     def test_import_extensions(self) -> None:
         """nebo.extensions should be importable."""
         import nebo.extensions
