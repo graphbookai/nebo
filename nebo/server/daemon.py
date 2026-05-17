@@ -22,8 +22,6 @@ from nebo.server.protocol import MessageType, decode_batch
 
 RunStatus = Literal["starting", "running", "completed", "crashed", "stopped"]
 
-NEBO_STORAGE_DIR = os.environ.get("NEBO_STORE_DIR") or os.path.join(os.getcwd(), ".nebo")
-
 
 @dataclass
 class LogEntry:
@@ -179,17 +177,14 @@ class DaemonState:
         self._lock = asyncio.Lock()
         self._event_notify: asyncio.Condition = asyncio.Condition()
         self._media_store: dict[str, str] = {}  # media_id -> base64 data
-
-    def init_storage(self) -> None:
-        """Create the .nebo storage directory if it doesn't exist."""
-        os.makedirs(NEBO_STORAGE_DIR, exist_ok=True)
+        self._save_files_path: Optional[Path] = None
+        self._logdir: Optional[Path] = None
 
     def create_run(
         self,
         script_path: str,
         args: list[str] | None = None,
         run_id: str | None = None,
-        store: bool = False,
     ) -> Run:
         """Create a new run entry."""
         if run_id is None:
@@ -220,14 +215,15 @@ class DaemonState:
         self.runs[run_id] = run
         self.active_run_id = run_id
 
-        if store:
+        if self._save_files_path is not None:
             from nebo.core.fileformat import NeboFileWriter
-            self.init_storage()
+            self._save_files_path.mkdir(parents=True, exist_ok=True)
             timestamp = time.strftime("%Y-%m-%d_%H%M%S")
-            filepath = os.path.join(NEBO_STORAGE_DIR, f"{timestamp}_{run_id}.nebo")
-            run._file_stream = open(filepath, "wb")
+            filepath = self._save_files_path / f"{timestamp}_{run_id}.nebo"
+            run._file_stream = filepath.open("wb")
             run._file_writer = NeboFileWriter(
-                run._file_stream, run_id=run_id, script_path=script_path, args=args or [],
+                run._file_stream, run_id=run_id, script_path=script_path,
+                args=args or [],
             )
             run._file_writer.write_header()
         else:
@@ -258,7 +254,6 @@ class DaemonState:
                 meta["script_path"],
                 meta.get("args", []),
                 run_id,
-                store=False,
             )
             run.status = "completed"
 
@@ -291,10 +286,7 @@ class DaemonState:
             rid = run_id or self.active_run_id
             if not rid or rid not in self.runs:
                 # Create run if it doesn't exist yet (script_path updated by run_start event).
-                # store=True so the run is persisted to NEBO_STORAGE_DIR — matches /run's
-                # default. Set NEBO_NO_STORE=1 to opt out (e.g., for ephemeral test daemons).
-                store = not os.environ.get("NEBO_NO_STORE")
-                run = self.create_run("direct", run_id=rid, store=store)
+                run = self.create_run("direct", run_id=rid)
                 rid = run.id
 
             run = self.runs[rid]
@@ -518,16 +510,14 @@ class DaemonState:
                 "__agent__",
                 LoggableState(loggable_id="__agent__", kind="agent"),
             )
-            # Enable storage if SDK requests it and daemon allows it
-            store = data.get("store", True)
-            if store and not os.environ.get("NEBO_NO_STORE") and not getattr(run, "_file_writer", None):
+            if self._save_files_path is not None and not getattr(run, "_file_writer", None):
                 from nebo.core.fileformat import NeboFileWriter
-                self.init_storage()
+                self._save_files_path.mkdir(parents=True, exist_ok=True)
                 timestamp = time.strftime("%Y-%m-%d_%H%M%S")
-                filepath = os.path.join(NEBO_STORAGE_DIR, f"{timestamp}_{run.id}.nebo")
-                run._file_stream = open(filepath, "wb")
+                filepath = self._save_files_path / f"{timestamp}_{run.id}.nebo"
+                run._file_stream = filepath.open("wb")
                 run._file_writer = NeboFileWriter(
-                    run._file_stream, run_id=run.id, script_path=script_path, args=run.args,
+                    run._file_stream, run_id=run.id, script_path=script_path,
                 )
                 run._file_writer.write_header()
 

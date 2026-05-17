@@ -1,8 +1,6 @@
-"""Tests verifying Task 6 storage fixes are in place."""
+"""Tests verifying daemon-side storage behavior."""
 
-import os
 import pytest
-from unittest.mock import patch
 
 
 def test_load_endpoint_exists():
@@ -13,14 +11,13 @@ def test_load_endpoint_exists():
     assert "/load" in routes, f"/load not found in routes: {routes}"
 
 
-def test_no_store_env_disables_storage():
-    """When NEBO_NO_STORE is set, /run should create runs without file writers."""
+def test_no_save_files_path_creates_no_writer():
+    """When _save_files_path is None (the default), create_run must not open any file writer."""
     from nebo.server.daemon import DaemonState
-    with patch.dict(os.environ, {"NEBO_NO_STORE": "1"}):
-        state = DaemonState()
-        run = state.create_run("test.py", [], "test-run", store=False)
-        assert run._file_writer is None
-        assert run._file_stream is None
+    state = DaemonState()
+    run = state.create_run("test.py", [], "test-run")
+    assert run._file_writer is None
+    assert run._file_stream is None
 
 
 def test_get_graph_dict_filters_unmaterialized():

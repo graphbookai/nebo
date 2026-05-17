@@ -474,7 +474,7 @@ class TestDaemonRunFields:
         """Run dataclass should have run_name and run_config."""
         from nebo.server.daemon import DaemonState
         state = DaemonState()
-        run = state.create_run("test.py", [], "test-run", store=False)
+        run = state.create_run("test.py", [], "test-run")
         assert hasattr(run, "run_name")
         assert hasattr(run, "run_config")
         assert run.run_name is None
@@ -484,7 +484,7 @@ class TestDaemonRunFields:
         """get_summary() should include run_name."""
         from nebo.server.daemon import DaemonState
         state = DaemonState()
-        run = state.create_run("test.py", [], "test-run", store=False)
+        run = state.create_run("test.py", [], "test-run")
         run.run_name = "my-experiment"
         summary = run.get_summary()
         assert summary["run_name"] == "my-experiment"
@@ -493,7 +493,7 @@ class TestDaemonRunFields:
         """get_graph() should include run_config."""
         from nebo.server.daemon import DaemonState
         state = DaemonState()
-        run = state.create_run("test.py", [], "test-run", store=False)
+        run = state.create_run("test.py", [], "test-run")
         run.run_config = {"lr": 0.01, "batch_size": 32}
         graph = run.get_graph()
         assert graph["run_config"] == {"lr": 0.01, "batch_size": 32}
@@ -507,7 +507,7 @@ class TestDaemonEventProcessing:
         import asyncio
         from nebo.server.daemon import DaemonState
         state = DaemonState()
-        state.create_run("test.py", [], "test-run", store=False)
+        state.create_run("test.py", [], "test-run")
         asyncio.run(state.ingest_events([
             {"type": "run_config", "data": {"lr": 0.01, "epochs": 100}},
         ], run_id="test-run"))
@@ -518,9 +518,9 @@ class TestDaemonEventProcessing:
         import asyncio
         from nebo.server.daemon import DaemonState
         state = DaemonState()
-        state.create_run("test.py", [], "test-run", store=False)
+        state.create_run("test.py", [], "test-run")
         asyncio.run(state.ingest_events([
-            {"type": "run_start", "data": {"script_path": "test.py", "run_name": "experiment-1", "store": False}},
+            {"type": "run_start", "data": {"script_path": "test.py", "run_name": "experiment-1"}},
         ], run_id="test-run"))
         assert state.runs["test-run"].run_name == "experiment-1"
 
@@ -529,7 +529,7 @@ class TestDaemonEventProcessing:
         import asyncio
         from nebo.server.daemon import DaemonState
         state = DaemonState()
-        state.create_run("test.py", [], "test-run", store=False)
+        state.create_run("test.py", [], "test-run")
         # Complete the run
         asyncio.run(state.ingest_events([
             {"type": "run_completed", "data": {"exit_code": 0}},
@@ -538,7 +538,7 @@ class TestDaemonEventProcessing:
 
         # Resume via run_start
         asyncio.run(state.ingest_events([
-            {"type": "run_start", "data": {"script_path": "test.py", "store": False}},
+            {"type": "run_start", "data": {"script_path": "test.py"}},
         ], run_id="test-run"))
         assert state.runs["test-run"].status == "running"
 

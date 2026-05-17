@@ -377,7 +377,7 @@ class TestRunSummary:
         state = DaemonState()
         run = state.create_run("s.py", run_id="r1")
         await state.ingest_events(
-            [{"type": "run_start", "data": {"script_path": "s.py", "store": False}}],
+            [{"type": "run_start", "data": {"script_path": "s.py"}}],
             run_id="r1",
         )
         assert "__global__" in run.loggables
@@ -389,12 +389,12 @@ class TestRunSummary:
         state = DaemonState()
         run = state.create_run("s.py", run_id="r1")
         await state.ingest_events(
-            [{"type": "run_start", "data": {"script_path": "s.py", "store": False}}],
+            [{"type": "run_start", "data": {"script_path": "s.py"}}],
             run_id="r1",
         )
         run.loggables["__global__"].logs.append({"message": "marker"})
         await state.ingest_events(
-            [{"type": "run_start", "data": {"script_path": "s.py", "store": False}}],
+            [{"type": "run_start", "data": {"script_path": "s.py"}}],
             run_id="r1",
         )
         assert any(
@@ -467,7 +467,7 @@ class TestGetNodeEndpoint:
         state.create_run("s.py", run_id="r1")
         asyncio.get_event_loop().run_until_complete(
             state.ingest_events(
-                [{"type": "run_start", "data": {"script_path": "s.py", "store": False}}], "r1"
+                [{"type": "run_start", "data": {"script_path": "s.py"}}], "r1"
             )
         )
         client = TestClient(create_daemon_app(state=state))
@@ -656,7 +656,7 @@ class TestMetricsQueryFilters:
         from nebo.server.daemon import DaemonState, LoggableState, create_daemon_app
 
         state = DaemonState()
-        run = state.create_run("test.py", run_id=run_id, store=False)
+        run = state.create_run("test.py", run_id=run_id)
         run.status = "running"
         lg = LoggableState(loggable_id="node_a", kind="node")
         run.loggables["node_a"] = lg
@@ -772,7 +772,7 @@ def test_alert_event_is_appended_to_run():
     from nebo.server.daemon import DaemonState, create_daemon_app
 
     state = DaemonState()
-    state.create_run("test.py", run_id="r_alert_1", store=False)
+    state.create_run("test.py", run_id="r_alert_1")
 
     app = create_daemon_app(state=state)
     client = TestClient(app)
@@ -806,7 +806,7 @@ def test_alerts_wait_returns_alert():
     from nebo.server.daemon import DaemonState, create_daemon_app
 
     state = DaemonState()
-    state.create_run("test.py", run_id="r_wait_1", store=False)
+    state.create_run("test.py", run_id="r_wait_1")
 
     app = create_daemon_app(state=state)
     client = TestClient(app)
@@ -838,7 +838,7 @@ def test_alerts_wait_respects_min_level():
     from nebo.server.daemon import DaemonState, create_daemon_app
 
     state = DaemonState()
-    state.create_run("test.py", run_id="r_wait_2", store=False)
+    state.create_run("test.py", run_id="r_wait_2")
 
     app = create_daemon_app(state=state)
     client = TestClient(app)
