@@ -10,6 +10,8 @@ import { NodeLogs } from '@/components/node-tabs/NodeLogs'
 import { topologicalSort } from '@/lib/graph'
 import { DEFAULT_RUN_COLOR } from '@/lib/colors'
 import { useTimelineFilter } from '@/hooks/useTimelineFilter'
+import { useContextMenu } from '@/hooks/useContextMenu'
+import { GridCardContextMenu, type GridCardKind } from './GridCardContextMenu'
 import type { LoggableMetricSeries } from '@/lib/api'
 
 interface LoggableGridViewProps {
@@ -49,6 +51,34 @@ const CardShell = memo(function CardShell({ title, children }: CardShellProps) {
     </div>
   )
 })
+
+/**
+ * Per-card right-click wrapper. Owns the context-menu state for one card
+ * and renders the menu (currently a single "Copy iframe URL" entry).
+ *
+ * Lives at the card-wrapper layer rather than inside CardShell so the
+ * `CardSpec` carrying the slice metadata (kind, loggableId, name) stays
+ * out of CardShell's prop surface.
+ */
+function GridCardWrapper({ runId, card }: { runId: string; card: CardSpec }) {
+  const contextMenu = useContextMenu()
+  return (
+    <>
+      <div {...contextMenu.handlers}>
+        <CardShell title={card.title}>{card.render()}</CardShell>
+      </div>
+      <GridCardContextMenu
+        isOpen={contextMenu.isOpen}
+        position={contextMenu.position}
+        onClose={contextMenu.close}
+        runId={runId}
+        kind={card.kind}
+        loggableId={card.loggableId}
+        name={card.name}
+      />
+    </>
+  )
+}
 
 // ─── Per-loggable card bodies (used by both Global and per-function rows) ────
 
@@ -135,6 +165,12 @@ interface CardSpec {
   cardId: string                       // unique per (section, tab, name)
   title: string                        // "Section > Item" displayed in card header
   render: () => React.ReactNode
+  // What this card represents — used by the right-click context menu
+  // to build the matching iframe URL.
+  kind: GridCardKind
+  loggableId: string
+  // Only set for metric / image / audio cards. Ignored for logs.
+  name?: string
 }
 
 interface SectionSpec {
@@ -227,6 +263,8 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
               cardId: `logs:${sectionId}`,
               title: `${label} > Logs`,
               render: () => <LogsCardBody runId={runId} loggableId={sectionId} />,
+              kind: 'logs',
+              loggableId: sectionId,
             },
           ],
         })
@@ -245,6 +283,9 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
             render: () => (
               <MetricCardBody runId={runId} loggableId={sectionId} name={name} series={series} />
             ),
+            kind: 'metric' as const,
+            loggableId: sectionId,
+            name,
           })),
         })
       }
@@ -272,6 +313,9 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
                 entries={entries}
               />
             ),
+            kind: 'image' as const,
+            loggableId: sectionId,
+            name,
           })),
         })
       }
@@ -292,6 +336,9 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
             cardId: `audio:${sectionId}:${name}`,
             title: `${label} > ${name}`,
             render: () => <AudioCardBody runId={runId} entries={entries} />,
+            kind: 'audio' as const,
+            loggableId: sectionId,
+            name,
           })),
         })
       }
@@ -441,11 +488,7 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
             {flatCards.map(card => (
-              <div key={card.cardId}>
-                <CardShell title={card.title}>
-                  {card.render()}
-                </CardShell>
-              </div>
+              <GridCardWrapper key={card.cardId} runId={runId} card={card} />
             ))}
           </div>
         )}

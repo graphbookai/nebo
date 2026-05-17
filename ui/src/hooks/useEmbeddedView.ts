@@ -110,6 +110,9 @@ interface EmbeddedUrlSpec {
   node?: string
   metric?: string
   image?: string
+  audio?: string
+  // Panel-style slice (no single item).
+  logs?: boolean
 }
 
 /**
@@ -122,6 +125,8 @@ export function buildEmbeddedUrl(spec: EmbeddedUrlSpec): string {
   params.set('run', spec.runId)
   if (spec.metric) params.set('metric', spec.metric)
   if (spec.image) params.set('image', spec.image)
+  if (spec.audio) params.set('audio', spec.audio)
+  if (spec.logs) params.set('logs', '')
   if (spec.node) params.set('node', spec.node)
   return `${window.location.origin}/?${params.toString()}`
 }
