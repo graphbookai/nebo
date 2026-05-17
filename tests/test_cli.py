@@ -457,7 +457,12 @@ def _run_cli_with_stderr(argv: list[str]) -> tuple[int, str]:
     return code, err.getvalue()
 
 
-def test_serve_refuses_same_logdir_and_save_files(tmp_path):
+def test_serve_refuses_same_logdir_and_save_files(tmp_path, monkeypatch):
+    # Stub out the "is a daemon already running" probe so this test isn't
+    # affected by a developer who happens to have `nebo serve` running on
+    # the default port — cmd_serve short-circuits with "already running"
+    # before reaching the conflict check otherwise.
+    monkeypatch.setattr("nebo.cli._is_alive", lambda port: False)
     code, err = _run_cli_with_stderr([
         "serve",
         "--logdir", str(tmp_path),

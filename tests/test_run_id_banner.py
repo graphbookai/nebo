@@ -11,8 +11,12 @@ import nebo as nb
 from nebo.core.state import SessionState
 
 
-FILE_BANNER_RE = re.compile(r"nebo: writing to .+\.nebo")
-NETWORK_BANNER_RE = re.compile(r"nebo: connected to .+")
+FILE_BANNER_RE = re.compile(
+    r"nebo: writing run \(run_id=([0-9a-fA-F]{12})\) to .+\.nebo"
+)
+NETWORK_BANNER_RE = re.compile(
+    r"nebo: connected run \(run_id=([0-9a-fA-F]{12})\) to .+"
+)
 RUN_ID_RE = re.compile(r"run_id=([0-9a-fA-F]{12})")
 
 
