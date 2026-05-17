@@ -118,3 +118,39 @@ def test_filetransport_emits_run_completed_on_normal_exit(tmp_path):
     data = completed[0]["payload"]["data"]
     assert data["exit_code"] == 0
     assert isinstance(data["timestamp"], (int, float))
+
+
+CRASH_SCRIPT = textwrap.dedent("""
+    import os
+    import sys
+
+    sys.path.insert(0, {repo_root!r})
+    os.environ["NEBO_QUIET"] = "1"
+    os.environ.pop("NEBO_NO_STORE", None)
+    os.chdir({tmp_path!r})
+
+    import nebo as nb
+    nb.init(uri="runs")
+    nb.log("about to crash")
+    raise RuntimeError("intentional crash")
+""")
+
+
+def test_filetransport_run_completed_carries_exit_code_on_crash(tmp_path):
+    repo_root = str(Path(__file__).parent.parent)
+    script = CRASH_SCRIPT.format(repo_root=repo_root, tmp_path=str(tmp_path))
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    # Process should exit non-zero because of the unhandled exception.
+    assert result.returncode != 0, result.stdout
+
+    files = list((tmp_path / "runs").glob("*.nebo"))
+    assert len(files) == 1
+    events = _read_events(files[0])
+    completed = [e for e in events if e["type"] == "run_completed"]
+    assert len(completed) == 1
+    assert completed[0]["payload"]["data"]["exit_code"] == 1
