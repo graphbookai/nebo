@@ -21,5 +21,12 @@ docs/superpowers
 # Nebo-generated files
 *.nebo
 
+# Built UI bundle — produced by `npm run build` + `cp -r ui/dist/* nebo/server/static/`.
+# Tracked via .gitkeep only; the actual bundle stays untracked. Wheel builds
+# still ship the bundle because pyproject.toml's [tool.hatch.build].artifacts
+# force-includes the directory even when gitignored.
+nebo/server/static/*
+!nebo/server/static/.gitkeep
+
 # evaluator-only test suite (generator should not read)
 TESTS.md
