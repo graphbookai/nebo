@@ -600,12 +600,19 @@ class TestRunStartEmission:
         monkeypatch.setattr(client_mod, "NetworkTransport", TrackingFake)
 
     def test_run_start_emitted_when_run_id_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Run start event is emitted when Run ID is defined in an environment variable"""
+        """Run start event is emitted when Run ID is defined in an environment variable.
+
+        Since the lazy-run refactor, run_start fires when the run is
+        materialized (first emit), not at nb.init() time. The env's
+        NEBO_RUN_ID flows through state._pending_run_id and gets
+        consumed by _ensure_run on the trigger emit.
+        """
         monkeypatch.setenv("NEBO_RUN_ID", "abcdef012345")
         self._install_fake_client(monkeypatch)
 
         import nebo as nb
         nb.init(uri="localhost:7861")
+        nb.log("trigger materialization")
 
         assert len(self._captured) == 1
         client = self._captured[0]
@@ -619,11 +626,12 @@ class TestRunStartEmission:
         assert "store" not in data
 
     def test_run_start_emitted_without_env_run_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Direct script execution path must also emit run_start (existing behavior)."""
+        """Direct script execution path must also emit run_start on first emit."""
         self._install_fake_client(monkeypatch)
 
         import nebo as nb
         nb.init(uri="localhost:7861")
+        nb.log("trigger materialization")
 
         assert len(self._captured) == 1
         client = self._captured[0]
@@ -651,6 +659,7 @@ class TestRunStartEmission:
 
         import nebo as nb
         nb.init(uri="localhost:7861")
+        nb.log("trigger materialization")
 
         client = self._captured[0]
         run_starts = [e for e in client.events if e.get("type") == "run_start"]

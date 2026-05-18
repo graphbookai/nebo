@@ -167,10 +167,12 @@ def _decorate_function(f, depends_on, group=None, ui_hints=None):
     @functools.wraps(f)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         nonlocal registered
-        # Auto-init on first execution
+        # Auto-init on first execution. Routes through `_ensure_run`
+        # so the first `@nb.fn`-decorated call also materializes the
+        # implicit run (open transport + emit run_start).
         try:
-            from nebo import _ensure_init
-            _ensure_init()
+            from nebo import _ensure_run
+            _ensure_run()
         except ImportError:
             pass
         state = get_state()

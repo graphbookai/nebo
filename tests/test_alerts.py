@@ -12,6 +12,10 @@ from nebo.core.state import SessionState, get_state
 
 def _reset_state() -> None:
     SessionState.reset_singleton()
+    # Also reset nb.init's idempotency guard so a later nb.init() call
+    # in the test actually runs its plumbing (rather than short-circuit
+    # with the "already initialized" warning).
+    nb._auto_init_done = False
 
 
 class TestAlerts:

@@ -45,6 +45,14 @@ def alert(title: str, text: str = "", level: AlertLevel = AlertLevel.INFO) -> No
         text: Optional body / details.
         level: ``AlertLevel.DEBUG/INFO/WARN/ERROR``.
     """
+    # Materialize the run so the alert lands inside the current run's
+    # event stream (matches the user's intent that an alert is a logged
+    # event, not just a webhook fire-and-forget).
+    try:
+        from nebo import _ensure_run
+        _ensure_run()
+    except ImportError:
+        pass
     state = get_state()
     level_name = AlertLevel(int(level)).name if int(level) in AlertLevel._value2member_map_ else str(level)
 

@@ -17,10 +17,16 @@ _text_logger = _stdlib_logging.getLogger("nebo")
 
 
 def _ensure_initialized() -> None:
-    """Trigger auto-init if not yet initialized."""
+    """Trigger auto-init AND materialize a run on first emit.
+
+    Routes through `_ensure_run` (not just `_ensure_init`) so the very
+    first `nb.log*` call opens the transport and emits run_start. This
+    is what keeps `nb.init()` itself from creating an orphan file when
+    the program is going to call `nb.start_run()` instead.
+    """
     try:
-        from nebo import _ensure_init
-        _ensure_init()
+        from nebo import _ensure_run
+        _ensure_run()
     except ImportError:
         pass
 

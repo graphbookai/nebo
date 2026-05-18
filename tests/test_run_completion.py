@@ -30,8 +30,9 @@ def test_run_start_payload_has_timestamp(tmp_path, monkeypatch):
     nb._auto_init_done = False
     try:
         nb.init(uri=str(tmp_path / "runs"))
-        state = nb.get_state()
-        state._transport.flush(timeout=2.0)
+        # The run materializes on first emit; trigger it before flushing.
+        nb.log("trigger materialization")
+        nb.get_state()._transport.flush(timeout=2.0)
     finally:
         if nb.get_state()._transport is not None:
             nb.get_state()._transport.close()

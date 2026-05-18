@@ -153,6 +153,20 @@ class SessionState:
         # Populated by the chained sys.excepthook in nebo/__init__.py.
         # FileTransport's atexit handler reads this to choose exit_code.
         self.last_unhandled_exception: Optional[BaseException] = None
+        # Stashed by nb.init() for deferred consumption by _ensure_run /
+        # _create_run_transport. Cleared after the first run is materialized.
+        # `_pending_transport` carries the eagerly-built NetworkTransport
+        # (network mode only — file-mode transports stay lazy).
+        self._pending_mode: Any = None  # nebo.core.uri.Mode | None
+        self._pending_dest: str = ""
+        self._pending_flush_interval: float = 0.1
+        self._pending_api_token: Optional[str] = None
+        self._pending_run_id: Optional[str] = None
+        self._pending_transport: Any = None
+        # Flips True once a run's transport has been opened (or skipped
+        # under NEBO_NO_STORE in file mode). Guards _ensure_run from
+        # re-firing on every subsequent emit.
+        self._run_materialized: bool = False
 
     def _send_to_client(self, event: dict) -> None:
         """Forward an event to the active transport (file or network)."""
@@ -420,6 +434,13 @@ class SessionState:
             self._run_snapshots.clear()
             self._active_run_id = None
             self.last_unhandled_exception = None
+            self._pending_mode = None
+            self._pending_dest = ""
+            self._pending_flush_interval = 0.1
+            self._pending_api_token = None
+            self._pending_run_id = None
+            self._pending_transport = None
+            self._run_materialized = False
 
     @classmethod
     def reset_singleton(cls) -> None:
