@@ -6,7 +6,7 @@ on:
     paths:
       - 'docs/demos/**'
       - 'nebo/**'
-      - 'scripts/build_docs_demos.py'
+      - 'docs/scripts/build_docs_demos.py'
       - '.github/workflows/build-demos.yml'
   workflow_dispatch:
     inputs:
