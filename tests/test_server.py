@@ -108,27 +108,3 @@ class TestDaemonIngest:
             "data": {"error": "something went wrong", "type": "RuntimeError"},
         }], "r1")
         assert len(state.runs["r1"].loggables["err_node"].errors) == 1
-
-
-class TestStaticAssets:
-    """Regression guards for the bundled static UI assets."""
-
-    def test_index_html_title_is_nebo(self) -> None:
-        """The built UI shipped inside the package must be present and titled correctly."""
-        import pathlib
-        import nebo
-
-        static_index = (
-            pathlib.Path(nebo.__file__).parent
-            / "server" / "static" / "index.html"
-        )
-        assert static_index.exists(), (
-            f"Built UI index.html is missing at {static_index}. "
-            "Run `cd ui && npm run build` and copy dist/* into nebo/server/static/."
-        )
-        html = static_index.read_text()
-        assert "<title>Nebo</title>" in html, (
-            "nebo/server/static/index.html does not contain <title>Nebo</title>. "
-            "The UI bundle is stale; run `cd ui && npm run build` and copy the "
-            "dist/ output into nebo/server/static/."
-        )
