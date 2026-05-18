@@ -3,136 +3,15 @@
 Guide
 #####
 
-Humans may read this to get started. Agent skills are avaiable in the nebo CLI.
+Humans may read this to get started. Agent skills are available to install from the nebo CLI.
 
-This guide walks through building observable Python pipelines with Nebo, from basic usage to advanced features like class decoration, persistent log files, MCP integration, and Q&A.
-
-
-Decorating Functions with ``@nb.fn()``
-=======================================
-
-The ``@nb.fn()`` decorator is the core primitive. It registers a function for scope tracking in the pipeline DAG. A node materializes (appears in the DAG) as soon as the decorated function runs for the first time — you do not have to call a logging function to make a node show up. Edges are inferred from **data flow**: when a node's return value is passed as an argument to another node, an edge is created from the producer to the consumer.
-
-.. code-block:: python
-
-    import nebo as nb
-
-    @nb.fn()
-    def load_data():
-        """Load raw data."""
-        nb.log("Loading data")
-        return [1, 2, 3]
-
-    @nb.fn()
-    def transform(data):
-        """Transform data."""
-        nb.log(f"Transforming {len(data)} items")
-        return [x * 2 for x in data]
-
-    @nb.fn()
-    def run():
-        records = load_data()
-        result = transform(records)  # edge: load_data -> transform (data flow)
-        return result
-
-The decorator can be used in several forms:
-
-.. code-block:: python
-
-    @nb.fn                       # bare (no parentheses)
-    @nb.fn()                     # empty parentheses
-    @nb.fn(depends_on=[setup])   # with explicit dependencies
-    @nb.fn(ui={"color": "#34d399"})  # with per-node UI hints
-
-
-Explicit Dependencies with ``depends_on``
-------------------------------------------
-
-Some dependencies cannot be detected automatically — shared mutable state, class attributes, closures, or global variables. Use ``depends_on`` to declare these explicitly:
-
-.. code-block:: python
-
-    @nb.fn()
-    def setup():
-        """Initialize shared resources."""
-        nb.log("Setting up")
-
-    @nb.fn(depends_on=[setup])
-    def process():
-        """Uses resources initialized by setup."""
-        nb.log("Processing")
-
-``depends_on`` accepts a list of decorated functions or node ID strings. Explicit dependencies are added alongside any auto-detected data-flow edges.
-
-.. note::
-
-    Nebo tracks data flow via argument passing (``id()``-based return value tracking). Dependencies through shared mutable state, class attributes, closures, or global variables are **not** automatically detected. Use ``depends_on`` for these cases.
-
-
-Decorating Classes
-===================
-
-``@nb.fn()`` can also be applied to a class. All methods are wrapped with scope tracking. The class itself is never a node — it serves as a visual grouping container (transparent bounding box) in the DAG.
-
-.. code-block:: python
-
-    import nebo as nb
-
-    @nb.fn()
-    class DataPipeline:
-        def load(self):
-            nb.log("Loading data")
-            return [1, 2, 3]
-
-        def transform(self, data):
-            nb.log(f"Transforming {len(data)} items")
-            return [x * 2 for x in data]
-
-        def save(self, data):
-            nb.log(f"Saving {len(data)} items")
-
-In the DAG, ``DataPipeline`` appears as a transparent bounding box containing ``load``, ``transform``, and ``save`` as individual nodes.
-
-**Scoping rules:**
-
-- Every method gets its own scope. Logs inside ``transform()`` are scoped to ``DataPipeline.transform``.
-- Every method that runs materializes as a node, including silent methods that never call a log function — this keeps dependency chains in the DAG intact even when an intermediate method only orchestrates calls to other nodes.
-- If a method also has ``@nb.fn()`` on it, a warning is issued (the decorator is redundant).
-- A standalone ``@nb.fn()`` function called from within the class also appears inside the class group.
-- A decorated method in an **undecorated** class is a regular standalone node with no bounding box.
-
-
-The Global loggable
-===================
-
-``nb.log``, ``nb.log_line`` (and the other typed ``nb.log_*`` chart
-helpers), ``nb.log_image``, and ``nb.log_audio`` all work *outside*
-any ``@nb.fn()`` function. Calls made at module scope or from
-non-decorated helpers land on the **Global loggable**, identified as
-``"__global__"``.
-
-The Global loggable appears as a distinct card at the top of the grid
-view (labelled **"List"** on mobile) and is excluded from the DAG view
-— it is not a node. Its tabs (Logs, Metrics, Images, Audio) work
-identically to any node's tabs.
-
-Example:
-
-.. code-block:: python
-
-    import nebo as nb
-
-    nb.log("environment looks good")           # → Global
-    nb.log_line("warmup_heartbeat", 1.0)       # → Global
-
-    @nb.fn()
-    def train(): ...
+This guide walks through building observable Python pipelines with Nebo, from basic to advanced usage.
 
 
 Logging
 =======
 
-Nebo provides several logging functions, all scoped to the currently executing node.
+Nebo provides several logging functions.
 
 Text Logs
 ---------
@@ -141,12 +20,10 @@ Text Logs
 
 .. code-block:: python
 
-    @nb.fn()
-    def train(model, data):
-        nb.log("Starting training...")
-        for epoch in range(10):
-            loss = train_epoch(model, data)
-            nb.log(f"Epoch {epoch}: loss={loss:.4f}")
+    nb.log("Starting training...")
+    for epoch in range(10):
+        loss = train_epoch(model, data)
+        nb.log(f"Epoch {epoch}: loss={loss:.4f}")
 
 Metric charts
 -------------
@@ -164,7 +41,6 @@ increment ``step`` per ``(loggable, name)`` when omitted:
 
 .. code-block:: python
 
-    @nb.fn()
     def train(model, data):
         for epoch in range(100):
             loss = train_epoch(model, data)
@@ -198,12 +74,10 @@ for run identity.
 Step filtering across panels
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Clicking any datapoint on a line or scatter chart in the web UI sets
-a global step filter. The timeline scrubber switches from Time mode
-to Step mode automatically, the active step is marked on every
-line/scatter chart (a vertical guideline + value bubble for line,
-dimmed non-matching points for scatter), and the per-node logs,
-images, and audio panels filter to entries whose ``step`` matches.
+In the web UI, you can filter your view of data by:
+ * clicking any datapoint on a line or scatter chart
+ * navigating/scrubbing the tracker in the bottom
+
 Click the same point again, or double-click the scrubber, to clear
 the filter. Bar/pie/histogram are stepless and stay visible when the
 filter is active.
@@ -215,7 +89,6 @@ Images
 
 .. code-block:: python
 
-    @nb.fn()
     def augment(image):
         result = apply_transforms(image)
         nb.log_image(result, name="augmented")
@@ -228,7 +101,6 @@ Audio
 
 .. code-block:: python
 
-    @nb.fn()
     def synthesize(text):
         waveform = tts_model(text)
         nb.log_audio(waveform, sr=22050, name="speech")
@@ -237,11 +109,14 @@ Audio
 Configuration
 -------------
 
-``nb.log_cfg(cfg)`` logs configuration for the current node. Values are displayed in the Info tab:
+.. note::
+
+    Only supported in decorated functions. Use ``nb.start_run`` to log global-level config.
+
+``nb.log_cfg(cfg)`` logs configuration for the current node.
 
 .. code-block:: python
 
-    @nb.fn()
     def train(lr=0.001, epochs=50):
         nb.log_cfg({"lr": lr, "epochs": epochs})
         ...
@@ -256,7 +131,6 @@ Progress Tracking
 
 .. code-block:: python
 
-    @nb.fn()
     def process(items):
         results = []
         for item in nb.track(items, name="processing"):
@@ -270,6 +144,153 @@ If the iterable has a ``__len__``, the total is auto-detected. Otherwise you can
     for batch in nb.track(dataloader, name="training", total=len(dataloader)):
         ...
 
+Scopes
+======
+
+Global
+------
+
+All prior logging examples were writing to a ``"__global__"`` scope as calls made at module scope or from
+non-decorated helpers land on the **Global loggable**.
+
+The Global loggable appears as a distinct card at the top of the grid
+view (labelled **"List"** on mobile) and is excluded from the DAG view
+— it is not a node. Its tabs (Logs, Metrics, Images, Audio) work
+identically to any node's tabs.
+
+Example:
+
+.. code-block:: python
+
+    import nebo as nb
+
+    nb.log("environment looks good")           # → Global
+    nb.log_line("warmup_heartbeat", 1.0)       # → Global
+
+Function
+--------
+
+Nebo also supports **function-level logging**, where log statements under the ``@nb.fn()`` decorator will land under its associated function's scope.
+
+Example:
+
+.. code-block:: python
+
+    @nb.fn()
+    def train():
+        for batch in nb.track(dataloader, name="training", total=len(dataloader)): # → train
+            loss = model(batch)
+            nb.log_line("loss", loss) # → train
+
+
+
+Decorating with ``@nb.fn()``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``@nb.fn()`` decorator is a core primitive. It registers a function for scope tracking in the pipeline DAG. A node only materializes (appears in the DAG) if the logging function executes. Edges are inferred from **data flow**: when a node's return value is passed as an argument to another node, an edge is created from the producer to the consumer.
+
+.. code-block:: python
+
+    import nebo as nb
+
+    @nb.fn()
+    def load_data():
+        """Load raw data."""
+        nb.log("Loading data")
+        return [1, 2, 3]
+
+    @nb.fn()
+    def transform(data):
+        """Transform data."""
+        nb.log(f"Transforming {len(data)} items")
+        return [x * 2 for x in data]
+
+    def run():
+        records = load_data()
+        result = transform(records)  # edge: load_data -> transform (data flow)
+        return result
+
+The decorator can be used in several forms:
+
+.. code-block:: python
+
+    @nb.fn                       # bare (no parentheses)
+    @nb.fn()                     # empty parentheses
+    @nb.fn(depends_on=[setup])   # with explicit dependencies
+    @nb.fn(ui={"color": "#34d399"})  # with per-node UI hints
+
+DAG Strategy
+~~~~~~~~~~~~
+
+Switch how edges are inferred via ``nb.init(dag_strategy=...)``:
+
+- ``"object"`` (default) — data-flow edges (``A → B`` when ``B``
+  receives an argument produced by ``A``), with caller→callee as
+  fallback.
+- ``"stack"`` — caller→callee only; arguments ignored. Use when nodes
+  share state through globals or class attributes.
+- ``"both"`` — union of ``object`` and ``stack``. Busy but thorough.
+- ``"linear"`` — chain nodes in first-execution order. Good for demos
+  and notebooks.
+- ``"none"`` — no auto edges; only ``depends_on=[...]`` adds them.
+
+
+Explicit Dependencies with ``depends_on``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Some dependencies cannot be detected automatically — shared mutable state, class attributes, closures, or global variables. Use ``depends_on`` to declare these explicitly:
+
+.. code-block:: python
+
+    @nb.fn()
+    def setup():
+        """Initialize shared resources."""
+        nb.log("Setting up")
+
+    @nb.fn(depends_on=[setup])
+    def process():
+        """Uses resources initialized by setup."""
+        nb.log("Processing")
+
+``depends_on`` accepts a list of decorated functions or node ID strings. Explicit dependencies are added alongside any auto-detected data-flow edges.
+
+
+.. note::
+
+    Nebo tracks data flow via argument passing (``id()``-based return value tracking). Dependencies through shared mutable state, class attributes, closures, or global variables are **not** automatically detected. Use ``depends_on`` for these cases.
+
+
+Decorating Classes
+~~~~~~~~~~~~~~~~~~
+
+``@nb.fn()`` can also be applied to a class. All methods are wrapped with scope tracking. The class itself is never a node — it serves as a visual grouping container (transparent bounding box) in the DAG.
+
+.. code-block:: python
+
+    import nebo as nb
+
+    @nb.fn()
+    class DataPipeline:
+        def load(self):
+            nb.log("Loading data")
+            return [1, 2, 3]
+
+        def transform(self, data):
+            nb.log(f"Transforming {len(data)} items")
+            return [x * 2 for x in data]
+
+        def save(self, data):
+            nb.log(f"Saving {len(data)} items")
+
+In the DAG, ``DataPipeline`` appears as a transparent bounding box containing ``load``, ``transform``, and ``save`` as individual nodes.
+
+**Scoping rules:**
+
+- Every method gets its own scope. Logs inside ``transform()`` are scoped to ``DataPipeline.transform``.
+- Every method that runs materializes as a node, including silent methods that never call a log function — this keeps dependency chains in the DAG intact even when an intermediate method only orchestrates calls to other nodes.
+- If a method also has ``@nb.fn()`` on it, a warning is issued (the decorator is redundant).
+- A standalone ``@nb.fn()`` function called from within the class also appears inside the class group.
+- A decorated method in an **undecorated** class is a regular standalone node with no bounding box.
 
 Workflow Description
 ====================
@@ -635,7 +656,6 @@ Complete Example: Data Processing Pipeline
         nb.log_line("std", stats["std"])
         return stats
 
-    @nb.fn()
     def run():
         """Main entry point."""
         data = generate()
@@ -650,10 +670,4 @@ Complete Example: Data Processing Pipeline
 More Examples
 =============
 
-Runnable examples live in the ``examples/`` directory of the repository:
-
-- ``examples/global_logging.py`` — logging from outside any ``@nb.fn()`` (the Global loggable).
-- ``examples/image_labels.py`` — ``nb.log_image()`` with points, boxes, circles, polygons, and bitmasks.
-- ``examples/metrics_gallery.py`` — the five typed metric helpers (`nb.log_line`, `nb.log_bar`, `nb.log_scatter`, `nb.log_pie`, `nb.log_histogram`) plus tag filtering.
-- ``examples/basic_pipeline.py`` — minimal starting point.
-- ``examples/image_pipeline.py`` — end-to-end image pipeline with decorated edges.
+Runnable examples live in the `examples <https://github.com/graphbookai/nebo/tree/main/examples>`_ directory of the repository.

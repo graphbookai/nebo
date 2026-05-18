@@ -31,6 +31,34 @@ also install ``huggingface_hub``:
 
     pip install 'nebo[deploy]'
 
+Agent skills
+============
+
+While nebo allows humans to have a very flexible viewing experience, one of nebo's primary goals is to give coding agents the full capacity to build.
+
+Nebo provides 2 agent skills and can be installed automatically with the nebo CLI.
+
+* **instrumentation** - used when agents are building nebo-integrated Python code, so they understand how to log and what to log.
+* **runs-qa** - used when agents are asked about nebo runs and asked to generate derived metrics on the active nebo service.
+
+Claude Code
+-----------
+
+Install all of the skills onto Claude Code.
+
+.. code-block:: bash
+
+    nebo skill install --platform claude-code --skill all
+
+Other platforms
+---------------
+
+Install all of the skills the cross-platform way.
+
+.. code-block:: bash
+
+    nebo skill install --platform agents-md --skill all
+
 Quick Start
 ===========
 
@@ -44,7 +72,7 @@ Or start the daemon for live observability with a web UI:
 
 .. code-block:: bash
 
-    nebo serve -d
+    nebo serve
 
 Then visit http://localhost:7861 to see the UI.
 

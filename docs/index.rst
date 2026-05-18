@@ -5,41 +5,103 @@ Nebo
 
     A modern logging SDK for multi-modal data.
 
-Nebo is a modern logging SDK that lets you track experiments containing multi-modal data (text, images, audio) and inspect metrics with function-level granularity.
-
 .. code-block:: python
 
     import nebo as nb
 
     nb.log("Hello world!")
 
-Following the Tensorboard model, Nebo is local-first, so you don't need to start another separate service, or worse, create an account to log data.
-Each run is stored in one .nebo file, a self-contained file format for simplicity, so that managing them is easy. 
-Nebo also supports function-level logging which allows you to decorate functions ``@nb.fn()``, and nebo automatically infers the DAG from your runtime call graph.
+.. raw:: html
+
+    <iframe
+        src="https://graphbookai-nebo-demos.hf.space/?run=docs-index-hello-world&logs="
+        width="100%" height="100"
+        style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
+        loading="lazy">
+    </iframe>
+
+Nebo is a modern logging SDK that lets you track experiments containing multi-modal data (text, images, audio) and inspect metrics with function-level granularity.
 
 .. code-block:: python
 
-    import nebo as nb
+    @nb.fn()
+    def load_images():
+        images = []
+        for i in range(4):
+            im = _make_synthetic_image(i)
+            images.append(im)
+            nb.log_image(Image.fromarray(im), name="images", step=i)
+        return images
 
     @nb.fn()
+    def log_brightness(images):
+        for im in images:
+            nb.log_line("brightness", im.mean())
+        
+
+    def run():
+        data = load_images()
+        log_brightness(data)
+
+    if __name__ == "__main__":
+        run()
+
+.. raw:: html
+
+    <iframe
+        src="https://graphbookai-nebo-demos.hf.space/?run=docs-index-multi-modal"
+        width="100%" height="500"
+        style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
+        loading="lazy">
+    </iframe>
+
+
+Following the Tensorboard model, Nebo is local-first, so you don't need to start another separate service, or worse, create an account to log data.
+Each run is stored in one .nebo file, a self-contained file format for simplicity, so that managing them is easy.
+
+
+Nebo also supports function-level logging which allows you to decorate functions with ``@nb.fn()``, and nebo automatically infers the DAG from your runtime calls.
+
+.. code-block:: python
+
+    @nb.fn(ui={"default_tab": "metrics"})
     def load_data():
-        records = [{"id": i, "value": i * 0.5} for i in range(100)]
+        records = [{"id": i, "value": i * 0.5} for i in range(200)]
         nb.log(f"Loaded {len(records)} records")
+        for r in records:
+            nb.log_line("value", r["value"])
         return records
+
+    @nb.fn(ui={"default_tab": "metrics"})
+    def evaluate(records):
+        for r in records:
+            if r["value"] < 50:
+                nb.log_line("value", r["value"], tags=["<50"])
+                nb.log(f"Found {r['value']} is under 50")
+            else:
+                nb.log_line("value", r["value"], tags=[">=50"])
 
     @nb.fn()
     def process(records):
         for r in nb.track(records, name="processing"):
-            r["value"] *= 2
-        nb.log_line("count", float(len(records)))
-        return records
+            nb.log_line("value", r["value"]**2)
 
     def run():
         data = load_data()
-        return process(data)
+        evaluate(data)
+        process(data)
 
     if __name__ == "__main__":
         run()
+
+.. raw:: html
+
+    <iframe
+        src="https://graphbookai-nebo-demos.hf.space/?run=docs-index-pipeline"
+        width="100%" height="500"
+        style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
+        loading="lazy">
+    </iframe>
 
 Logs, metrics, images, audio, text, and errors are captured and surfaced through a web UI, an MCP server, and a nebo CLI that comes with agent skills.
 The UI is mobile-first supporting live viewing of metrics while you walk away from your desk.

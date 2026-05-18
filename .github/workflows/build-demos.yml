@@ -1,0 +1,53 @@
+name: Build demo runs for docs Space
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/demos/**'
+      - 'nebo/**'
+      - 'scripts/build_docs_demos.py'
+      - '.github/workflows/build-demos.yml'
+  workflow_dispatch:
+    inputs:
+      redeploy:
+        description: 'Factory-reset the demos Space before uploading (slow)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['true', 'false']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Redeploy demos Space (factory reset)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.redeploy == 'true' }}
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          NEBO_DEMOS_TOKEN: ${{ secrets.NEBO_DEMOS_TOKEN }}
+        run: |
+          uv run nebo deploy \
+            --space-id graphbookai/nebo-demos \
+            --api-token "$NEBO_DEMOS_TOKEN" \
+            --read public --write private \
+            --from-source
+
+      - name: Build and upload demo runs
+        env:
+          NEBO_DEMOS_URL: https://graphbookai-nebo-demos.hf.space
+          NEBO_DEMOS_TOKEN: ${{ secrets.NEBO_DEMOS_TOKEN }}
+        run: uv run python scripts/build_docs_demos.py
