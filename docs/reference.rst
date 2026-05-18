@@ -325,7 +325,7 @@ State Access
 
 
 CLI Reference: ``nebo``
-======================
+=======================
 
 .. code-block:: text
 
