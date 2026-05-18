@@ -1,18 +1,14 @@
 name: Trigger graphbook docs deploy
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'docs/**'
-      - 'nebo/**'
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - '.github/workflows/deploy-docs.yml'
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
   workflow_dispatch:
 
 jobs:
   dispatch:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Mint graphbook app token
@@ -27,7 +23,7 @@ jobs:
       - name: Dispatch nebo-docs-updated to graphbook
         env:
           GH_TOKEN: ${{ steps.graphbook_token.outputs.token }}
-          NEBO_SHA: ${{ github.sha }}
+          NEBO_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           gh api \
             --method POST \

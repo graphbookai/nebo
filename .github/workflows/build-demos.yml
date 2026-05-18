@@ -1,27 +1,19 @@
 name: Build demo runs for docs Space
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'docs/demos/**'
-      - 'nebo/**'
-      - 'docs/scripts/build_docs_demos.py'
-      - '.github/workflows/build-demos.yml'
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
   workflow_dispatch:
-    inputs:
-      redeploy:
-        description: 'Factory-reset the demos Space before uploading (slow)'
-        required: false
-        default: 'false'
-        type: choice
-        options: ['true', 'false']
 
 jobs:
   build:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -35,7 +27,6 @@ jobs:
         run: uv sync --all-groups
 
       - name: Redeploy demos Space (factory reset)
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.redeploy == 'true' }}
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           NEBO_DEMOS_TOKEN: ${{ secrets.NEBO_DEMOS_TOKEN }}
