@@ -50,4 +50,4 @@ jobs:
         env:
           NEBO_DEMOS_URL: https://graphbookai-nebo-demos.hf.space
           NEBO_DEMOS_TOKEN: ${{ secrets.NEBO_DEMOS_TOKEN }}
-        run: uv run python scripts/build_docs_demos.py
+        run: uv run python docs/scripts/build_docs_demos.py
