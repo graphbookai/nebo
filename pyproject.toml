@@ -56,5 +56,8 @@ artifacts = [
     "nebo/server/static/**",
 ]
 
-[tool.hatch.build.targets.wheel.force-include]
-"nebo/skills" = "nebo/skills"
+# Note: do NOT add a [tool.hatch.build.targets.wheel.force-include] for
+# nebo/skills — it is already discovered by default hatch source rules
+# (tracked in git, inside the package). Force-including it on top would
+# emit each SKILL.md twice in the wheel ZIP, which trips PyPI's
+# duplicate-local-header validator and rejects the upload with HTTP 400.
