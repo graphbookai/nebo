@@ -3,6 +3,7 @@ import { useStore } from '@/store'
 import { useRunData } from '@/hooks/useRunData'
 import { useEmbeddedView, resolveNodeRef, type EmbeddedView as EmbeddedSpec } from '@/hooks/useEmbeddedView'
 import { DagGraph } from '@/components/graph/DagGraph'
+import { LoggableGridView } from '@/components/graph/LoggableGridView'
 import { LoggableTabContainer } from '@/components/node-tabs/LoggableTabContainer'
 import { MetricBlock } from '@/components/node-tabs/NodeMetrics'
 import { ImageItem } from '@/components/node-tabs/NodeImages'
@@ -41,6 +42,8 @@ export function EmbeddedView({ spec }: { spec: EmbeddedSpec }) {
       return <EmbeddedRun runId={spec.runId} />
     case 'dag':
       return <EmbeddedNodes runId={spec.runId} />
+    case 'grid':
+      return <EmbeddedGrid runId={spec.runId} />
     case 'node':
       return <EmbeddedNode spec={spec} />
     case 'logs':
@@ -74,6 +77,14 @@ function EmbeddedNodes({ runId }: { runId: string }) {
   return (
     <div className="h-screen">
       <DagGraph runId={runId} />
+    </div>
+  )
+}
+
+function EmbeddedGrid({ runId }: { runId: string }) {
+  return (
+    <div className="h-screen">
+      <LoggableGridView runId={runId} />
     </div>
   )
 }

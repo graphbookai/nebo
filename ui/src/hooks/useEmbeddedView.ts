@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
  *
  *   ?run=X                   → 'run'    (full DAG + timeline)
  *   ?run=X&dag               → 'dag'    (graph only)
+ *   ?run=X&grid              → 'grid'   (loggable card grid; same as desktop view=grid)
  *   ?run=X&node=Y            → 'node'   (single node detail)
  *   ?run=X&logs              → 'logs'   (logs panel; &node=Y filters)
  *   ?run=X&metrics           → 'metrics' (metrics gallery; &node=Y filters)
@@ -18,6 +19,7 @@ import { useEffect, useState } from 'react'
 export type EmbeddedKind =
   | 'run'
   | 'dag'
+  | 'grid'
   | 'node'
   | 'logs'
   | 'metrics'
@@ -62,6 +64,7 @@ function parse(): EmbeddedView | null {
   if (params.has('audios')) return { kind: 'audios', runId, nodeRef, name: null }
   if (params.has('logs')) return { kind: 'logs', runId, nodeRef, name: null }
   if (params.has('dag')) return { kind: 'dag', runId, nodeRef, name: null }
+  if (params.has('grid')) return { kind: 'grid', runId, nodeRef, name: null }
 
   // Bare `?run=X&node=Y` → single-node detail (no slice flag).
   if (nodeRef) return { kind: 'node', runId, nodeRef, name: null }
@@ -113,6 +116,8 @@ interface EmbeddedUrlSpec {
   audio?: string
   // Panel-style slice (no single item).
   logs?: boolean
+  dag?: boolean
+  grid?: boolean
 }
 
 /**
@@ -127,6 +132,8 @@ export function buildEmbeddedUrl(spec: EmbeddedUrlSpec): string {
   if (spec.image) params.set('image', spec.image)
   if (spec.audio) params.set('audio', spec.audio)
   if (spec.logs) params.set('logs', '')
+  if (spec.dag) params.set('dag', '')
+  if (spec.grid) params.set('grid', '')
   if (spec.node) params.set('node', spec.node)
   return `${window.location.origin}/?${params.toString()}`
 }

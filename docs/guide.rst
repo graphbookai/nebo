@@ -25,6 +25,15 @@ Text Logs
         loss = train_epoch(model, data)
         nb.log(f"Epoch {epoch}: loss={loss:.4f}")
 
+.. raw:: html
+
+    <iframe
+        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-text-logs&logs"
+        width="100%" height="350"
+        style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
+        loading="lazy">
+    </iframe>
+
 Metric charts
 -------------
 
@@ -48,6 +57,15 @@ increment ``step`` per ``(loggable, name)`` when omitted:
             nb.log_line("loss", loss)
             nb.log_line("accuracy", accuracy)
 
+.. raw:: html
+
+    <iframe
+        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-log-line&metrics"
+        width="100%" height="500"
+        style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
+        loading="lazy">
+    </iframe>
+
 ``log_scatter`` takes a labeled point dict and lets the UI toggle each
 label on or off via the chip row above the chart. Repeated calls add
 more points to the same plot, with each emission's points tagged with
@@ -57,6 +75,15 @@ the auto-incrementing step:
 
     for i, (point, cluster) in enumerate(detections):
         nb.log_scatter("embed_2d", {cluster: [point]})  # step auto-advances
+
+.. raw:: html
+
+    <iframe
+        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-log-scatter&metric=embed_2d"
+        width="100%" height="500"
+        style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
+        loading="lazy">
+    </iframe>
 
 ``log_bar``, ``log_pie``, and ``log_histogram`` are **snapshots** —
 every re-emission overwrites the prior value. They don't accept
@@ -70,6 +97,15 @@ line up. ``log_scatter`` and ``log_histogram`` also accept
 by palette color (in addition to per-label shapes for scatter), but
 is not recommended in comparison views where the palette is reserved
 for run identity.
+
+.. raw:: html
+
+    <iframe
+        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-snapshot-metrics&metrics"
+        width="100%" height="500"
+        style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
+        loading="lazy">
+    </iframe>
 
 Step filtering across panels
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -94,6 +130,15 @@ Images
         nb.log_image(result, name="augmented")
         return result
 
+.. raw:: html
+
+    <iframe
+        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-images&node=augment"
+        width="100%" height="450"
+        style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
+        loading="lazy">
+    </iframe>
+
 Audio
 -----
 
@@ -105,6 +150,15 @@ Audio
         waveform = tts_model(text)
         nb.log_audio(waveform, sr=22050, name="speech")
         return waveform
+
+.. raw:: html
+
+    <iframe
+        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-audio&audios"
+        width="100%" height="300"
+        style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
+        loading="lazy">
+    </iframe>
 
 Configuration
 -------------
@@ -120,6 +174,15 @@ Configuration
     def train(lr=0.001, epochs=50):
         nb.log_cfg({"lr": lr, "epochs": epochs})
         ...
+
+.. raw:: html
+
+    <iframe
+        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-log-cfg&node=train"
+        width="100%" height="450"
+        style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
+        loading="lazy">
+    </iframe>
 
 Multiple ``log_cfg()`` calls within the same node merge their dictionaries.
 
@@ -167,6 +230,15 @@ Example:
     nb.log("environment looks good")           # → Global
     nb.log_line("warmup_heartbeat", 1.0)       # → Global
 
+.. raw:: html
+
+    <iframe
+        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-global-scope&grid"
+        width="100%" height="500"
+        style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
+        loading="lazy">
+    </iframe>
+
 Function
 --------
 
@@ -210,6 +282,15 @@ The ``@nb.fn()`` decorator is a core primitive. It registers a function for scop
         result = transform(records)  # edge: load_data -> transform (data flow)
         return result
 
+.. raw:: html
+
+    <iframe
+        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-fn-pipeline&dag"
+        width="100%" height="450"
+        style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
+        loading="lazy">
+    </iframe>
+
 The decorator can be used in several forms:
 
 .. code-block:: python
@@ -234,6 +315,19 @@ Switch how edges are inferred via ``nb.init(dag_strategy=...)``:
   and notebooks.
 - ``"none"`` — no auto edges; only ``depends_on=[...]`` adds them.
 
+The same three-node script under ``dag_strategy="stack"`` — the
+data-flow edge between ``load`` and ``transform`` vanishes; ``run``
+fans out to both:
+
+.. raw:: html
+
+    <iframe
+        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-dag-strategy-stack&dag"
+        width="100%" height="450"
+        style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
+        loading="lazy">
+    </iframe>
+
 
 Explicit Dependencies with ``depends_on``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -252,12 +346,21 @@ Some dependencies cannot be detected automatically — shared mutable state, cla
         """Uses resources initialized by setup."""
         nb.log("Processing")
 
+.. raw:: html
+
+    <iframe
+        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-depends-on"
+        width="100%" height="400"
+        style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
+        loading="lazy">
+    </iframe>
+
 ``depends_on`` accepts a list of decorated functions or node ID strings. Explicit dependencies are added alongside any auto-detected data-flow edges.
 
 
 .. note::
 
-    Nebo tracks data flow via argument passing (``id()``-based return value tracking). Dependencies through shared mutable state, class attributes, closures, or global variables are **not** automatically detected. Use ``depends_on`` for these cases.
+    With dag_strategy="object", Nebo tracks data flow via argument passing (``id()``-based return value tracking). Dependencies through shared mutable state, class attributes, closures, or global variables are **not** automatically detected. Use ``depends_on`` for these cases.
 
 
 Decorating Classes
@@ -282,6 +385,15 @@ Decorating Classes
         def save(self, data):
             nb.log(f"Saving {len(data)} items")
 
+.. raw:: html
+
+    <iframe
+        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-class-grouping&dag"
+        width="100%" height="450"
+        style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
+        loading="lazy">
+    </iframe>
+
 In the DAG, ``DataPipeline`` appears as a transparent bounding box containing ``load``, ``transform``, and ``save`` as individual nodes.
 
 **Scoping rules:**
@@ -305,6 +417,15 @@ Workflow Description
     Loads images from disk, runs inference with a pretrained ResNet,
     and exports predictions to a JSON file.
     """)
+
+.. raw:: html
+
+    <iframe
+        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-workflow-md"
+        width="100%" height="450"
+        style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
+        loading="lazy">
+    </iframe>
 
 Calling ``nb.md()`` multiple times appends to the description.
 
@@ -344,6 +465,15 @@ future UI features.
     def train(epochs=100):
         for step in range(epochs):
             nb.log_line("loss", compute_loss(step))
+
+.. raw:: html
+
+    <iframe
+        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-ui-hints&dag"
+        width="100%" height="450"
+        style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
+        loading="lazy">
+    </iframe>
 
 
 Execution Modes
@@ -665,6 +795,15 @@ Complete Example: Data Processing Pipeline
     if __name__ == "__main__":
         result = run()
         print(result)
+
+.. raw:: html
+
+    <iframe
+        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-complete-pipeline"
+        width="100%" height="550"
+        style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
+        loading="lazy">
+    </iframe>
 
 
 More Examples
