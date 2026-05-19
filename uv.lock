@@ -637,6 +637,9 @@ deploy = [
 ]
 
 [package.dev-dependencies]
+deploy = [
+    { name = "huggingface-hub" },
+]
 dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -669,6 +672,7 @@ requires-dist = [
 provides-extras = ["deploy"]
 
 [package.metadata.requires-dev]
+deploy = [{ name = "huggingface-hub", specifier = ">=0.20.0" }]
 dev = [
     { name = "pytest", specifier = ">=7.2.0" },
     { name = "pytest-asyncio", specifier = ">=0.23.8" },

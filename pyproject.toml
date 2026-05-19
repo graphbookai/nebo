@@ -22,6 +22,11 @@ dependencies = [
 [project.optional-dependencies]
 deploy = ["huggingface_hub>=0.20.0"]
 
+# PEP 735 dependency-groups. `uv sync --all-groups` syncs all groups
+# listed here but does NOT touch [project.optional-dependencies], so the
+# `deploy` extra above (which end users install via `pip install
+# nebo[deploy]`) is mirrored as a dep-group here for CI workflows that
+# need `nebo deploy` to work after a plain `uv sync --all-groups`.
 [dependency-groups]
 dev = [
     "pytest>=7.2.0",
@@ -39,6 +44,7 @@ dev = [
     "selenium>=4.28.1",
     "webdriver-manager>=4.0.2",
 ]
+deploy = ["huggingface_hub>=0.20.0"]
 
 [project.scripts]
 nebo = "nebo.cli:main"
