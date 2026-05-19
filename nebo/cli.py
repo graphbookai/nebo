@@ -844,6 +844,7 @@ def main() -> None:
     p_deploy.add_argument("--from-source", action="store_true", help="Build a wheel from this checkout and ship it instead of installing from PyPI")
     p_deploy.add_argument("--read", choices=["public", "private"], default="public", help="Read access mode (default: public — anyone can view).")
     p_deploy.add_argument("--write", choices=["public", "private"], default="private", help="Write access mode (default: private — token required to push events / control runs).")
+    p_deploy.add_argument("--no-wait", dest="wait", action="store_false", default=True, help="Return as soon as files are uploaded; don't wait for the Space rebuild to finish.")
 
     args = parser.parse_args()
 

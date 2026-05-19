@@ -13,9 +13,96 @@ import string
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from string import Template
 from typing import Optional
+
+
+# Stages that mean the Space is up. "RUNNING" is canonical; the others
+# show up briefly during startup transitions in some HF API versions.
+_READY_STAGES = {"RUNNING"}
+# Stages that mean we should stop waiting and surface the failure.
+_FATAL_STAGES = {"BUILD_ERROR", "RUNTIME_ERROR", "CONFIG_ERROR", "NO_APP_FILE"}
+
+
+def _probe_health(space_url: str, timeout_s: float = 5.0) -> bool:
+    """Hit the daemon's /health and return True iff it 200s."""
+    try:
+        req = urllib.request.Request(f"{space_url}/health", method="GET")
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            return 200 <= resp.status < 300
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError):
+        return False
+
+
+def _wait_for_space_ready(
+    api,
+    space_id: str,
+    space_url: str,
+    *,
+    timeout_s: float = 900.0,
+    poll_s: float = 5.0,
+    grace_s: float = 60.0,
+) -> None:
+    """Block until the HF Space rebuild finishes and /health responds.
+
+    After file uploads, HF kicks off a Docker rebuild but the old image
+    keeps serving until the new one's ready. Callers that hit the Space
+    immediately after `nebo deploy` returns would otherwise talk to the
+    pre-deploy daemon — that's the bug behind `build_docs_demos.py`
+    pushing runs to the stale instance.
+
+    Strategy: poll `SpaceRuntime.stage`. Wait until it transitions away
+    from RUNNING (rebuild started), then wait for it to return to
+    RUNNING, then confirm /health responds. If no transition is seen
+    within `grace_s` we assume the upload didn't trigger a rebuild
+    (identical files) and fall back to the /health probe alone.
+    """
+    start = time.monotonic()
+    saw_rebuild = False
+    while True:
+        elapsed = time.monotonic() - start
+        if elapsed > timeout_s:
+            raise TimeoutError(
+                f"Space {space_id} did not reach a serving state within "
+                f"{timeout_s:.0f}s. Check https://huggingface.co/spaces/{space_id}"
+            )
+
+        try:
+            runtime = api.get_space_runtime(repo_id=space_id)
+            stage = (getattr(runtime, "stage", None) or "").upper()
+        except Exception as e:
+            # Transient API hiccup — keep polling rather than abort.
+            print(f"  warning: could not query Space runtime ({e}); retrying")
+            time.sleep(poll_s)
+            continue
+
+        if stage in _FATAL_STAGES:
+            raise RuntimeError(
+                f"Space {space_id} entered fatal stage {stage!r}. "
+                f"Check the build logs at https://huggingface.co/spaces/{space_id}"
+            )
+
+        if stage not in _READY_STAGES:
+            if not saw_rebuild:
+                print(f"  Space stage: {stage} (rebuilding...)")
+            saw_rebuild = True
+        elif saw_rebuild or elapsed > grace_s:
+            # Either we observed a rebuild and it's back to RUNNING, or
+            # the grace window expired without a rebuild (no-op deploy).
+            # In both cases, confirm the daemon is actually serving.
+            if _probe_health(space_url):
+                if saw_rebuild:
+                    print("  ✓ Rebuild complete; /health 200 OK.")
+                else:
+                    print("  ✓ /health 200 OK (no rebuild observed).")
+                return
+            # Stage says RUNNING but /health isn't up yet — keep polling.
+
+        time.sleep(poll_s)
 
 
 _SPACES_TEMPLATE_DIR = Path(__file__).parent / "server" / "spaces"
@@ -188,6 +275,16 @@ def cmd_deploy(args: argparse.Namespace) -> None:
         )
 
     space_url = f"https://{space_id.replace('/', '-').lower()}.hf.space"
+
+    # Wait for the Space to actually serve the new image. HF starts a
+    # Docker rebuild after `upload_file` but keeps the prior container
+    # alive until it's ready; callers that hit the Space the moment
+    # `nebo deploy` returns would otherwise talk to the old daemon.
+    if getattr(args, "wait", True):
+        print()
+        print(f"Waiting for {space_id} to finish rebuilding...")
+        _wait_for_space_ready(api, space_id, space_url)
+
     print()
     print("✓ Deployed.")
     print(f"  Space:    https://huggingface.co/spaces/{space_id}")
