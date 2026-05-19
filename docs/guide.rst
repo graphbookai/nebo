@@ -627,18 +627,14 @@ discriminator. Pick at most one of ``metric`` / ``image`` / ``audio``
 Each call maps to a URL the iframe loads — the same query-param
 scheme the dashboard accepts directly:
 
-=============================  ====================================
-Python                         URL appended to the daemon root
-=============================  ====================================
-``nb.show()``                  ``?run=<id>``
-``nb.show(node="t")``          ``?run=<id>&node=t``
-``nb.show(metric="loss")``     ``?run=<id>&metric=loss``
-``nb.show(metric=True)``       ``?run=<id>&metrics``
-``nb.show(image="hero.png")``  ``?run=<id>&image=hero.png``
-``nb.show(audio=True)``        ``?run=<id>&audios``
-``nb.show(logs=True)``         ``?run=<id>&logs``
-``nb.show(dag=True)``          ``?run=<id>&dag``
-=============================  ====================================
+- ``nb.show()`` → ``?run=<id>``
+- ``nb.show(node="t")`` → ``?run=<id>&node=t``
+- ``nb.show(metric="loss")`` → ``?run=<id>&metric=loss``
+- ``nb.show(metric=True)`` → ``?run=<id>&metrics``
+- ``nb.show(image="hero.png")`` → ``?run=<id>&image=hero.png``
+- ``nb.show(audio=True)`` → ``?run=<id>&audios``
+- ``nb.show(logs=True)`` → ``?run=<id>&logs``
+- ``nb.show(dag=True)`` → ``?run=<id>&dag``
 
 When the daemon enforces auth, append ``&token=…`` to the URL — the
 dashboard captures it once on first load, persists it in
