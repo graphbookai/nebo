@@ -24,7 +24,6 @@ export interface Settings {
   showMinimap: boolean
   showControls: boolean
   hideTabsOnDrag: boolean
-  hideUncalledFunctions: boolean
   // EMA factor in [0, 1]. 0 = no smoothing, → 1 = heavy smoothing.
   // Applied per-dataset on every line chart at render time; raw values
   // in the store are unchanged.
@@ -47,10 +46,9 @@ export const DEFAULT_HISTOGRAM_BIN_COUNT = 30
 
 const DEFAULT_SETTINGS: Settings = {
   theme: 'dark',
-  showMinimap: true,
+  showMinimap: false,
   showControls: true,
   hideTabsOnDrag: false,
-  hideUncalledFunctions: true,
   lineSmoothing: 0,
   histogramSmoothing: 0,
   histogramBinCount: DEFAULT_HISTOGRAM_BIN_COUNT,

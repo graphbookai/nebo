@@ -196,7 +196,6 @@ const EMPTY_LOGGABLE_METRICS: Record<string, Record<string, LoggableMetricSeries
 
 export function LoggableGridView({ runId }: LoggableGridViewProps) {
   const graph = useStore(s => s.runs.get(runId)?.graph)
-  const hideUncalled = useStore(s => s.settings.hideUncalledFunctions)
 
   // Subscribe to raw slices only; derive groupings via useMemo.
   const allLogsRaw = useStore(s => s.runs.get(runId)?.logs)
@@ -215,9 +214,7 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
   // Section list: Global + Agent first, then function nodes in topo order.
   const sectionDescriptors = useMemo(() => {
     if (!graph) return [] as { sectionId: string; label: string }[]
-    const fnIds = Object.keys(graph.nodes).filter(
-      id => !hideUncalled || graph.nodes[id].exec_count > 0,
-    )
+    const fnIds = Object.keys(graph.nodes)
     const sortedFnIds = topologicalSort(fnIds, graph.edges)
     const sections: { sectionId: string; label: string }[] = [
       { sectionId: '__global__', label: 'Global' },
@@ -230,7 +227,7 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
       })
     }
     return sections
-  }, [graph, hideUncalled])
+  }, [graph])
 
   // Helper: logs are a flat array on the run, indexed by node — so for
   // every section we filter once. Could be made a Map for O(N) instead

@@ -96,7 +96,6 @@ function shiftToOrigin(nodes: Node[], pad: number): Node[] {
 
 function DiagramExportRootInner({ runId, options, livePositions, onReady }: DiagramExportRootProps) {
   const graph = useStore(s => s.runs.get(runId)?.graph)
-  const hideUncalled = useStore(s => s.settings.hideUncalledFunctions)
   const dagDirection = useStore(s => s.dagDirection)
 
   const [nodes, setNodes] = useNodesState([] as Node[])
@@ -116,11 +115,7 @@ function DiagramExportRootInner({ runId, options, livePositions, onReady }: Diag
     if (!graph) return { baseNodes: [] as Node[], baseEdges: [] as Edge[] }
     const targetSet = new Set(graph.edges.map(e => e.target))
     const sourceSet = new Set(graph.edges.map(e => e.source))
-    const visibleIds = Object.keys(graph.nodes).filter(
-      id => !hideUncalled || graph.nodes[id].exec_count > 0,
-    )
-    const visibleSet = new Set(visibleIds)
-    const baseNodes: Node[] = visibleIds.map(id => ({
+    const baseNodes: Node[] = Object.keys(graph.nodes).map(id => ({
       id,
       type: 'nebo' as const,
       position: { x: 0, y: 0 },
@@ -132,17 +127,15 @@ function DiagramExportRootInner({ runId, options, livePositions, onReady }: Diag
         inDag: sourceSet.has(id) || targetSet.has(id) || graph.nodes[id].is_source,
       },
     }))
-    const baseEdges: Edge[] = graph.edges
-      .filter(e => visibleSet.has(e.source) && visibleSet.has(e.target))
-      .map(e => ({
-        id: `${e.source}->${e.target}`,
-        source: e.source,
-        target: e.target,
-        type: 'nebo',
-        data: { runId },
-      }))
+    const baseEdges: Edge[] = graph.edges.map(e => ({
+      id: `${e.source}->${e.target}`,
+      source: e.source,
+      target: e.target,
+      type: 'nebo',
+      data: { runId },
+    }))
     return { baseNodes, baseEdges }
-  }, [graph, hideUncalled, runId, options, dagDirection])
+  }, [graph, runId, options, dagDirection])
 
   // Initial render: place nodes either at livePositions (autoLayout=off) or
   // at default-size dagre coords (autoLayout=on, real layout runs after the
