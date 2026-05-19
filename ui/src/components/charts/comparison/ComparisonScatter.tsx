@@ -10,6 +10,7 @@ import { withAlpha } from '@/components/charts/withAlpha'
 import { useChartDpr } from '@/components/charts/ChartDprContext'
 import { attachWheelHandler, buildZoomOptions } from '@/components/charts/zoomBindings'
 import { formatTick } from '@/components/charts/formatTick'
+import type { CustomShape } from '@/components/charts/customPointShapes'
 
 type ScatterPoint = { x: number; y: number; step: number | null }
 
@@ -32,6 +33,10 @@ export const ComparisonScatter = memo(function ComparisonScatter({
   const timelineStep = useStore(s => s.timeline.step)
   const pointOpacity = useStore(s => s.settings.scatterPointOpacity)
   const pointSizeScale = useStore(s => s.settings.scatterPointSize)
+  const theme = useStore(s => s.settings.theme)
+  // Same theme-driven border base as single-run scatter; tokens.tooltipFg
+  // is oklch which `withAlpha` can't blend.
+  const borderRgb = theme === 'dark' ? '255, 255, 255' : '0, 0, 0'
   const isFiltering = timelineMode === 'step' && timelineStep != null
 
   // Build the union of labels across runs by walking *every* entry
@@ -57,14 +62,17 @@ export const ComparisonScatter = memo(function ComparisonScatter({
       label: string
       data: ScatterPoint[]
       backgroundColor: string | string[]
-      borderColor: string
+      borderColor: string | string[]
       borderWidth: number | number[]
-      pointStyle: string
+      pointStyle: string | false
       pointRadius: number | number[]
       runId: string
       pointLabel: string
+      _neboShape?: CustomShape
     }[] = []
     const scale = (n: number) => Math.max(1, n * pointSizeScale)
+    const activeBorder = `rgba(${borderRgb}, ${pointOpacity})`
+    const dimmedBorder = `rgba(${borderRgb}, 0.25)`
     for (const rid of runIds) {
       const s = seriesFor(rid)
       if (!s || s.entries.length === 0) continue
@@ -91,39 +99,45 @@ export const ComparisonScatter = memo(function ComparisonScatter({
         }
       }
       for (const [label, points] of pointsByLabel) {
+        const shape = shapeForLabel(label, allLabels)
+        const useCustomDraw = shape === 'star' || shape === 'crossRot' || shape === 'cross'
         // Per-point styling so the active-step points pop without
         // splitting into a second dataset (which would double label
         // entries and break the tooltip's 1:1 with logged values).
         const bg: string[] = []
         const radius: number[] = []
         const borderW: number[] = []
+        const borderC: string[] = []
         for (const p of points) {
           const isActive = isFiltering && p.step === timelineStep
           if (isFiltering && !isActive) {
             bg.push(dimmed)
             radius.push(scale(3))
             borderW.push(0)
+            borderC.push(dimmedBorder)
           } else {
             bg.push(activeColor)
             radius.push(scale(isActive ? 7 : 4))
             borderW.push(isActive ? 1.5 : 0.5)
+            borderC.push(activeBorder)
           }
         }
         out.push({
           label: `${rid}::${label}`, // unique dataset id for Chart.js
           data: points,
           backgroundColor: bg,
-          borderColor: tokens.tooltipFg,
+          borderColor: borderC,
           borderWidth: borderW,
-          pointStyle: shapeForLabel(label, allLabels), // label = shape
+          pointStyle: useCustomDraw ? false : shape, // label = shape
           pointRadius: radius,
           runId: rid,
           pointLabel: label,
+          ...(useCustomDraw ? { _neboShape: shape as CustomShape } : {}),
         })
       }
     }
     return out
-  }, [runIds, runColors, seriesFor, allLabels, tokens.tooltipFg, isFiltering, timelineStep, pointOpacity, pointSizeScale])
+  }, [runIds, runColors, seriesFor, allLabels, isFiltering, timelineStep, pointOpacity, pointSizeScale, borderRgb])
 
   const config: ChartConfiguration<'scatter'> = useMemo(
     () => ({

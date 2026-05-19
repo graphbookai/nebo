@@ -118,6 +118,28 @@ export function useChartJs<TType extends keyof ChartTypeRegistry>(
     const chart = chartRef.current
     if (!chart) return
     const chartId = idRef.current
+
+    // chartjs-plugin-zoom stores pan/zoom state internally; replacing
+    // chart.options below would otherwise reset every config re-render
+    // (e.g. clicking a datapoint to set the timeline step) back to the
+    // full data range. Snapshot via the plugin's public API and re-apply
+    // through chart.zoomScale() after the update lands.
+    type ZoomableChart = typeof chart & {
+      isZoomedOrPanned?: () => boolean
+      getZoomedScaleBounds?: () => Record<string, { min?: number; max?: number } | undefined>
+      zoomScale?: (id: string, range: { min: number; max: number }, transition?: string) => void
+    }
+    const zc = chart as ZoomableChart
+    const preservedBounds: Record<string, { min: number; max: number }> = {}
+    if (zc.isZoomedOrPanned?.() && zc.getZoomedScaleBounds) {
+      const bounds = zc.getZoomedScaleBounds() ?? {}
+      for (const [id, b] of Object.entries(bounds)) {
+        if (b && typeof b.min === 'number' && typeof b.max === 'number') {
+          preservedBounds[id] = { min: b.min, max: b.max }
+        }
+      }
+    }
+
     chart.data = params.config.data
     chart.options = {
       ...params.config.options,
@@ -131,6 +153,12 @@ export function useChartJs<TType extends keyof ChartTypeRegistry>(
       ...(params.dpr !== undefined ? { devicePixelRatio: params.dpr } : {}),
     } as unknown as ChartOptions<TType>
     chart.update('none')
+
+    if (zc.zoomScale) {
+      for (const [id, range] of Object.entries(preservedBounds)) {
+        zc.zoomScale(id, range, 'none')
+      }
+    }
 
     // Re-apply external on the resolved tooltip options AFTER chart.update().
     // chart.update() rebuilds tooltip.options from the config (which doesn't

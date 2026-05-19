@@ -18,7 +18,6 @@ import { formatTick } from './formatTick'
 import { smoothLinePoints, type XYPoint } from './smoothing'
 import { useChartDpr } from './ChartDprContext'
 
-const MAX_DISPLAY_POINTS = 500
 const MUTED_COLOR = 'rgba(156, 163, 175, 0.45)' // tailwind text-muted-foreground feel
 
 function toLinePoints(entries: MetricEntry[]): XYPoint[] {
@@ -32,19 +31,6 @@ function toLinePoints(entries: MetricEntry[]): XYPoint[] {
     }
   }
   return points
-}
-
-function downsample(series: XYPoint[]): XYPoint[] {
-  if (series.length <= MAX_DISPLAY_POINTS) return series
-  const step = Math.ceil(series.length / MAX_DISPLAY_POINTS)
-  const result: XYPoint[] = []
-  for (let i = 0; i < series.length; i += step) {
-    result.push(series[i])
-  }
-  if (result[result.length - 1] !== series[series.length - 1]) {
-    result.push(series[series.length - 1])
-  }
-  return result
 }
 
 // Inline plugin that draws a vertical guideline at the active step plus a
@@ -175,7 +161,7 @@ export const LineMetric = memo(function LineMetric({
       const step = e.step ?? i
       tagsByStep.set(step, e.tags)
     }
-    const data = smoothLinePoints(downsample(toLinePoints(sorted)), lineSmoothing)
+    const data = smoothLinePoints(toLinePoints(sorted), lineSmoothing)
     const muted = inactiveTags ?? new Set<string>()
     const segmentBorderColor = inactiveTags
       ? (ctx: ScriptableLineSegmentContext) => {

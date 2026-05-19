@@ -14,6 +14,7 @@ import {
   Filler,
 } from 'chart.js'
 import zoomPlugin from 'chartjs-plugin-zoom'
+import { customPointShapesPlugin } from './customPointShapes'
 
 let registered = false
 
@@ -35,6 +36,7 @@ export function registerChartJs(): void {
     Tooltip,
     Filler,
     zoomPlugin,
+    customPointShapesPlugin,
   )
 
   // Match recharts' isAnimationActive={false} on every chart in the codebase.

@@ -10,6 +10,7 @@ import { attachWheelHandler, buildZoomOptions } from './zoomBindings'
 import { formatTick } from './formatTick'
 import { withAlpha } from './withAlpha'
 import { useChartDpr } from './ChartDprContext'
+import type { CustomShape } from './customPointShapes'
 
 type ScatterPoint = { x: number; y: number; step: number | null }
 
@@ -49,6 +50,11 @@ export const ScatterMetric = memo(function ScatterMetric({
   const setTimelineStep = useStore(s => s.setTimelineStep)
   const pointOpacity = useStore(s => s.settings.scatterPointOpacity)
   const pointSizeScale = useStore(s => s.settings.scatterPointSize)
+  const theme = useStore(s => s.settings.theme)
+  // Border base color follows theme contrast; `tokens.tooltipFg` is
+  // `oklch(...)` which `withAlpha` can't blend, so we resolve to plain
+  // rgba here and apply pointOpacity directly.
+  const borderRgb = theme === 'dark' ? '255, 255, 255' : '0, 0, 0'
 
   const isFiltering = timelineMode === 'step' && timelineStep != null
 
@@ -85,15 +91,26 @@ export const ScatterMetric = memo(function ScatterMetric({
       backgroundColor: string | string[]
       borderColor: string | string[]
       borderWidth: number | number[]
-      pointStyle: string
+      pointStyle: string | false
       pointRadius: number | number[]
+      _neboShape?: CustomShape
     }[] = []
+    // colors=true means color carries the label distinction, so the
+    // shape rotation collapses to a single shape (circle) — otherwise
+    // the user gets both varying simultaneously, which is noisier than
+    // either alone.
     for (const [label, points] of pointsByLabel) {
       const labelColor = colorsByLabel
         ? RUN_COLOR_PALETTE[allLabels.indexOf(label) % RUN_COLOR_PALETTE.length]
         : color
       const activeColor = withAlpha(labelColor, pointOpacity)
       const dimmed = withAlpha(labelColor, 0.25)
+      const shape = colorsByLabel ? 'circle' : shapeForLabel(label, allLabels)
+      // `star` / `crossRot` / `cross` aren't filled in Chart.js's native
+      // draw (asterisk, thin X, thin +) — mismatching ShapeIcon's filled
+      // glyphs. The customPointShapes plugin handles these as filled
+      // paths; we mark the dataset and turn the native draw off.
+      const useCustomDraw = shape === 'star' || shape === 'crossRot' || shape === 'cross'
       // Scale every radius by the user's `scatterPointSize` so the
       // slider controls density without losing the active/inactive
       // hierarchy. Clamp to >= 1 so points never become invisible.
@@ -105,16 +122,21 @@ export const ScatterMetric = memo(function ScatterMetric({
       const bg: string[] = []
       const radius: number[] = []
       const borderW: number[] = []
+      const borderC: string[] = []
+      const activeBorder = `rgba(${borderRgb}, ${pointOpacity})`
+      const dimmedBorder = `rgba(${borderRgb}, 0.25)`
       for (const p of points) {
         const isActive = isFiltering && p.step === timelineStep
         if (isFiltering && !isActive) {
           bg.push(dimmed)
           radius.push(scale(3))
           borderW.push(0)
+          borderC.push(dimmedBorder)
         } else {
           bg.push(activeColor)
           radius.push(scale(isActive ? 7 : 4))
           borderW.push(isActive ? 1.5 : 0.5)
+          borderC.push(activeBorder)
         }
       }
 
@@ -122,14 +144,15 @@ export const ScatterMetric = memo(function ScatterMetric({
         label,
         data: points,
         backgroundColor: bg,
-        borderColor: tokens.tooltipFg,
+        borderColor: borderC,
         borderWidth: borderW,
-        pointStyle: shapeForLabel(label, allLabels),
+        pointStyle: useCustomDraw ? false : shape,
         pointRadius: radius,
+        ...(useCustomDraw ? { _neboShape: shape as CustomShape } : {}),
       })
     }
     return out
-  }, [pointsByLabel, color, colorsByLabel, allLabels, tokens.tooltipFg, isFiltering, timelineStep, pointOpacity, pointSizeScale])
+  }, [pointsByLabel, color, colorsByLabel, allLabels, isFiltering, timelineStep, pointOpacity, pointSizeScale, borderRgb])
 
   const handleClick = useCallback(
     (_evt: ChartEvent, elements: ActiveElement[], chart: Chart) => {

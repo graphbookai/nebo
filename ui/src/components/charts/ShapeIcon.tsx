@@ -90,12 +90,15 @@ export function ShapeIcon({
         )
       }
 
-      case 'rectRounded': {
-        // Rounded rectangle
-        const s = r * 1.5
-        const rx = s * 0.25
+      case 'cross': {
+        // Filled plus — same arm/width ratio as crossRot but axis-aligned.
+        const arm = r * 1.0
+        const w = r * 0.25
         return (
-          <rect x={h - s / 2} y={h - s / 2} width={s} height={s} rx={rx} ry={rx} fill={color} />
+          <g fill={color}>
+            <rect x={h - w / 2} y={h - arm} width={w} height={arm * 2} />
+            <rect x={h - arm} y={h - w / 2} width={arm * 2} height={w} />
+          </g>
         )
       }
 

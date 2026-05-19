@@ -255,8 +255,11 @@ export function MetricBlock({
             // Scatter varies points by shape, so the chip previews the
             // matching glyph. Histogram only varies by color (areas
             // overlap as filled regions, not glyphs), so its chip is
-            // always a colored dot.
-            const chipShape = series.type === 'scatter'
+            // always a colored dot. When `colors=True`, the scatter
+            // chart already encodes the label distinction via color, so
+            // shape rotation collapses to circle on both the chip and
+            // the chart.
+            const chipShape = series.type === 'scatter' && !latestColorsFlag
               ? shapeForLabel(l, allLabels)
               : 'circle'
             return (

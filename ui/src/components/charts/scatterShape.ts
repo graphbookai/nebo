@@ -1,10 +1,9 @@
 import type { MetricEntry } from '@/lib/api'
 
-// Chart.js native pointStyle values. The `wye` shape from the recharts
-// implementation is dropped — Chart.js has no native equivalent and the
-// alternative (rendering wye to an offscreen canvas as pointStyle) adds a
-// factory layer for one shape. Net effect: a label that previously got
-// `wye` now gets `rectRounded`. UI-only, no SDK contract change.
+// Chart.js native pointStyle values, plus a few sentinel strings the
+// customPointShapes plugin draws as filled paths (`star`, `crossRot`,
+// `cross`). `rectRounded` was dropped from the rotation — it sat next to
+// `rect` and the chip glyphs were hard to tell apart at icon size.
 export const SCATTER_SHAPES = [
   'circle',
   'rect',
@@ -12,7 +11,7 @@ export const SCATTER_SHAPES = [
   'triangle',
   'star',
   'crossRot',
-  'rectRounded',
+  'cross',
 ] as const
 export type ScatterShape = (typeof SCATTER_SHAPES)[number]
 
