@@ -150,9 +150,6 @@ class SessionState:
         # Webhook alerts (configured via nb.init)
         self.webhook_url: Optional[str] = None
         self.webhook_min_level: int = 20  # AlertLevel.INFO
-        # Populated by the chained sys.excepthook in nebo/__init__.py.
-        # FileTransport's atexit handler reads this to choose exit_code.
-        self.last_unhandled_exception: Optional[BaseException] = None
         # Stashed by nb.init() for deferred consumption by _ensure_run /
         # _create_run_transport. Cleared after the first run is materialized.
         # `_pending_transport` carries the eagerly-built NetworkTransport
@@ -433,7 +430,6 @@ class SessionState:
             self.ui_config = None
             self._run_snapshots.clear()
             self._active_run_id = None
-            self.last_unhandled_exception = None
             self._pending_mode = None
             self._pending_dest = ""
             self._pending_flush_interval = 0.1

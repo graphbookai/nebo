@@ -42,38 +42,11 @@ T = TypeVar("T")
 _auto_init_done = False
 logger = _stdlib_logging.getLogger(__name__)
 
-_original_excepthook = None
-
-
-def _install_excepthook() -> None:
-    """Chain a hook onto sys.excepthook that records the last unhandled
-    exception on SessionState. The FileTransport's atexit handler reads
-    this to set exit_code=1 on crash.
-
-    Idempotent — repeated calls do not stack hooks.
-    """
-    global _original_excepthook
-    if _original_excepthook is not None:
-        return
-    _original_excepthook = sys.excepthook
-
-    def _hook(exc_type, exc_value, exc_traceback):
-        try:
-            state = get_state()
-            state.last_unhandled_exception = exc_value
-        except Exception:
-            # Never let an excepthook fail — that would mask the original
-            # exception.
-            pass
-        _original_excepthook(exc_type, exc_value, exc_traceback)
-
-    sys.excepthook = _hook
-
 
 def _ensure_init() -> None:
     """Lazily run init()'s plumbing phase. Does NOT materialize a run.
 
-    Plumbing = parsing config, installing excepthook + text logger,
+    Plumbing = parsing config, installing the text logger,
     stashing the resolved (mode, dest) on state. A run/transport is
     only created on the first emit (`_ensure_run`) or explicit
     `nb.start_run()`.
@@ -204,7 +177,6 @@ def init(
     state._mode = "file" if mode is Mode.FILE else "network"
 
     _install_text_logger()
-    _install_excepthook()
 
     # Network mode: eagerly construct + connect + warmup the transport
     # so the (potentially multi-minute) daemon-cold-start wait doesn't
@@ -445,10 +417,9 @@ class _RunContext:
         # Save state snapshot before completing
         state.save_run_state(self.run_id)
         if client is not None:
-            exit_code = 1 if exc_type is not None else 0
             client.send_event({
                 "type": "run_completed",
-                "data": {"exit_code": exit_code, "timestamp": time.time()},
+                "data": {"timestamp": time.time()},
             })
             client.flush()
             client._run_completed = True
@@ -495,7 +466,7 @@ def start_run(
         client = state._transport
         client.send_event({
             "type": "run_completed",
-            "data": {"exit_code": 0, "timestamp": time.time()},
+            "data": {"timestamp": time.time()},
         })
         client.flush()
         from nebo.core.transport import FileTransport

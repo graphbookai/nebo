@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import functools
 import inspect
-import time
-import traceback
 import warnings
 from typing import Any, Callable, Optional, TypeVar, overload
 
@@ -261,32 +259,6 @@ def _decorate_function(f, depends_on, group=None, ui_hints=None):
             state.track_return(node_id, result)
 
             return result
-        except Exception as exc:
-            # Capture exception with context
-            loggable = state.loggables.get(node_id)
-            node_info = loggable if isinstance(loggable, NodeInfo) else None
-            error_info = {
-                "loggable_id": node_id,
-                "docstring": node_info.docstring if node_info else None,
-                "exec_count": node_info.exec_count if node_info else 0,
-                "params": node_info.params if node_info else {},
-                "traceback": traceback.format_exc(),
-                "error": str(exc),
-                "type": type(exc).__name__,
-                "timestamp": time.time(),
-            }
-            if node_info:
-                node_info.errors.append(error_info)
-
-            # Forward to the daemon client so `nebo errors`, the web UI, and
-            # MCP tools see the failure. Local-only mode drops the event.
-            state._send_to_client({
-                "type": "error",
-                "loggable_id": node_id,
-                "data": error_info,
-            })
-
-            raise  # Re-raise original exception
         finally:
             _current_node.reset(token)
             if group_token is not None:

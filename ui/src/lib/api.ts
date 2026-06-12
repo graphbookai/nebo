@@ -23,30 +23,20 @@ async function get<T>(path: string): Promise<T> {
   return res.json()
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify(body),
-  })
-  noteAuthStatus(res.status)
-  if (!res.ok) throw new Error(`POST ${path}: ${res.status}`)
-  return res.json()
-}
-
 export interface RunSummary {
   id: string
   script_path: string
   args: string[]
-  status: 'starting' | 'running' | 'completed' | 'crashed' | 'stopped'
   started_at: string | null
   ended_at: string | null
-  exit_code: number | null
   node_count: number
   edge_count: number
   log_count: number
   error_count: number
   run_name: string | null
+  run_config?: Record<string, unknown>
+  metric_series_count?: number
+  latest_step?: number | null
 }
 
 export interface GraphData {
@@ -189,8 +179,4 @@ export const api = {
   getRunImages: (id: string) => get<{ images: Record<string, Array<{ node: string; media_id: string; name: string; step: number | null; timestamp: number; labels?: LabelsPayload | null }>> }>(`/runs/${id}/images`),
   getRunAudio: (id: string) => get<{ audio: Record<string, Array<{ node: string; media_id: string; name: string; sr: number; step: number | null; timestamp: number }>> }>(`/runs/${id}/audio`),
   getMedia: (runId: string, mediaId: string) => get<{ data: string }>(`/runs/${runId}/media/${mediaId}`),
-
-  stopRun: (id: string) => post<{ run_id: string; status: string }>(`/runs/${id}/stop`, {}),
-  startRun: (scriptPath: string, args?: string[]) =>
-    post<{ run_id: string; pid: number; status: string }>('/run', { script_path: scriptPath, args: args ?? [] }),
 }

@@ -1,16 +1,59 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Copy, Check, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useRunDuration } from '@/hooks/useRunDuration'
 import { useContextMenu } from '@/hooks/useContextMenu'
 import { useStore } from '@/store'
-import { RunStatusBadge } from './RunStatusBadge'
 import { RunContextMenu } from './RunContextMenu'
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import type { RunSummary } from '@/lib/api'
 
 interface RunCardProps {
   run: RunSummary
   selected: boolean
   onClick: () => void
+}
+
+function RunIdPopover({ runId }: { runId: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const copy = useCallback(() => {
+    navigator.clipboard.writeText(runId).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }, [runId])
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          onClick={e => e.stopPropagation()}
+          className="p-0.5 rounded text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent"
+          title="Run details"
+        >
+          <Info className="w-3.5 h-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-auto p-3"
+        align="start"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="text-xs text-muted-foreground mb-1">Run ID</div>
+        <div className="flex items-center gap-2">
+          <code className="text-xs font-mono">{runId}</code>
+          <button
+            onClick={copy}
+            className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent"
+            title="Copy run id"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
 }
 
 export function RunCard({ run, selected, onClick }: RunCardProps) {
@@ -71,16 +114,26 @@ export function RunCard({ run, selected, onClick }: RunCardProps) {
       })
     : null
 
-  const errorInfo = run.status === 'crashed' && run.error_count > 0
+  const errorInfo = run.error_count > 0
     ? `${run.error_count} error${run.error_count > 1 ? 's' : ''}`
     : null
 
   return (
-    <button
+    // div with button semantics instead of <button>: the run-id popover
+    // trigger inside the card is itself a button, and buttons can't nest.
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick()
+        }
+      }}
       {...contextMenu.handlers}
       className={cn(
-        'w-full text-left px-4 py-3 rounded-lg transition-colors relative',
+        'w-full text-left px-4 py-3 rounded-lg transition-colors relative cursor-pointer',
         'hover:bg-accent/50',
         selected && 'bg-accent border border-accent-foreground/10',
         !selected && 'border border-transparent',
@@ -105,12 +158,15 @@ export function RunCard({ run, selected, onClick }: RunCardProps) {
               className="w-full text-sm font-medium bg-background border border-border rounded px-1 py-0 outline-none focus:ring-1 focus:ring-ring"
             />
           ) : (
-            <div
-              className="text-sm font-medium truncate cursor-text"
-              onDoubleClick={(e) => { e.stopPropagation(); startEditing() }}
-              title="Double-click to rename"
-            >
-              {displayName}
+            <div className="flex items-center gap-1.5 min-w-0">
+              <div
+                className="text-sm font-medium truncate cursor-text"
+                onDoubleClick={(e) => { e.stopPropagation(); startEditing() }}
+                title="Double-click to rename"
+              >
+                {displayName}
+              </div>
+              <RunIdPopover runId={run.id} />
             </div>
           )}
           {startedAt && <div className="text-xs text-muted-foreground mt-0.5">{startedAt}</div>}
@@ -126,7 +182,6 @@ export function RunCard({ run, selected, onClick }: RunCardProps) {
                     </>
                 )}
             </div>
-            <RunStatusBadge status={run.status} />
           </div>
         </div>
       </div>
@@ -139,6 +194,6 @@ export function RunCard({ run, selected, onClick }: RunCardProps) {
         position={contextMenu.position}
         onClose={contextMenu.close}
       />
-    </button>
+    </div>
   )
 }

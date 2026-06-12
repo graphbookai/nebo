@@ -9,12 +9,8 @@ export function RunList() {
   const selectRun = useStore(s => s.selectRun)
   const comparisonGroups = useStore(s => s.comparisonGroups)
 
-  // Sort: running first, then by started_at descending
+  // Sort by started_at descending
   const sortedRuns = Array.from(runs.values()).sort((a, b) => {
-    const aRunning = a.summary.status === 'running' || a.summary.status === 'starting'
-    const bRunning = b.summary.status === 'running' || b.summary.status === 'starting'
-    if (aRunning && !bRunning) return -1
-    if (!aRunning && bRunning) return 1
     const aTime = a.summary.started_at ? new Date(a.summary.started_at).getTime() : 0
     const bTime = b.summary.started_at ? new Date(b.summary.started_at).getTime() : 0
     return bTime - aTime

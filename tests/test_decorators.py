@@ -94,8 +94,9 @@ class TestFnDecorator:
         with pytest.raises(ValueError, match="test error"):
             failing_func()
 
-    def test_fn_captures_errors(self) -> None:
-        """@fn should capture error info when exceptions occur."""
+    def test_fn_does_not_capture_errors(self) -> None:
+        """@fn must let exceptions propagate without recording them —
+        nebo is a logging SDK and does not auto-capture exceptions."""
         @fn()
         def error_func():
             """A function that errors."""
@@ -106,9 +107,7 @@ class TestFnDecorator:
 
         state = get_state()
         node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "error_func")
-        assert len(node.errors) == 1
-        assert node.errors[0]["type"] == "RuntimeError"
-        assert "something broke" in node.errors[0]["error"]
+        assert node.errors == []
 
 
 class TestDAGInference:
@@ -900,19 +899,15 @@ class _EventCapturingClient:
 
 
 class TestErrorForwarding:
-    """Decorator error capture must also be forwarded to the daemon client.
-
-    Regression for the dead `state._queue.put_event(...)` path: the error
-    handler in `@nb.fn` previously only queued errors to `state._queue`,
-    which was always None, so the daemon never received an `error` event
-    and `nebo errors` / the UI would show no errors for crashed nodes.
-    """
+    """Exceptions inside @fn must NOT be forwarded to the daemon client —
+    automatic exception capture was removed (nebo only logs what the
+    user explicitly emits)."""
 
     def setup_method(self) -> None:
         _reset_gb()
 
-    def test_error_forwarded_to_client(self) -> None:
-        """A @fn exception must emit a type=error event to the daemon client."""
+    def test_error_not_forwarded_to_client(self) -> None:
+        """A @fn exception must propagate without emitting an error event."""
         state = get_state()
         client = _EventCapturingClient()
         state._transport = client
@@ -925,11 +920,6 @@ class TestErrorForwarding:
             boom()
 
         error_events = [e for e in client.events if e.get("type") == "error"]
-        assert len(error_events) == 1, (
-            f"expected one error event, got: {[e.get('type') for e in client.events]}"
+        assert error_events == [], (
+            f"expected no error events, got: {[e.get('type') for e in client.events]}"
         )
-        data = error_events[0]["data"]
-        assert data["type"] == "ValueError"
-        assert data["error"] == "bang"
-        assert "boom" in data["loggable_id"]
-        assert "traceback" in data and "ValueError" in data["traceback"]

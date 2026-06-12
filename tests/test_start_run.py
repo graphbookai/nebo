@@ -524,23 +524,23 @@ class TestDaemonEventProcessing:
         ], run_id="test-run"))
         assert state.runs["test-run"].run_name == "experiment-1"
 
-    def test_run_start_sets_running_status(self) -> None:
-        """run_start on a completed run should set status back to running (resume)."""
+    def test_run_start_reactivates_completed_run(self) -> None:
+        """run_start on a completed run should make it active again (resume)."""
         import asyncio
         from nebo.server.daemon import DaemonState
         state = DaemonState()
         state.create_run("test.py", [], "test-run")
         # Complete the run
         asyncio.run(state.ingest_events([
-            {"type": "run_completed", "data": {"exit_code": 0}},
+            {"type": "run_completed", "data": {}},
         ], run_id="test-run"))
-        assert state.runs["test-run"].status == "completed"
+        assert state.active_run_id is None
 
         # Resume via run_start
         asyncio.run(state.ingest_events([
             {"type": "run_start", "data": {"script_path": "test.py"}},
         ], run_id="test-run"))
-        assert state.runs["test-run"].status == "running"
+        assert state.active_run_id == "test-run"
 
 
 # ---------------------------------------------------------------------------

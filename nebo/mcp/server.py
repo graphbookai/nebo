@@ -79,7 +79,7 @@ MCP_TOOLS = [
     # ── Action Tools ──
     {
         "name": "nebo_get_run_status",
-        "description": "Get the status of a run: running, completed, crashed, stopped. Includes exit code, duration, error summary.",
+        "description": "Get the summary of a run: timestamps, node/edge counts, metric series, run config, error counts.",
         "inputSchema": {
             "type": "object",
             "properties": {

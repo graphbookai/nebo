@@ -125,20 +125,15 @@ class FileTransport:
     def _emit_run_completed_atexit(self) -> None:
         """Emit a run_completed event at process exit, then close cleanly.
 
-        Reads SessionState.last_unhandled_exception (populated by the
-        chained excepthook in nebo/__init__.py — Task 3 of the follow-up)
-        to choose exit_code. Guarded by _run_completed_sent so explicit
-        start_run() context-manager exits don't get a duplicate event.
+        Guarded by _run_completed_sent so explicit start_run()
+        context-manager exits don't get a duplicate event.
         """
         if self._run_completed_sent or not self._running:
             return
         self._run_completed_sent = True
-        from nebo.core.state import get_state
-        exc = get_state().last_unhandled_exception
-        exit_code = 1 if exc is not None else 0
         self.send_event({
             "type": "run_completed",
-            "data": {"exit_code": exit_code, "timestamp": time.time()},
+            "data": {"timestamp": time.time()},
         })
         self.flush(timeout=2.0)
         self.close()

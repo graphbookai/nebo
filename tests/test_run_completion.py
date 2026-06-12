@@ -76,7 +76,6 @@ def test_explicit_start_run_completed_carries_timestamp(tmp_path, monkeypatch):
         if completed:
             data = completed[0]["payload"]["data"]
             assert "timestamp" in data, data
-            assert "exit_code" in data, data
             found = True
             break
     assert found, f"no run_completed event found across files: {[f.name for f in files]}"
@@ -117,7 +116,6 @@ def test_filetransport_emits_run_completed_on_normal_exit(tmp_path):
     completed = [e for e in events if e["type"] == "run_completed"]
     assert len(completed) == 1, [e["type"] for e in events]
     data = completed[0]["payload"]["data"]
-    assert data["exit_code"] == 0
     assert isinstance(data["timestamp"], (int, float))
 
 
@@ -137,7 +135,7 @@ CRASH_SCRIPT = textwrap.dedent("""
 """)
 
 
-def test_filetransport_run_completed_carries_exit_code_on_crash(tmp_path):
+def test_filetransport_emits_run_completed_on_crash(tmp_path):
     repo_root = str(Path(__file__).parent.parent)
     script = CRASH_SCRIPT.format(repo_root=repo_root, tmp_path=str(tmp_path))
     result = subprocess.run(
@@ -152,6 +150,7 @@ def test_filetransport_run_completed_carries_exit_code_on_crash(tmp_path):
     files = list((tmp_path / "runs").glob("*.nebo"))
     assert len(files) == 1
     events = _read_events(files[0])
+    # The file still closes cleanly with a run_completed marker; no
+    # crash/exit-code semantics are recorded (run states were removed).
     completed = [e for e in events if e["type"] == "run_completed"]
     assert len(completed) == 1
-    assert completed[0]["payload"]["data"]["exit_code"] == 1

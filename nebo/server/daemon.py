@@ -14,13 +14,10 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from fastapi import Request, WebSocket, WebSocketDisconnect
 from nebo.server.protocol import MessageType, decode_batch
-
-
-RunStatus = Literal["starting", "running", "completed", "crashed", "stopped"]
 
 
 @dataclass
@@ -81,10 +78,8 @@ class Run:
     id: str
     script_path: str
     args: list[str] = field(default_factory=list)
-    status: RunStatus = "starting"
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
-    exit_code: Optional[int] = None
     loggables: dict[str, "LoggableState"] = field(default_factory=dict)
     edges: list[dict[str, str]] = field(default_factory=list)
     _edge_set: set[tuple[str, str]] = field(default_factory=set, repr=False)
@@ -147,20 +142,36 @@ class Run:
             for lid, loggable in self.loggables.items()
             if loggable.metrics
         }
+        # Accumulating series append in order, so each series' max step is
+        # its final entry — no full scan needed.
+        latest_step: Optional[int] = None
+        metric_series_count = 0
+        for loggable in self.loggables.values():
+            metric_series_count += len(loggable.metrics)
+            for series in loggable.metrics.values():
+                if series.get("type") not in ("line", "scatter"):
+                    continue
+                entries = series.get("entries") or []
+                if not entries:
+                    continue
+                step = entries[-1].get("step")
+                if step is not None and (latest_step is None or step > latest_step):
+                    latest_step = step
         return {
             "id": self.id,
             "script_path": self.script_path,
             "args": self.args,
-            "status": self.status,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "ended_at": self.ended_at.isoformat() if self.ended_at else None,
-            "exit_code": self.exit_code,
             "node_count": sum(1 for l in self.loggables.values() if l.kind == "node"),
             "edge_count": len(self.edges),
             "log_count": len(self.logs),
             "error_count": len(self.errors),
             "run_name": self.run_name,
+            "run_config": self.run_config,
             "metrics_index": metrics_index,
+            "metric_series_count": metric_series_count,
+            "latest_step": latest_step,
         }
 
 
@@ -199,7 +210,6 @@ class DaemonState:
             id=run_id,
             script_path=script_path,
             args=args or [],
-            status="starting",
             started_at=datetime.now(),
             source_hash=source_hash,
         )
@@ -255,7 +265,6 @@ class DaemonState:
                 meta.get("args", []),
                 run_id,
             )
-            run.status = "completed"
 
             events = list(reader.read_entries())
             event_dicts = [
@@ -265,11 +274,13 @@ class DaemonState:
             await self.ingest_events(event_dicts, run_id=run_id)
 
     def get_active_run(self) -> Optional[Run]:
-        """Return the currently active run, if any."""
+        """Return the currently active run, if any.
+
+        `active_run_id` is set when a run starts ingesting and cleared by
+        its `run_completed` event, so presence alone means "live".
+        """
         if self.active_run_id and self.active_run_id in self.runs:
-            run = self.runs[self.active_run_id]
-            if run.status == "running":
-                return run
+            return self.runs[self.active_run_id]
         return None
 
     def get_latest_run(self) -> Optional[Run]:
@@ -290,9 +301,6 @@ class DaemonState:
                 rid = run.id
 
             run = self.runs[rid]
-            if run.status == "starting":
-                run.status = "running"
-
             for event in events:
                 self._process_event(run, event)
 
@@ -496,8 +504,6 @@ class DaemonState:
             run_name = data.get("run_name")
             if run_name is not None:
                 run.run_name = run_name
-            # Resume support: set status back to running
-            run.status = "running"
             if self.active_run_id is None:
                 self.active_run_id = run.id
             # Seed implicit loggables — __global__ for user logs outside an
@@ -522,29 +528,14 @@ class DaemonState:
                 run._file_writer.write_header()
 
         elif etype == "run_completed":
-            data = event.get("data", {})
-            exit_code = data.get("exit_code", 0)
-            run.status = "completed" if exit_code == 0 else "crashed"
-            run.exit_code = exit_code
             run.ended_at = datetime.now()
             if self.active_run_id == run.id:
                 self.active_run_id = None
             run.significant_events.append({
                 "type": "run_completed",
                 "timestamp": time.time(),
-                "exit_code": exit_code,
-                "status": run.status,
             })
             self.finalize_run(run.id)
-
-    def mark_run_stopped(self, run_id: str) -> None:
-        """Mark a run as manually stopped."""
-        if run_id in self.runs:
-            run = self.runs[run_id]
-            run.status = "stopped"
-            run.ended_at = datetime.now()
-            if self.active_run_id == run_id:
-                self.active_run_id = None
 
 
 def create_daemon_app(state: DaemonState | None = None, port: int | None = None) -> Any:
@@ -887,8 +878,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
                 if match:
                     return {"status": "event", "event": match}
 
-        run = state.runs[run_id]
-        return {"status": "timeout", "run_status": run.status}
+        return {"status": "timeout"}
 
     # --- Alert wait endpoint ---
 

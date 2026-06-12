@@ -21,8 +21,8 @@ class TestDaemonState:
         run = self.state.create_run("test_script.py", args=["--epochs", "10"])
         assert run.script_path == "test_script.py"
         assert run.args == ["--epochs", "10"]
-        assert run.status == "starting"
         assert run.started_at is not None
+        assert run.ended_at is None
         assert self.state.active_run_id == run.id
 
     def test_create_run_custom_id(self) -> None:
@@ -32,15 +32,17 @@ class TestDaemonState:
         assert "my_run" in self.state.runs
 
     def test_get_active_run(self) -> None:
-        """Should return the currently running run."""
+        """Should return the run whose id is active_run_id."""
         run = self.state.create_run("s.py")
-        run.status = "running"
         assert self.state.get_active_run() is run
 
-    def test_get_active_run_none_when_not_running(self) -> None:
-        """Should return None if no run is in 'running' status."""
-        run = self.state.create_run("s.py")
-        run.status = "completed"
+    @pytest.mark.asyncio
+    async def test_get_active_run_none_after_completion(self) -> None:
+        """run_completed clears active_run_id, so no run is active."""
+        self.state.create_run("s.py", run_id="r1")
+        await self.state.ingest_events(
+            [{"type": "run_completed", "data": {}}], run_id="r1",
+        )
         assert self.state.get_active_run() is None
 
     def test_get_latest_run(self) -> None:
@@ -50,18 +52,6 @@ class TestDaemonState:
         latest = self.state.get_latest_run()
         assert latest is not None
         assert latest.id == "r2"
-
-    def test_mark_run_stopped(self) -> None:
-        """Should mark a run as manually stopped."""
-        run = self.state.create_run("s.py", run_id="r1")
-        self.state.mark_run_stopped("r1")
-        assert run.status == "stopped"
-
-    def test_mark_run_stopped_clears_active_run_id(self) -> None:
-        """A manually stopped run must also clear active_run_id."""
-        self.state.create_run("s.py", run_id="r1")
-        self.state.mark_run_stopped("r1")
-        assert self.state.active_run_id is None
 
 
 class TestDaemonEventIngestion:
@@ -79,7 +69,6 @@ class TestDaemonEventIngestion:
         ], "r1")
         assert "my_func" in run.loggables
         assert run.loggables["my_func"].docstring == "Does stuff"
-        assert run.status == "running"  # auto-transitions from starting
 
     @pytest.mark.asyncio
     async def test_ingest_loggable_register_preserves_group(self) -> None:
@@ -501,7 +490,7 @@ class TestRunCompletedEventClearsActiveRun:
 
         resp = client.post(
             "/events?run_id=bug10_repro",
-            json=[{"type": "run_completed", "data": {"run_id": "bug10_repro", "exit_code": 0}}],
+            json=[{"type": "run_completed", "data": {"run_id": "bug10_repro"}}],
         )
         assert resp.status_code == 200
 
@@ -509,26 +498,7 @@ class TestRunCompletedEventClearsActiveRun:
             f"active_run_id should be None after run_completed event, "
             f"got {state.active_run_id!r}"
         )
-        assert state.runs["bug10_repro"].status == "completed"
-
-    def test_run_completed_event_crashed_clears_active_run_id(self) -> None:
-        """Non-zero exit_code via /events should also clear active_run_id."""
-        from fastapi.testclient import TestClient
-        from nebo.server.daemon import DaemonState, create_daemon_app
-
-        state = DaemonState()
-        state.create_run("s.py", run_id="bug10_crash")
-
-        app = create_daemon_app(state=state)
-        client = TestClient(app)
-
-        resp = client.post(
-            "/events?run_id=bug10_crash",
-            json=[{"type": "run_completed", "data": {"run_id": "bug10_crash", "exit_code": 1}}],
-        )
-        assert resp.status_code == 200
-        assert state.active_run_id is None
-        assert state.runs["bug10_crash"].status == "crashed"
+        assert state.runs["bug10_repro"].ended_at is not None
 
     def test_run_completed_event_preserves_other_active_run(self) -> None:
         """A run_completed event for a non-active run must not clear active_run_id."""
@@ -545,7 +515,7 @@ class TestRunCompletedEventClearsActiveRun:
 
         resp = client.post(
             "/events?run_id=r1",
-            json=[{"type": "run_completed", "data": {"run_id": "r1", "exit_code": 0}}],
+            json=[{"type": "run_completed", "data": {"run_id": "r1"}}],
         )
         assert resp.status_code == 200
         assert state.active_run_id == "r2"

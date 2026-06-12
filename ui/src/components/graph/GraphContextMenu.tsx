@@ -22,7 +22,7 @@ export function GraphContextMenu({ isOpen, position, onClose }: GraphContextMenu
         onClick={() => { setViewMode('graph'); onClose() }}
       />
       <ContextMenuItem
-        label="Grid View"
+        label="All View"
         icon={<LayoutGrid className="w-4 h-4" />}
         checked={viewMode === 'grid'}
         onClick={() => { setViewMode('grid'); onClose() }}

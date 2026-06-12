@@ -34,7 +34,11 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
   // Granular selectors — only re-render when THIS node's data changes, not on every log/metric append
   const nodeInfo = useStore(s => s.runs.get(runId)?.graph?.nodes[nodeId] ?? null)
   const hasErrors = useStore(s => (s.runs.get(runId)?.errors ?? []).some(e => e.node_name === nodeId))
-  const runStatus = useStore(s => s.runs.get(runId)?.summary.status ?? null)
+  // "Live" derives from timestamps: started but no run_completed yet.
+  const runIsLive = useStore(s => {
+    const summary = s.runs.get(runId)?.summary
+    return Boolean(summary?.started_at && !summary?.ended_at)
+  })
   const dagDirection = useStore(s => s.dagDirection)
   const updateNodeInternals = useUpdateNodeInternals()
   useEffect(() => { updateNodeInternals(id) }, [dagDirection, id, updateNodeInternals])
@@ -60,7 +64,7 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
 
   if (!nodeInfo) return null
 
-  const isRunning = runStatus === 'running' && nodeInfo.exec_count > 0
+  const isRunning = runIsLive && nodeInfo.exec_count > 0
   const progress = nodeInfo.progress
 
   const borderColor = hasErrors

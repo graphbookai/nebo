@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useStore } from '@/store'
 import { useRunData } from '@/hooks/useRunData'
 import { useRunDuration } from '@/hooks/useRunDuration'
@@ -6,10 +7,28 @@ import { useComparisonContext } from '@/hooks/useComparisonContext'
 import { DagGraph } from '@/components/graph/DagGraph'
 import { LoggableGridView } from '@/components/graph/LoggableGridView'
 import { TimelineScrubber } from '@/components/timeline/TimelineScrubber'
-import { RunStatusBadge } from '@/components/runs/RunStatusBadge'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PanelRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+
+/** Muted monospace run id, click-to-copy. */
+export function RunIdChip({ runId }: { runId: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      onClick={() => {
+        navigator.clipboard.writeText(runId).then(() => {
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1500)
+        })
+      }}
+      className="text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
+      title="Click to copy run id"
+    >
+      {copied ? 'copied!' : runId}
+    </button>
+  )
+}
 
 export function RunDetailView() {
   const selectedRunId = useStore(s => s.selectedRunId)
@@ -60,7 +79,7 @@ export function RunDetailView() {
         <div className="border-b border-border shrink-0">
           <div className="flex items-center gap-3 px-4 py-2">
             <span className="text-sm font-medium">{scriptName}</span>
-            <RunStatusBadge status={run.summary.status} />
+            {!isComparison && <RunIdChip runId={run.summary.id} />}
             <span className="text-xs text-muted-foreground">{duration}</span>
             <span className="text-xs text-muted-foreground">
               {run.summary.node_count} node{run.summary.node_count !== 1 ? 's' : ''}
@@ -77,10 +96,7 @@ export function RunDetailView() {
             >
               <TabsList className="h-6">
                 <TabsTrigger value="graph" className="text-xs h-5 px-2">DAG</TabsTrigger>
-                <TabsTrigger value="grid" className="text-xs h-5 px-2">
-                  <span className="md:hidden">List</span>
-                  <span className="hidden md:inline">Grid</span>
-                </TabsTrigger>
+                <TabsTrigger value="grid" className="text-xs h-5 px-2">All</TabsTrigger>
               </TabsList>
             </Tabs>
             <Button

@@ -193,9 +193,9 @@ def cmd_status(args: argparse.Namespace) -> None:
     if run_list:
         print(f"\nRecent runs:")
         for r in run_list[-10:]:
-            status_icon = {"running": "↻", "completed": "✓", "crashed": "✗", "stopped": "■", "starting": "…"}.get(r.get("status", ""), "?")
-            print(f"  {status_icon} {r['id']}: {r.get('status', '?')} | {r.get('script_path', '')} | "
-                  f"nodes={r.get('node_count', 0)}, errors={r.get('error_count', 0)}")
+            print(f"  {r['id']}: {r.get('script_path', '')} | "
+                  f"nodes={r.get('node_count', 0)}, metrics={r.get('metric_series_count', 0)}, "
+                  f"errors={r.get('error_count', 0)}")
 
 
 def cmd_stop(args: argparse.Namespace) -> None:
@@ -472,9 +472,16 @@ def cmd_runs(args: argparse.Namespace) -> None:
         else:
             for r in result.get("runs", []):
                 rid = r.get("id", "")
-                status = r.get("status", "")
                 name = r.get("run_name") or ""
-                print(f"{rid:<20} {status:<10} {name}")
+                started = r.get("started_at") or ""
+                summary = (
+                    f"nodes={r.get('node_count', 0)} "
+                    f"metrics={r.get('metric_series_count', 0)}"
+                )
+                latest_step = r.get("latest_step")
+                if latest_step is not None:
+                    summary += f" step={latest_step}"
+                print(f"{rid:<20} {name:<24} {started:<22} {summary}")
         return
     if sub == "show":
         result = client.get_run_status(args.run_id, **conn)

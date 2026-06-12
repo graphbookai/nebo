@@ -397,11 +397,9 @@ export const useStore = create<NeboStore>((set, get) => ({
     return { collapsedNodes: outer, layoutTrigger: state.layoutTrigger + 1 }
   }),
 
-  // Default mobile to grid (rendered as "List") since DAG panning is awkward
-  // on small screens; desktop defaults to DAG.
-  viewMode: (typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
-    ? 'grid'
-    : 'graph') as 'graph' | 'grid',
+  // Default to the All view (key 'grid') on every screen size; the DAG
+  // view is opt-in via the view switcher or nb.ui(view="dag").
+  viewMode: 'grid' as 'graph' | 'grid',
   setViewMode: (mode) => set({ viewMode: mode }),
 
   rightPanelOpen: false,
@@ -727,10 +725,8 @@ export const useStore = create<NeboStore>((set, get) => ({
             id: runId,
             script_path: 'direct',
             args: [],
-            status: 'running',
             started_at: new Date().toISOString(),
             ended_at: null,
-            exit_code: null,
             node_count: 0,
             edge_count: 0,
             log_count: 0,
@@ -973,7 +969,7 @@ export const useStore = create<NeboStore>((set, get) => ({
           case 'run_start': {
             const scriptPath = (data.script_path as string) ?? ''
             const runName = (data.run_name as string) ?? null
-            const patch: Partial<typeof run.summary> = { status: 'running' }
+            const patch: Partial<typeof run.summary> = {}
             if (scriptPath) patch.script_path = scriptPath
             if (runName !== null) patch.run_name = runName
             run.summary = { ...run.summary, ...patch }
@@ -988,11 +984,8 @@ export const useStore = create<NeboStore>((set, get) => ({
           }
 
           case 'run_completed': {
-            const exitCode = (data.exit_code as number) ?? 0
             run.summary = {
               ...run.summary,
-              status: exitCode === 0 ? 'completed' : 'crashed',
-              exit_code: exitCode,
               ended_at: new Date().toISOString(),
             }
             break

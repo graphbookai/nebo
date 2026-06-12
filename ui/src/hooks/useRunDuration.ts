@@ -4,12 +4,12 @@ import type { RunSummary } from '@/lib/api'
 
 /**
  * Returns a formatted duration string for a run.
- * - Running: live-ticking elapsed time (updates every second)
- * - Completed/crashed/stopped: fixed duration (ended_at - started_at)
+ * - Live (started, no ended_at yet): live-ticking elapsed time (updates every second)
+ * - Ended: fixed duration (ended_at - started_at)
  */
 export function useRunDuration(summary: RunSummary | undefined): string {
   const [now, setNow] = useState(Date.now())
-  const isActive = summary?.status === 'running' || summary?.status === 'starting'
+  const isActive = Boolean(summary?.started_at && !summary?.ended_at)
 
   useEffect(() => {
     if (!isActive) return
@@ -21,7 +21,7 @@ export function useRunDuration(summary: RunSummary | undefined): string {
 
   const startMs = new Date(summary.started_at).getTime()
 
-  if (!isActive && summary.ended_at) {
+  if (summary.ended_at) {
     const endMs = new Date(summary.ended_at).getTime()
     return formatDuration(endMs - startMs)
   }

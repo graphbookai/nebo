@@ -14,7 +14,8 @@ export const NeboEdge = memo(function NeboEdge({
 }: EdgeProps) {
   const runId = (data as { runId?: string })?.runId
   const run = runId ? useStore.getState().runs.get(runId) : undefined
-  const isRunning = run?.summary.status === 'running'
+  // "Live" is derived from timestamps: started but no run_completed yet.
+  const isRunning = Boolean(run?.summary.started_at && !run?.summary.ended_at)
 
   const [edgePath] = getBezierPath({
     sourceX,

@@ -5,7 +5,7 @@ import { ArrowLeft, Link2, Link2Off } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
-import { RunStatusBadge } from '@/components/runs/RunStatusBadge'
+import { RunIdChip } from './RunDetailView'
 
 function ConnectionIndicator({ connected }: { connected: boolean }) {
   return connected ? (
@@ -47,7 +47,7 @@ export function MobileNav() {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium truncate">{scriptName}</span>
-            <RunStatusBadge status={run.summary.status} />
+            <RunIdChip runId={run.summary.id} />
           </div>
           <span className="text-xs text-muted-foreground">{duration}</span>
         </div>
@@ -57,7 +57,7 @@ export function MobileNav() {
         >
           <TabsList className="h-6">
             <TabsTrigger value="graph" className="text-xs h-5 px-2">DAG</TabsTrigger>
-            <TabsTrigger value="grid" className="text-xs h-5 px-2">List</TabsTrigger>
+            <TabsTrigger value="grid" className="text-xs h-5 px-2">All</TabsTrigger>
           </TabsList>
         </Tabs>
         <div className="flex items-center gap-1">
