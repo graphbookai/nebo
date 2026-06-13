@@ -576,12 +576,12 @@ The tools fall into three buckets:
 
 - **Observation** — ``nebo_get_graph``, ``nebo_get_loggable_status``,
   ``nebo_get_logs``, ``nebo_get_metrics``, ``nebo_get_errors``,
-  ``nebo_get_description``.
-- **Action / lifecycle** — ``nebo_run_pipeline``, ``nebo_stop_pipeline``,
-  ``nebo_restart_pipeline``, ``nebo_get_run_status``,
-  ``nebo_get_run_history``, ``nebo_get_source_code``,
-  ``nebo_write_source_code``, ``nebo_wait_for_event``,
-  ``nebo_load_file``.
+  ``nebo_get_description``, ``nebo_get_run_status``,
+  ``nebo_get_run_history``.
+- **Alerts & utility** — ``nebo_wait_for_alert``, ``nebo_list_alerts``,
+  ``nebo_set_alert``, ``nebo_delete_alert``, ``nebo_load_file``.
+  Alert rules fire on metric conditions (e.g. ``train/loss > 5``)
+  without any code changes; pipelines start/stop via the user's shell.
 - **Write** — ``nebo_log_metric``, ``nebo_log_image``,
   ``nebo_log_audio``, ``nebo_log_text``. These mirror the SDK's
   ``nb.log_*`` helpers so an external agent can push metrics, media,

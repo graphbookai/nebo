@@ -516,55 +516,52 @@ Observation Tools
 ``nebo_get_description``
     Get the workflow-level description and all node docstrings.
 
-Action Tools
-------------
-
-``nebo_run_pipeline``
-    Start a pipeline script. Returns a ``run_id`` for tracking.
-
-    :param script_path: Path to the Python script (required).
-    :param args: Script arguments.
-    :param name: Optional run name/ID.
-
-``nebo_stop_pipeline``
-    Stop a running pipeline by run ID.
-
-    :param run_id: The run ID to stop (required).
-
-``nebo_restart_pipeline``
-    Stop and re-run a pipeline with the same script and arguments.
-
-    :param run_id: The run ID to restart (required).
+Run & Alert Tools
+-----------------
 
 ``nebo_get_run_status``
-    Get the status of a run: running, completed, crashed, or stopped.
-    Includes ``metrics_index`` (``{loggable_id: [name, ...]}``) so
-    callers can discover available metric names without iterating
-    every loggable card.
+    Get the summary of a run: timestamps, node/edge counts,
+    ``run_config``, ``metric_series_count``, ``latest_step``, and
+    ``metrics_index`` (``{loggable_id: [name, ...]}``) so callers can
+    discover available metric names without iterating every loggable
+    card.
 
     :param run_id: The run ID (required).
 
 ``nebo_get_run_history``
-    List all runs with outcomes, timestamps, and error counts.
+    List all runs with timestamps, counts, and metric indexes.
 
-``nebo_get_source_code``
-    Read a pipeline source file.
+``nebo_wait_for_alert``
+    Block until an alert at or above ``min_level`` fires for the run,
+    or the timeout elapses. Alerts come from ``nb.alert(...)`` calls in
+    pipeline code or from alert rules created via ``nebo_set_alert``.
 
-    :param file_path: Path to the source file (required).
-
-``nebo_write_source_code``
-    Write or patch a pipeline source file.
-
-    :param file_path: Path to the source file (required).
-    :param content: Full file content (replaces entire file).
-    :param patches: List of ``{old, new}`` patches to apply.
-
-``nebo_wait_for_event``
-    Block until a pipeline event occurs or the timeout elapses.
-
+    :param run_id: Run ID to monitor (required).
     :param timeout: Max seconds to wait (default: 300).
-    :param events: Event types to wait for (default: ``error``, ``completed``).
-    :param run_id: Optional run ID. Uses the latest run if omitted.
+    :param min_level: Minimum alert level to trigger on (default: 20).
+
+``nebo_list_alerts``
+    List alert rules (``triggered_by: "cli"``, with condition and fired
+    history) and code-fired alerts (``triggered_by: "code"``).
+
+    :param run_id: Optional run ID to scope the listing.
+
+``nebo_set_alert``
+    Create an alert rule on a metric condition — no code changes
+    needed. The rule fires at most once per run.
+
+    :param title: Alert headline (required).
+    :param condition: Condition string, e.g. ``"train/loss > 5"``
+        (ops: ``> >= < <= == !=``) (required).
+    :param text: Optional body.
+    :param level: 10/20/30/40 for DEBUG/INFO/WARN/ERROR (default: 20).
+    :param loggable_id: Only match the metric on this loggable.
+    :param run_id: Only apply to this run (default: all runs).
+
+``nebo_delete_alert``
+    Delete an alert rule by id.
+
+    :param rule_id: Alert rule id (required).
 
 ``nebo_load_file``
     Load a ``.nebo`` log file into the daemon for viewing.

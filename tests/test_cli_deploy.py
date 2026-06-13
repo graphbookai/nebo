@@ -86,6 +86,10 @@ def test_happy_path_calls_hf_api() -> None:
         from_source=False,
         read="public",
         write="private",
+        # Skip the post-upload rebuild poll: with a MagicMock HfApi the
+        # Space stage never reaches RUNNING, which would burn the full
+        # 900s wait timeout in the test suite.
+        wait=False,
     )
 
     with patch.dict(sys.modules, {
