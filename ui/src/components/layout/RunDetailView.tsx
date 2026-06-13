@@ -1,32 +1,33 @@
 import { useState } from 'react'
 import { useStore } from '@/store'
 import { useRunData } from '@/hooks/useRunData'
-import { useRunDuration } from '@/hooks/useRunDuration'
 import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { useComparisonContext } from '@/hooks/useComparisonContext'
 import { DagGraph } from '@/components/graph/DagGraph'
 import { LoggableGridView } from '@/components/graph/LoggableGridView'
 import { TimelineScrubber } from '@/components/timeline/TimelineScrubber'
+import { RunHoverInfo } from '@/components/runs/RunHoverInfo'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PanelRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
-/** Muted monospace run id, click-to-copy. */
+/** Muted monospace run id, click-to-copy; hover shows the run's vitals. */
 export function RunIdChip({ runId }: { runId: string }) {
   const [copied, setCopied] = useState(false)
   return (
-    <button
-      onClick={() => {
-        navigator.clipboard.writeText(runId).then(() => {
-          setCopied(true)
-          setTimeout(() => setCopied(false), 1500)
-        })
-      }}
-      className="text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
-      title="Click to copy run id"
-    >
-      {copied ? 'copied!' : runId}
-    </button>
+    <RunHoverInfo runId={runId} side="bottom">
+      <button
+        onClick={() => {
+          navigator.clipboard.writeText(runId).then(() => {
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1500)
+          })
+        }}
+        className="text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
+      >
+        {copied ? 'copied!' : runId}
+      </button>
+    </RunHoverInfo>
   )
 }
 
@@ -46,8 +47,6 @@ export function RunDetailView() {
   const runs = useStore(s => s.runs)
   const rightPanelOpen = useStore(s => s.rightPanelOpen)
   const toggleRightPanel = useStore(s => s.toggleRightPanel)
-
-  const duration = useRunDuration(run?.summary)
 
   if (!selectedRunId) {
     return (
@@ -80,10 +79,6 @@ export function RunDetailView() {
           <div className="flex items-center gap-3 px-4 py-2">
             <span className="text-sm font-medium">{scriptName}</span>
             {!isComparison && <RunIdChip runId={run.summary.id} />}
-            <span className="text-xs text-muted-foreground">{duration}</span>
-            <span className="text-xs text-muted-foreground">
-              {run.summary.node_count} node{run.summary.node_count !== 1 ? 's' : ''}
-            </span>
             {run.graph?.workflow_description && (
               <span className="text-xs text-muted-foreground truncate max-w-xs" title={run.graph.workflow_description}>
                 {run.graph.workflow_description.split('\n')[0].replace(/^#\s*/, '')}

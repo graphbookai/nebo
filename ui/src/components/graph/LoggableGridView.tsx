@@ -483,7 +483,11 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
             <p className="text-sm">{search ? 'No cards match the filter' : 'No cards in this view'}</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          // Container-driven wrap: as many ≥320px columns as fit, so
+          // resizing the view (window, side panels) reflows the cards.
+          // min(...,100%) keeps a lone column from overflowing containers
+          // narrower than the card minimum.
+          <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(min(320px,100%),1fr))]">
             {flatCards.map(card => (
               <GridCardWrapper key={card.cardId} runId={runId} card={card} />
             ))}

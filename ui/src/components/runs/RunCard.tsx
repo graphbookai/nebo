@@ -1,59 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Copy, Check, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useRunDuration } from '@/hooks/useRunDuration'
 import { useContextMenu } from '@/hooks/useContextMenu'
 import { useStore } from '@/store'
 import { RunContextMenu } from './RunContextMenu'
-import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
+import { RunHoverInfo } from './RunHoverInfo'
 import type { RunSummary } from '@/lib/api'
 
 interface RunCardProps {
   run: RunSummary
   selected: boolean
   onClick: () => void
-}
-
-function RunIdPopover({ runId }: { runId: string }) {
-  const [copied, setCopied] = useState(false)
-
-  const copy = useCallback(() => {
-    navigator.clipboard.writeText(runId).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    })
-  }, [runId])
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          onClick={e => e.stopPropagation()}
-          className="p-0.5 rounded text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent"
-          title="Run details"
-        >
-          <Info className="w-3.5 h-3.5" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        className="w-auto p-3"
-        align="start"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="text-xs text-muted-foreground mb-1">Run ID</div>
-        <div className="flex items-center gap-2">
-          <code className="text-xs font-mono">{runId}</code>
-          <button
-            onClick={copy}
-            className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent"
-            title="Copy run id"
-          >
-            {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
-          </button>
-        </div>
-      </PopoverContent>
-    </Popover>
-  )
 }
 
 export function RunCard({ run, selected, onClick }: RunCardProps) {
@@ -65,7 +21,6 @@ export function RunCard({ run, selected, onClick }: RunCardProps) {
   const isSelectedForCompare = useStore(s => s.selectedForCompare.has(run.id))
   const selectedRunId = useStore(s => s.selectedRunId)
   const comparisonGroups = useStore(s => s.comparisonGroups)
-  const duration = useRunDuration(run)
 
   // When viewing a comparison group, check if a comparison is active and whether this run is in it
   const comparisonActive = selectedRunId?.startsWith('cmp:') ?? false
@@ -119,46 +74,47 @@ export function RunCard({ run, selected, onClick }: RunCardProps) {
     : null
 
   return (
-    // div with button semantics instead of <button>: the run-id popover
-    // trigger inside the card is itself a button, and buttons can't nest.
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={e => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onClick()
-        }
-      }}
-      {...contextMenu.handlers}
-      className={cn(
-        'w-full text-left px-4 py-3 rounded-lg transition-colors relative cursor-pointer',
-        'hover:bg-accent/50',
-        selected && 'bg-accent border border-accent-foreground/10',
-        !selected && 'border border-transparent',
-        isSelectedForCompare && 'ring-2 ring-primary/40',
-        comparisonActive && !isInActiveComparison && 'opacity-40',
-      )}
-      style={{ borderLeft: `3px solid ${runColor ?? 'transparent'}` }}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          {editing ? (
-            <input
-              ref={inputRef}
-              value={draft}
-              onChange={e => setDraft(e.target.value)}
-              onBlur={commitEdit}
-              onKeyDown={e => {
-                if (e.key === 'Enter') commitEdit()
-                if (e.key === 'Escape') setEditing(false)
-              }}
-              onClick={e => e.stopPropagation()}
-              className="w-full text-sm font-medium bg-background border border-border rounded px-1 py-0 outline-none focus:ring-1 focus:ring-ring"
-            />
-          ) : (
-            <div className="flex items-center gap-1.5 min-w-0">
+    <RunHoverInfo runId={run.id} side="right">
+      {/* div with button semantics instead of <button>: the card body can
+          host interactive children (the rename input), and buttons can't
+          nest. */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onClick}
+        onKeyDown={e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onClick()
+          }
+        }}
+        {...contextMenu.handlers}
+        className={cn(
+          'w-full text-left px-4 py-3 rounded-lg transition-colors relative cursor-pointer',
+          'hover:bg-accent/50',
+          selected && 'bg-accent border border-accent-foreground/10',
+          !selected && 'border border-transparent',
+          isSelectedForCompare && 'ring-2 ring-primary/40',
+          comparisonActive && !isInActiveComparison && 'opacity-40',
+        )}
+        style={{ borderLeft: `3px solid ${runColor ?? 'transparent'}` }}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            {editing ? (
+              <input
+                ref={inputRef}
+                value={draft}
+                onChange={e => setDraft(e.target.value)}
+                onBlur={commitEdit}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') commitEdit()
+                  if (e.key === 'Escape') setEditing(false)
+                }}
+                onClick={e => e.stopPropagation()}
+                className="w-full text-sm font-medium bg-background border border-border rounded px-1 py-0 outline-none focus:ring-1 focus:ring-ring"
+              />
+            ) : (
               <div
                 className="text-sm font-medium truncate cursor-text"
                 onDoubleClick={(e) => { e.stopPropagation(); startEditing() }}
@@ -166,34 +122,23 @@ export function RunCard({ run, selected, onClick }: RunCardProps) {
               >
                 {displayName}
               </div>
-              <RunIdPopover runId={run.id} />
-            </div>
-          )}
-          {startedAt && <div className="text-xs text-muted-foreground mt-0.5">{startedAt}</div>}
-          <div className="mt-2 flex items-center justify-between">
-            <div className="flex gap-2 text-xs text-muted-foreground">
-                <span>{duration}</span>
-                <span>·</span>
-                <span>{run.node_count} node{run.node_count !== 1 ? 's' : ''}</span>
-                {errorInfo && (
-                    <>
-                        <span>·</span>
-                        <span className="text-red-500">{errorInfo}</span>
-                    </>
-                )}
-            </div>
+            )}
+            {startedAt && <div className="text-xs text-muted-foreground mt-0.5">{startedAt}</div>}
+            {errorInfo && (
+              <div className="mt-2 text-xs text-red-500">{errorInfo}</div>
+            )}
           </div>
         </div>
+        {isSelectedForCompare && (
+          <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-primary" title="Selected for compare" />
+        )}
+        <RunContextMenu
+          runId={run.id}
+          isOpen={contextMenu.isOpen}
+          position={contextMenu.position}
+          onClose={contextMenu.close}
+        />
       </div>
-      {isSelectedForCompare && (
-        <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-primary" title="Selected for compare" />
-      )}
-      <RunContextMenu
-        runId={run.id}
-        isOpen={contextMenu.isOpen}
-        position={contextMenu.position}
-        onClose={contextMenu.close}
-      />
-    </div>
+    </RunHoverInfo>
   )
 }

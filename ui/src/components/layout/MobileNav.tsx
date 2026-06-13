@@ -1,5 +1,4 @@
 import { useStore } from '@/store'
-import { useRunDuration } from '@/hooks/useRunDuration'
 import { SettingsPanel } from './SettingsPanel'
 import { ArrowLeft, Link2, Link2Off } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -34,7 +33,6 @@ export function MobileNav() {
   const setViewMode = useStore(s => s.setViewMode)
 
   const run = selectedRunId ? runs.get(selectedRunId) : null
-  const duration = useRunDuration(run?.summary)
 
   if (run) {
     const scriptName = run.summary.script_path.split('/').pop() ?? run.summary.script_path
@@ -49,7 +47,6 @@ export function MobileNav() {
             <span className="text-sm font-medium truncate">{scriptName}</span>
             <RunIdChip runId={run.summary.id} />
           </div>
-          <span className="text-xs text-muted-foreground">{duration}</span>
         </div>
         <Tabs
           value={viewMode}
