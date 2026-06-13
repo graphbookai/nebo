@@ -42,7 +42,7 @@ export function EmbeddedView({ spec }: { spec: EmbeddedSpec }) {
       return <EmbeddedRun runId={spec.runId} />
     case 'dag':
       return <EmbeddedNodes runId={spec.runId} />
-    case 'grid':
+    case 'flat':
       return <EmbeddedGrid runId={spec.runId} />
     case 'node':
       return <EmbeddedNode spec={spec} />

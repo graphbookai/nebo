@@ -50,7 +50,7 @@ digraph pattern_detection {
 import nebo as nb
 
 nb.md("Training a classifier on synthetic data.")
-nb.ui(view="grid", layout="horizontal", tracker="step")
+nb.ui(view="flat", layout="horizontal", tracker="step")
 
 @nb.fn()
 def create_dataset(n=1000):
@@ -97,7 +97,7 @@ def run_experiment():
 - `nb.log_image(img, step=)` — sample outputs, weight visualizations
 - `nb.log_cfg(dict)` — hyperparameters shown in info tab
 - `nb.track(range(epochs))` — epoch progress bar
-- `view="grid"` — grid view suits metric-heavy training with many nodes
+- `view="flat"` — flat view suits metric-heavy training with many nodes
 - `tracker="step"` — scrubber tracks by step count, not wall time
 
 **Multi-run for sweeps:**
@@ -217,7 +217,7 @@ def main():
 **Key APIs for agents:**
 - `@nb.fn()` on class — all methods auto-wrapped; methods appear as `Agent.think`, `Agent.act` etc. in the DAG, grouped under the class name
 - `nb.log_line(name, value)` — per-action quality scores
-- `view="grid"` — table view suits many small method calls
+- `view="flat"` — flat view suits many small method calls
 - `tracker="step"` — track by action count, not wall time
 
 ## API Quick Reference
@@ -247,7 +247,7 @@ def main():
 | Parameter | Values | Default | Notes |
 |-----------|--------|---------|-------|
 | `layout` | `"horizontal"`, `"vertical"` | — | DAG node flow direction |
-| `view` | `"dag"`, `"grid"` | — | Default view mode |
+| `view` | `"dag"`, `"flat"` | — | Default view mode |
 | `tracker` | `"time"`, `"step"` | — | Timeline scrubber mode |
 | `collapsed` | `bool` | — | Default node collapse |
 | `minimap` | `bool` | — | Show DAG minimap |
@@ -259,7 +259,7 @@ def main():
 |---------|-------------|-----|
 | ML Training | `view="dag", tracker="step"` | Steps matter more than wall time for training |
 | DAG Pipeline | `view="dag", minimap=True, layout="horizontal"` | Wide DAGs benefit from minimap |
-| Agentic | `view="grid", tracker="step"` | Many small method calls suit table view |
+| Agentic | `view="flat", tracker="step"` | Many small method calls suit flat view |
 
 ### `nb.start_run()` — Multi-Run Support
 

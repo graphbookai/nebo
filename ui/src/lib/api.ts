@@ -59,7 +59,7 @@ export interface GraphData {
 
 export interface UiConfig {
   layout?: 'horizontal' | 'vertical'
-  view?: 'dag' | 'grid'
+  view?: 'dag' | 'flat'
   collapsed?: boolean
   minimap?: boolean
   theme?: 'dark' | 'light'

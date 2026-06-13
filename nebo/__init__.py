@@ -347,7 +347,7 @@ def flush(timeout: float = 5.0) -> bool:
 
 def ui(
     layout: Optional[Literal["horizontal", "vertical"]] = None,
-    view: Optional[Literal["dag", "grid"]] = None,
+    view: Optional[Literal["dag", "flat"]] = None,
     minimap: Optional[bool] = None,
     theme: Optional[Literal["dark", "light"]] = None,
     tracker: Optional[Literal["time", "step"]] = None,
@@ -359,7 +359,7 @@ def ui(
 
     Args:
         layout: DAG layout direction ("horizontal" or "vertical").
-        view: Default view mode ("dag" or "grid").
+        view: Default view mode ("dag" or "flat").
         minimap: Show minimap.
         theme: Color theme ("dark" or "light").
         tracker: Default timeline scrubber mode ("time" or "step").

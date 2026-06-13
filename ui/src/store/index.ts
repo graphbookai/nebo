@@ -213,9 +213,9 @@ interface NeboStore {
   exportEntryLimit: number | null
   setExportEntryLimit: (limit: number | null) => void
 
-  // View mode (desktop preference; mobile defaults to 'grid' at render time)
-  viewMode: 'graph' | 'grid'
-  setViewMode: (mode: 'graph' | 'grid') => void
+  // View mode: 'flat' (default, all loggable cards) or 'graph' (DAG)
+  viewMode: 'graph' | 'flat'
+  setViewMode: (mode: 'graph' | 'flat') => void
 
   // Right panel (Settings only)
   rightPanelOpen: boolean
@@ -397,9 +397,9 @@ export const useStore = create<NeboStore>((set, get) => ({
     return { collapsedNodes: outer, layoutTrigger: state.layoutTrigger + 1 }
   }),
 
-  // Default to the All view (key 'grid') on every screen size; the DAG
-  // view is opt-in via the view switcher or nb.ui(view="dag").
-  viewMode: 'grid' as 'graph' | 'grid',
+  // Default to the Flat view on every screen size; the DAG view is
+  // opt-in via the view switcher or nb.ui(view="dag").
+  viewMode: 'flat' as 'graph' | 'flat',
   setViewMode: (mode) => set({ viewMode: mode }),
 
   rightPanelOpen: false,
@@ -499,8 +499,8 @@ export const useStore = create<NeboStore>((set, get) => ({
 
       if (ui.view === 'dag') {
         patch.viewMode = 'graph'
-      } else if (ui.view === 'grid') {
-        patch.viewMode = 'grid'
+      } else if (ui.view === 'flat') {
+        patch.viewMode = 'flat'
       }
 
       if (ui.theme === 'dark' || ui.theme === 'light') {

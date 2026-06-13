@@ -156,7 +156,7 @@ Smoothed values are rendered, not persisted: raw entries in the store remain unt
 
 ### Web UI (`ui/`)
 
-React 19 + Vite 7 + TypeScript + Tailwind v4 + shadcn-style components. State via `zustand` (`src/store/index.ts`). WebSocket handled in `src/hooks/useWebSocket.ts`, connecting to the daemon's `/stream` endpoint. Graph rendering uses `@xyflow/react` with `@dagrejs/dagre` layout (`src/components/graph/DagGraph.tsx`). Metrics charts use **Chart.js 4** (registered in `src/components/charts/registerChartJs.ts`) with `chartjs-plugin-zoom` for pan/zoom; the shared lifecycle hook is `src/components/charts/useChartJs.ts`. The default view is "All" (store key `'grid'` — the key is wire-compatible with `nb.ui(view="grid")` and must not be renamed); the DAG view is opt-in. The `@/` import alias maps to `ui/src/`. shadcn registry is configured via `.mcp.json` (the `shadcn` MCP server).
+React 19 + Vite 7 + TypeScript + Tailwind v4 + shadcn-style components. State via `zustand` (`src/store/index.ts`). WebSocket handled in `src/hooks/useWebSocket.ts`, connecting to the daemon's `/stream` endpoint. Graph rendering uses `@xyflow/react` with `@dagrejs/dagre` layout (`src/components/graph/DagGraph.tsx`). Metrics charts use **Chart.js 4** (registered in `src/components/charts/registerChartJs.ts`) with `chartjs-plugin-zoom` for pan/zoom; the shared lifecycle hook is `src/components/charts/useChartJs.ts`. The default view is "Flat" (store key `'flat'`, wire value `nb.ui(view="flat")`); the DAG view is opt-in. The `@/` import alias maps to `ui/src/`. shadcn registry is configured via `.mcp.json` (the `shadcn` MCP server).
 
 ### Tests
 

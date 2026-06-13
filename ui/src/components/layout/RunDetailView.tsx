@@ -91,12 +91,12 @@ export function RunDetailView() {
             )}
             <Tabs
               value={viewMode}
-              onValueChange={(v) => setViewMode(v as 'graph' | 'grid')}
+              onValueChange={(v) => setViewMode(v as 'graph' | 'flat')}
               className="ml-auto"
             >
               <TabsList className="h-6">
                 <TabsTrigger value="graph" className="text-xs h-5 px-2">DAG</TabsTrigger>
-                <TabsTrigger value="grid" className="text-xs h-5 px-2">All</TabsTrigger>
+                <TabsTrigger value="flat" className="text-xs h-5 px-2">Flat</TabsTrigger>
               </TabsList>
             </Tabs>
             <Button
@@ -140,7 +140,7 @@ export function RunDetailView() {
 
       {/* Main content */}
       <div className="flex-1 overflow-hidden flex">
-        {effectiveViewMode === 'grid' ? (
+        {effectiveViewMode === 'flat' ? (
           <div className="flex-1 overflow-hidden">
             <LoggableGridView runId={effectiveRunId!} />
           </div>

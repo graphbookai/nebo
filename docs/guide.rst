@@ -216,7 +216,7 @@ Global
 All prior logging examples were writing to a ``"__global__"`` scope as calls made at module scope or from
 non-decorated helpers land on the **Global loggable**.
 
-The Global loggable appears as a distinct card at the top of the grid
+The Global loggable appears as a distinct card at the top of the flat
 view (labelled **"List"** on mobile) and is excluded from the DAG view
 — it is not a node. Its tabs (Logs, Metrics, Images, Audio) work
 identically to any node's tabs.
@@ -233,7 +233,7 @@ Example:
 .. raw:: html
 
     <iframe
-        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-global-scope&grid"
+        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-global-scope&flat"
         width="100%" height="500"
         style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
         loading="lazy">
@@ -439,7 +439,7 @@ UI Configuration from Code
 
     nb.ui(
         layout="horizontal",     # or "vertical"
-        view="dag",              # or "grid"
+        view="dag",              # or "flat"
         minimap=True,            # show minimap
         theme="dark",            # or "light"
     )

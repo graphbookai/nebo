@@ -261,7 +261,7 @@ class TestDaemonEventIngestion:
                 "type": "ui_config",
                 "data": {
                     "layout": "horizontal",
-                    "view": "grid",
+                    "view": "flat",
                     "collapsed": True,
                     "minimap": False,
                     "theme": "dark",
@@ -270,7 +270,7 @@ class TestDaemonEventIngestion:
         ], "r1")
         assert run.ui_config == {
             "layout": "horizontal",
-            "view": "grid",
+            "view": "flat",
             "collapsed": True,
             "minimap": False,
             "theme": "dark",
@@ -278,7 +278,7 @@ class TestDaemonEventIngestion:
         graph = run.get_graph()
         assert graph["ui_config"] == {
             "layout": "horizontal",
-            "view": "grid",
+            "view": "flat",
             "collapsed": True,
             "minimap": False,
             "theme": "dark",

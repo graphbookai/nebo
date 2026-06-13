@@ -1,7 +1,7 @@
 """Example: Global logging — nb.log* outside any @nb.fn() context.
 
 Calls made outside a decorated function land on the Global loggable, which
-appears as its own card at the top of the grid view (never in the DAG).
+appears as its own card at the top of the flat view (never in the DAG).
 This example emits logs, metrics, a text snippet, and an image at module /
 main-function scope so you can see each tab populated under the Global card.
 """
@@ -19,7 +19,7 @@ def main() -> None:
         "This run emits logs, metrics, text, and an image from outside any "
         "`@nb.fn()` function. They all land on the Global loggable."
     )
-    nb.ui(view="grid")
+    nb.ui(view="flat")
     # ── Plain text logs at the Global level ───────────────────────────────────
     nb.log("pipeline starting")
     nb.log("loading config from env")

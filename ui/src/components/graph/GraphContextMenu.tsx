@@ -22,10 +22,10 @@ export function GraphContextMenu({ isOpen, position, onClose }: GraphContextMenu
         onClick={() => { setViewMode('graph'); onClose() }}
       />
       <ContextMenuItem
-        label="All View"
+        label="Flat View"
         icon={<LayoutGrid className="w-4 h-4" />}
-        checked={viewMode === 'grid'}
-        onClick={() => { setViewMode('grid'); onClose() }}
+        checked={viewMode === 'flat'}
+        onClick={() => { setViewMode('flat'); onClose() }}
       />
     </ContextMenu>
   )

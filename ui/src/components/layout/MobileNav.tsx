@@ -53,11 +53,11 @@ export function MobileNav() {
         </div>
         <Tabs
           value={viewMode}
-          onValueChange={(v) => setViewMode(v as 'graph' | 'grid')}
+          onValueChange={(v) => setViewMode(v as 'graph' | 'flat')}
         >
           <TabsList className="h-6">
             <TabsTrigger value="graph" className="text-xs h-5 px-2">DAG</TabsTrigger>
-            <TabsTrigger value="grid" className="text-xs h-5 px-2">All</TabsTrigger>
+            <TabsTrigger value="flat" className="text-xs h-5 px-2">Flat</TabsTrigger>
           </TabsList>
         </Tabs>
         <div className="flex items-center gap-1">

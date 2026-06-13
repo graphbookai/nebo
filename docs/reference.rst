@@ -223,7 +223,7 @@ UI Configuration
     Set run-level UI defaults. These are sent to the daemon and web UI as defaults that the user can override.
 
     :param layout: DAG layout direction: ``"horizontal"`` or ``"vertical"``.
-    :param view: Default view mode: ``"dag"`` or ``"grid"``.
+    :param view: Default view mode: ``"dag"`` or ``"flat"``.
     :param minimap: Whether to show the minimap.
     :param theme: Color theme: ``"dark"`` or ``"light"``.
 

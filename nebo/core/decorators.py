@@ -67,7 +67,7 @@ def fn(
             ``ui_hints``. Supported keys:
 
             - ``collapsed`` (bool): if True, the node's card is collapsed
-              in the grid view on first render.
+              in the flat view on first render.
             - ``color`` (str): badge / border accent color for the node.
             - ``default_tab`` (str): which tab opens by default when the
               card is expanded. One of ``"info"`` (default), ``"logs"``,
