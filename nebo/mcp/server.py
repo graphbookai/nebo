@@ -107,6 +107,52 @@ MCP_TOOLS = [
         },
     },
     {
+        "name": "nebo_list_alerts",
+        "description": (
+            "List alerts: rules created via CLI/MCP (triggered_by='cli', with "
+            "their metric condition and fired history) and alerts fired by "
+            "nb.alert(...) in pipeline code (triggered_by='code')."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string", "description": "Optional run ID to scope the listing."},
+            },
+        },
+    },
+    {
+        "name": "nebo_set_alert",
+        "description": (
+            "Create an alert rule that fires when a metric satisfies a "
+            "condition — no code changes needed. The rule fires at most once "
+            "per run; fired alerts wake nebo_wait_for_alert. Condition is a "
+            "string like 'train/loss > 5' (ops: > >= < <= == !=)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Alert headline."},
+                "condition": {"type": "string", "description": "Metric condition, e.g. 'train/loss > 5'."},
+                "text": {"type": "string", "description": "Optional body / details."},
+                "level": {"type": "integer", "description": "Severity: 10=DEBUG, 20=INFO, 30=WARN, 40=ERROR (default 20)."},
+                "loggable_id": {"type": "string", "description": "Only match the metric on this loggable."},
+                "run_id": {"type": "string", "description": "Only apply to this run (default: all runs)."},
+            },
+            "required": ["title", "condition"],
+        },
+    },
+    {
+        "name": "nebo_delete_alert",
+        "description": "Delete an alert rule by id.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "rule_id": {"type": "string", "description": "Alert rule id (from nebo_list_alerts)."},
+            },
+            "required": ["rule_id"],
+        },
+    },
+    {
         "name": "nebo_load_file",
         "description": "Load a .nebo log file into the daemon for viewing and Q&A. The file will appear as a historical run.",
         "inputSchema": {
@@ -235,6 +281,12 @@ async def handle_tool_call(name: str, arguments: dict[str, Any], server_url: str
         "nebo_get_run_status": lambda a: tools.get_run_status(a["run_id"], server_url),
         "nebo_get_run_history": lambda a: tools.get_run_history(server_url),
         "nebo_wait_for_alert": lambda a: tools.wait_for_alert(a["run_id"], a.get("timeout", 300), a.get("min_level", 20), server_url),
+        "nebo_list_alerts": lambda a: tools.list_alerts(a.get("run_id"), server_url),
+        "nebo_set_alert": lambda a: tools.set_alert(
+            a["title"], a["condition"], a.get("text", ""), a.get("level", 20),
+            a.get("loggable_id"), a.get("run_id"), server_url,
+        ),
+        "nebo_delete_alert": lambda a: tools.delete_alert(a["rule_id"], server_url),
         "nebo_load_file": lambda a: tools.load_file(a["filepath"], server_url),
         # Write
         "nebo_log_metric": lambda a: tools.log_metric(a["entries"], a.get("run_id"), server_url),

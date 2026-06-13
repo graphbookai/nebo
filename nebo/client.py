@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -189,6 +190,89 @@ def wait_for_alert(
         f"?timeout={timeout}&min_level={int(min_level)}"
     )
     return _get(path, timeout=max(timeout + 5, 30), **conn)
+
+
+# Condition strings look like "train/loss > 5" — a metric name (which may
+# itself contain '/', '.', etc.), one comparison operator, and a number.
+_CONDITION_RE = re.compile(
+    r"^\s*(?P<metric>.+?)\s*(?P<op>>=|<=|==|!=|>|<)\s*(?P<value>-?\d+(?:\.\d+)?)\s*$"
+)
+
+
+def parse_condition(expr: str) -> dict[str, Any]:
+    """Parse a condition string into `{"metric", "op", "value"}`.
+
+    Raises ValueError with a usage hint on malformed input.
+    """
+    m = _CONDITION_RE.match(expr or "")
+    if not m or not m.group("metric").strip():
+        raise ValueError(
+            f"invalid condition {expr!r}; expected '<metric> <op> <number>' "
+            "with op one of > >= < <= == != (e.g. 'train/loss > 5')"
+        )
+    return {
+        "metric": m.group("metric").strip(),
+        "op": m.group("op"),
+        "value": float(m.group("value")),
+    }
+
+
+def list_alerts(run_id: Optional[str] = None, **conn) -> Any:
+    path = "/alerts"
+    if run_id:
+        path += f"?run_id={urllib.parse.quote(run_id)}"
+    return _get(path, **conn)
+
+
+def get_alert(rule_id: str, **conn) -> Any:
+    return _get(f"/alerts/{urllib.parse.quote(rule_id)}", **conn)
+
+
+def set_alert(
+    title: str,
+    condition: dict[str, Any],
+    *,
+    text: str = "",
+    level: int = 20,
+    loggable_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    **conn,
+) -> Any:
+    """Create an alert rule on the daemon.
+
+    `condition` is `{"metric", "op", "value"}` (see `parse_condition`).
+    """
+    body: dict[str, Any] = {
+        "title": title,
+        "text": text,
+        "level": int(level),
+        "condition": {**condition, "loggable_id": loggable_id},
+    }
+    if run_id:
+        body["run_id"] = run_id
+    return _post("/alerts", body, **conn)
+
+
+def delete_alert(rule_id: str, **conn) -> Any:
+    return _request_json(f"/alerts/{urllib.parse.quote(rule_id)}", method="DELETE", **conn)
+
+
+def _request_json(
+    path: str,
+    *,
+    method: str,
+    url: Optional[str] = None,
+    port: Optional[int] = None,
+    api_token: Optional[str] = None,
+    timeout: float = 10.0,
+) -> Any:
+    base = _resolve_url(url=url, port=port)
+    token = _resolve_token(api_token)
+    req = urllib.request.Request(f"{base}{path}", method=method)
+    if token:
+        req.add_header("X-Nebo-Token", token)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
 
 
 def _ensure_loggable_event(loggable_id: str) -> dict[str, Any]:

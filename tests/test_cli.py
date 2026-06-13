@@ -139,7 +139,7 @@ def _run_cli(argv: list[str]) -> str:
 def test_runs_list_json(monkeypatch):
     monkeypatch.setattr(
         "nebo.client.get_run_history",
-        lambda **c: {"runs": [{"id": "abc", "status": "completed"}]},
+        lambda **c: {"runs": [{"id": "abc", "run_name": "exp1"}]},
     )
     out = _run_cli(["runs", "list", "--json"])
     assert json.loads(out)["runs"][0]["id"] == "abc"
@@ -227,6 +227,101 @@ def test_metrics_get_passes_filters(monkeypatch):
     assert received["tag"] == "train"
     assert received["step"] == 5
     assert received["run_id"] == "abc"
+
+
+def test_metrics_get_values_only_emits_entries(monkeypatch):
+    entries = [
+        {"step": 0, "value": 1.0, "tags": [], "timestamp": 1.0},
+        {"step": 1, "value": 0.5, "tags": [], "timestamp": 2.0},
+    ]
+    monkeypatch.setattr(
+        "nebo.client.get_metrics",
+        lambda lid, **kw: {"metrics": {"loss": {"type": "line", "entries": entries}}},
+    )
+    out = _run_cli([
+        "metrics", "get", "node_a", "--name", "loss", "--values-only", "--json",
+    ])
+    assert json.loads(out) == entries
+
+
+def test_metrics_get_values_only_requires_name(monkeypatch):
+    monkeypatch.setattr("nebo.client.get_metrics", lambda lid, **kw: {"metrics": {}})
+    with pytest.raises(SystemExit):
+        _run_cli(["metrics", "get", "node_a", "--values-only", "--json"])
+
+
+def test_metrics_get_cross_run_fanout(monkeypatch):
+    calls: list = []
+    def fake(lid, **kw):
+        calls.append(kw.get("run_id"))
+        return {"metrics": {"loss": {"type": "line", "entries": [
+            {"step": 0, "value": float(len(calls)), "tags": [], "timestamp": 0.0},
+        ]}}}
+    monkeypatch.setattr("nebo.client.get_metrics", fake)
+    out = _run_cli([
+        "metrics", "get", "node_a", "--name", "loss",
+        "--runs", "r1,r2,r3", "--values-only", "--json",
+    ])
+    data = json.loads(out)
+    assert calls == ["r1", "r2", "r3"]
+    assert set(data["runs"]) == {"r1", "r2", "r3"}
+    assert data["runs"]["r1"][0]["value"] == 1.0
+    assert data["name"] == "loss"
+
+
+# ---------------------------------------------------------------------------
+# nebo alerts ls|get|set|rm
+# ---------------------------------------------------------------------------
+
+
+def test_alerts_set_parses_condition(monkeypatch):
+    received: dict = {}
+    def fake(title, condition, **kw):
+        received["title"] = title
+        received["condition"] = condition
+        received.update(kw)
+        return {"id": "abc12345", "title": title}
+    monkeypatch.setattr("nebo.client.set_alert", fake)
+    _run_cli([
+        "alerts", "set",
+        "--title", "loss diverged",
+        "--condition", "train/loss > 5",
+        "--level", "WARN",
+        "--loggable", "__global__",
+        "--run", "r1",
+        "--json",
+    ])
+    assert received["title"] == "loss diverged"
+    assert received["condition"] == {"metric": "train/loss", "op": ">", "value": 5.0}
+    assert received["level"] == 30
+    assert received["loggable_id"] == "__global__"
+    assert received["run_id"] == "r1"
+
+
+def test_alerts_set_rejects_bad_condition(monkeypatch):
+    monkeypatch.setattr("nebo.client.set_alert", lambda *a, **k: {})
+    with pytest.raises(SystemExit):
+        _run_cli(["alerts", "set", "--title", "t", "--condition", "loss soars"])
+
+
+def test_alerts_ls_json(monkeypatch):
+    monkeypatch.setattr(
+        "nebo.client.list_alerts",
+        lambda **kw: {"alerts": [{"id": "a1", "triggered_by": "cli", "title": "t"}]},
+    )
+    out = _run_cli(["alerts", "ls", "--json"])
+    assert json.loads(out)["alerts"][0]["id"] == "a1"
+
+
+def test_alerts_rm(monkeypatch):
+    received: dict = {}
+    def fake(rule_id, **kw):
+        received["rule_id"] = rule_id
+        return {"status": "deleted", "id": rule_id}
+    monkeypatch.setattr("nebo.client.delete_alert", fake)
+    out = _run_cli(["alerts", "rm", "a1", "--json"])
+    assert received["rule_id"] == "a1"
+    assert json.loads(out)["status"] == "deleted"
 
 
 def test_metrics_log_passes_entries(monkeypatch):

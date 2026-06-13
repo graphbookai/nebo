@@ -58,19 +58,65 @@ rely on the human-formatted columns.
 |---|---|
 | What runs exist? | `nebo runs list --json` |
 | Summarize run R | `nebo runs show <R> --json` |
+| What hparams/config did R use? | `nebo runs show <R> --json` → `run_config` |
 | What does the workflow do? | `nebo describe --run <R> --json` |
 | Inspect the DAG | `nebo graph show --run <R> --json` |
 | What did node N do? | `nebo loggables show <N> --run <R> --json` |
 | Get logs for node N | `nebo logs --run <R> --node <N> --json` |
 | Get errors | `nebo errors --run <R> --json` |
 | List available metrics | `nebo metrics list --run <R> --json` |
-| Read metric values | `nebo metrics get <loggable> --name <M> --run <R> --json` |
+| Read one metric's series | `nebo metrics get <loggable> --name <M> --values-only --run <R> --json` |
+| Read all of a loggable's metrics | `nebo metrics get <loggable> --run <R> --json` |
 | Filter a metric by tag | append `--tag <T>` |
 | Filter a metric by step | append `--step <S>` |
+| Compare a metric across runs | `nebo metrics get <loggable> --name <M> --runs R1,R2,R3 --values-only --json` |
 | Wait for an alert | `nebo runs wait <R> --timeout 300 --min-level 20 --json` |
+| Set an alert on a metric | `nebo alerts set --title <T> --condition "<M> > 5" --json` |
 
-`nebo runs wait` blocks until `nb.alert(...)` fires in the pipeline at a
-level at or above `--min-level`, or the `--timeout` elapses.
+`nebo runs show --json` keys worth knowing: `run_config` (the dict passed
+to `nb.start_run(config=...)`), `metrics_index` ({loggable: [metric
+names]}), `metric_series_count`, `latest_step`, `node_count`,
+`log_count`, `error_count`, `started_at`/`ended_at`.
+
+### `metrics get` response schema
+
+With `--name <M> --values-only --json` (preferred — the series directly):
+
+    [{"step": 0, "value": 0.93, "tags": [], "timestamp": 1760000000.0}, ...]
+
+Without `--values-only`, the response nests per metric name:
+
+    {"metrics": {"<name>": {"type": "line", "entries": [{step, value, tags, timestamp}, ...]}}}
+
+With `--runs R1,R2`, both shapes are wrapped per run:
+
+    {"loggable_id": ..., "name": ..., "runs": {"R1": <series or entries>, "R2": ...}}
+
+## Alerts
+
+`nebo runs wait` blocks until an alert fires for the run at a level at
+or above `--min-level`, or the `--timeout` elapses. Alerts come from two
+places (`triggered_by` distinguishes them):
+
+- **code**: the pipeline called `nb.alert(title, text, level=...)`.
+- **cli**: an alert *rule* you created matched a metric — no code change
+  needed.
+
+Rules are conditions on metric values, evaluated by the daemon as
+metrics arrive; a rule fires at most once per run:
+
+    nebo alerts set --title "loss diverged" --condition "train/loss > 5" --level WARN --json
+    nebo alerts set --title "solved" --condition "avg_return >= 200" --run <R> --json
+
+- `--condition` is `<metric> <op> <number>` with ops `> >= < <= == !=`.
+- `--loggable <L>` restricts matching to one loggable; default any.
+- `--run <R>` scopes the rule to one run; default all runs (right for sweeps).
+- `--level` takes DEBUG/INFO/WARN/ERROR or an integer (10/20/30/40).
+
+Manage rules with `nebo alerts ls [--run R]`, `nebo alerts get <id>`,
+`nebo alerts rm <id>`. `ls` also shows code-fired alerts. The watch
+pattern for unattended training: set a rule, then `nebo runs wait <R>
+--min-level 30` — it returns as soon as the rule fires.
 
 ## Drawing a derived metric
 
@@ -128,12 +174,17 @@ yourself (e.g. matplotlib `savefig` to a tmp file).
 
 ## Multi-run Q&A
 
-There is no cross-run query. Loop:
+For one metric across several runs, use the cross-run query directly:
+
+    nebo metrics get <loggable> --name <M> --runs R1,R2,R3 --values-only --json
+
+This returns `{"runs": {"R1": [{step, value, ...}, ...], "R2": ...}}` —
+one call instead of a per-run loop. For anything beyond a single metric
+name (different metrics per run, logs, configs), loop:
 
 1. `nebo runs list --json` — pick the relevant run ids.
-2. For each: `nebo runs show <id> --json` (for `metrics_index`) then
-   `nebo metrics get <loggable> --name <M> --run <id> --json` for the
-   metrics of interest.
+2. For each: `nebo runs show <id> --json` (for `metrics_index` and
+   `run_config`) then targeted `metrics get` calls.
 3. Reason across the responses in your reply.
 
 Token discipline: prefer `metrics_index` from `runs show` over fetching
@@ -213,6 +264,9 @@ are available without spawning subprocesses. Both transports are parallel
 | `nebo errors` | `nebo_get_errors` |
 | `nebo metrics get` | `nebo_get_metrics` |
 | `nebo metrics log` | `nebo_log_metric` |
+| `nebo alerts ls` | `nebo_list_alerts` |
+| `nebo alerts set` | `nebo_set_alert` |
+| `nebo alerts rm` | `nebo_delete_alert` |
 | `nebo text log` | `nebo_log_text` |
 | `nebo images log` | `nebo_log_image` |
 | `nebo audio log` | `nebo_log_audio` |

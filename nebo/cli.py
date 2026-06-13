@@ -575,20 +575,60 @@ def cmd_metrics(args: argparse.Namespace) -> None:
         return
 
     if sub == "get":
-        result = client.get_metrics(
-            args.loggable_id,
-            name=args.name,
-            tag=args.tag,
-            step=args.step,
-            run_id=args.run,
-            **conn,
-        )
+        if args.values_only and not args.name:
+            print("error: --values-only requires --name", file=sys.stderr)
+            sys.exit(2)
+        if args.runs and args.run:
+            print("error: pass either --run or --runs, not both", file=sys.stderr)
+            sys.exit(2)
+
+        def _fetch(run_id):
+            result = client.get_metrics(
+                args.loggable_id,
+                name=args.name,
+                tag=args.tag,
+                step=args.step,
+                run_id=run_id,
+                **conn,
+            )
+            metrics = result.get("metrics", {})
+            if args.values_only:
+                return (metrics.get(args.name) or {}).get("entries", [])
+            return metrics
+
+        def _print_human(payload, indent=""):
+            if args.values_only:
+                for e in payload:
+                    print(f"{indent}{e.get('step')}\t{e.get('value')}")
+            else:
+                for mname, series in payload.items():
+                    count = len(series.get("entries", []))
+                    print(f"{indent}{mname} ({series.get('type')}): {count} entries")
+
+        run_ids = [r.strip() for r in (args.runs or "").split(",") if r.strip()]
+        if run_ids:
+            # Cross-run fan-out: one daemon call per run, merged client-side.
+            per_run = {rid: _fetch(rid) for rid in run_ids}
+            if args.json:
+                print(json.dumps({
+                    "loggable_id": args.loggable_id,
+                    "name": args.name,
+                    "runs": per_run,
+                }))
+            else:
+                for rid, payload in per_run.items():
+                    print(f"{rid}:")
+                    _print_human(payload, indent="  ")
+            return
+
+        payload = _fetch(args.run)
         if args.json:
-            print(json.dumps(result))
+            if args.values_only:
+                print(json.dumps(payload))
+            else:
+                print(json.dumps({"metrics": payload}))
         else:
-            for mname, series in result.get("metrics", {}).items():
-                count = len(series.get("entries", []))
-                print(f"{mname} ({series.get('type')}): {count} entries")
+            _print_human(payload)
         return
 
     if sub == "log":
@@ -598,6 +638,104 @@ def cmd_metrics(args: argparse.Namespace) -> None:
             print(json.dumps(result))
         else:
             print(result.get("status", "ok"))
+        return
+
+
+_ALERT_LEVELS = {"DEBUG": 10, "INFO": 20, "WARN": 30, "ERROR": 40}
+
+
+def _parse_alert_level(raw: str) -> int:
+    """Accept a numeric level or a name (DEBUG/INFO/WARN/ERROR)."""
+    if raw.upper() in _ALERT_LEVELS:
+        return _ALERT_LEVELS[raw.upper()]
+    try:
+        return int(raw)
+    except ValueError:
+        names = "/".join(_ALERT_LEVELS)
+        raise argparse.ArgumentTypeError(
+            f"invalid level {raw!r}; use {names} or an integer"
+        )
+
+
+_ALERT_LEVEL_NAMES = {v: k for k, v in _ALERT_LEVELS.items()}
+
+
+def _format_alert_line(a: dict) -> str:
+    level_name = (
+        a.get("level_name")
+        or _ALERT_LEVEL_NAMES.get(a.get("level"))
+        or str(a.get("level", ""))
+    )
+    if a.get("triggered_by") == "cli":
+        cond = a.get("condition_str") or a.get("condition") or ""
+        fired = len(a.get("fired") or [])
+        scope = f" run={a['run_id']}" if a.get("run_id") else ""
+        return (
+            f"{a.get('id', ''):<10} [cli]  [{level_name}] {a.get('title', '')} "
+            f"when {cond}{scope} (fired {fired}x)"
+        )
+    return (
+        f"{'':<10} [code] [{level_name}] {a.get('title', '')}"
+        f"{': ' + a['text'] if a.get('text') else ''} (run={a.get('run_id', '?')})"
+    )
+
+
+def cmd_alerts(args: argparse.Namespace) -> None:
+    """Manage alert rules: ls / get / set / rm."""
+    from nebo import client
+    sub = args.alerts_action
+    conn = _conn_kwargs(args)
+
+    if sub == "ls":
+        result = client.list_alerts(run_id=args.run, **conn)
+        if args.json:
+            print(json.dumps(result))
+            return
+        alerts = result.get("alerts", [])
+        if not alerts:
+            print("(no alerts)")
+            return
+        for a in alerts:
+            print(_format_alert_line(a))
+        return
+
+    if sub == "get":
+        result = client.get_alert(args.rule_id, **conn)
+        if args.json:
+            print(json.dumps(result))
+            return
+        for k, v in result.items():
+            print(f"{k}: {v}")
+        return
+
+    if sub == "set":
+        try:
+            condition = client.parse_condition(args.condition)
+        except ValueError as e:
+            print(f"error: {e}", file=sys.stderr)
+            sys.exit(2)
+        result = client.set_alert(
+            args.title,
+            condition,
+            text=args.text or "",
+            level=args.level,
+            loggable_id=args.loggable,
+            run_id=args.run,
+            **conn,
+        )
+        if args.json:
+            print(json.dumps(result))
+        else:
+            print(f"created alert rule {result.get('id', '')}: "
+                  f"{result.get('title', '')} when {args.condition.strip()}")
+        return
+
+    if sub == "rm":
+        result = client.delete_alert(args.rule_id, **conn)
+        if args.json:
+            print(json.dumps(result))
+        else:
+            print(f"deleted alert rule {args.rule_id}")
         return
 
 
@@ -808,6 +946,33 @@ def main() -> None:
     p_desc = subparsers.add_parser("describe", parents=[_common_conn_parser()], help="Print the workflow description")
     p_desc.add_argument("--run", help="Run id (latest if omitted)")
 
+    # alerts
+    p_alerts = subparsers.add_parser("alerts", help="Manage alert rules")
+    alerts_sub = p_alerts.add_subparsers(dest="alerts_action", required=True)
+
+    p_als = alerts_sub.add_parser("ls", parents=[_common_conn_parser()], help="List alert rules and code-fired alerts")
+    p_als.add_argument("--run", help="Scope to one run id")
+
+    p_alg = alerts_sub.add_parser("get", parents=[_common_conn_parser()], help="Show one alert rule")
+    p_alg.add_argument("rule_id")
+
+    p_alset = alerts_sub.add_parser("set", parents=[_common_conn_parser()], help="Create an alert rule on a metric condition")
+    p_alset.add_argument("--title", required=True, help="Alert headline")
+    p_alset.add_argument("--text", help="Optional body / details")
+    p_alset.add_argument(
+        "--condition", required=True,
+        help="Metric condition, e.g. 'train/loss > 5'. Ops: > >= < <= == !=",
+    )
+    p_alset.add_argument(
+        "--level", type=_parse_alert_level, default=20,
+        help="Severity: DEBUG/INFO/WARN/ERROR or an integer (default INFO)",
+    )
+    p_alset.add_argument("--loggable", help="Only match the metric on this loggable id")
+    p_alset.add_argument("--run", help="Only apply to this run id (default: all runs)")
+
+    p_alrm = alerts_sub.add_parser("rm", parents=[_common_conn_parser()], help="Delete an alert rule")
+    p_alrm.add_argument("rule_id")
+
     # metrics
     p_metrics = subparsers.add_parser("metrics", help="Read or write metrics")
     metrics_sub = p_metrics.add_subparsers(dest="metrics_action", required=True)
@@ -821,6 +986,15 @@ def main() -> None:
     p_mg.add_argument("--tag", help="Filter line/scatter entries by tag")
     p_mg.add_argument("--step", type=int, help="Filter entries by exact step")
     p_mg.add_argument("--run", help="Run id (latest if omitted)")
+    p_mg.add_argument(
+        "--runs",
+        help="Comma-separated run ids for a cross-run query; emits {run_id: series} keyed by run.",
+    )
+    p_mg.add_argument(
+        "--values-only",
+        action="store_true",
+        help="With --name: emit just the entries array [{step, value, tags, timestamp}, ...].",
+    )
 
     p_mlog = metrics_sub.add_parser("log", parents=[_common_conn_parser()], help="Write metric entries")
     p_mlog.add_argument("--entries-json", required=True, help="JSON list of metric entries")
@@ -870,6 +1044,7 @@ def main() -> None:
         "graph": cmd_graph,
         "loggables": cmd_loggables,
         "describe": cmd_describe,
+        "alerts": cmd_alerts,
         "metrics": cmd_metrics,
         "text": cmd_text_log,
         "images": cmd_images_log,

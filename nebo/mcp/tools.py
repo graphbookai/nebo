@@ -143,6 +143,52 @@ async def load_file(filepath: str, server_url: str = _DEFAULT_URL) -> dict[str, 
         return {"error": f"Failed to load file: {e}"}
 
 
+# ─── Alert Rules ─────────────────────────────────────────────────────────────
+
+
+async def list_alerts(run_id: Optional[str] = None, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
+    """List alert rules (triggered_by=cli) and code-fired alerts (triggered_by=code)."""
+    try:
+        return _client.list_alerts(run_id=run_id, url=server_url)
+    except Exception as e:
+        return _daemon_unreachable(server_url, e)
+
+
+async def set_alert(
+    title: str,
+    condition: str,
+    text: str = "",
+    level: int = 20,
+    loggable_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    server_url: str = _DEFAULT_URL,
+) -> dict[str, Any]:
+    """Create an alert rule that fires when a metric satisfies a condition.
+
+    `condition` is a string like ``"train/loss > 5"`` (ops: > >= < <= == !=).
+    The rule fires at most once per run; fired alerts wake `wait_for_alert`.
+    """
+    try:
+        parsed = _client.parse_condition(condition)
+    except ValueError as e:
+        return {"error": str(e)}
+    try:
+        return _client.set_alert(
+            title, parsed, text=text, level=level,
+            loggable_id=loggable_id, run_id=run_id, url=server_url,
+        )
+    except Exception as e:
+        return _daemon_unreachable(server_url, e)
+
+
+async def delete_alert(rule_id: str, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
+    """Delete an alert rule by id."""
+    try:
+        return _client.delete_alert(rule_id, url=server_url)
+    except Exception as e:
+        return _daemon_unreachable(server_url, e)
+
+
 # ─── Write Tools ─────────────────────────────────────────────────────────────
 #
 # These mirror the SDK's `nb.log_*` helpers as MCP tools so an external

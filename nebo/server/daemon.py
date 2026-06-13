@@ -175,6 +175,44 @@ class Run:
         }
 
 
+# Comparison operators an alert-rule condition may use.
+ALERT_CONDITION_OPS = {
+    ">": lambda a, b: a > b,
+    ">=": lambda a, b: a >= b,
+    "<": lambda a, b: a < b,
+    "<=": lambda a, b: a <= b,
+    "==": lambda a, b: a == b,
+    "!=": lambda a, b: a != b,
+}
+
+_ALERT_LEVEL_NAMES = {10: "DEBUG", 20: "INFO", 30: "WARN", 40: "ERROR"}
+
+
+def validate_alert_condition(condition: Any) -> Optional[str]:
+    """Return an error message for a malformed rule condition, else None."""
+    if not isinstance(condition, dict):
+        return "condition must be an object"
+    if not condition.get("metric"):
+        return "condition.metric is required"
+    if condition.get("op") not in ALERT_CONDITION_OPS:
+        ops = ", ".join(ALERT_CONDITION_OPS)
+        return f"condition.op must be one of: {ops}"
+    if not isinstance(condition.get("value"), (int, float)) or isinstance(
+        condition.get("value"), bool
+    ):
+        return "condition.value must be a number"
+    return None
+
+
+def format_alert_condition(condition: dict) -> str:
+    """Human/agent-readable display string for a rule condition."""
+    prefix = f"{condition['loggable_id']}:" if condition.get("loggable_id") else ""
+    value = condition["value"]
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return f"{prefix}{condition['metric']} {condition['op']} {value}"
+
+
 class DaemonState:
     """Central state holder for the daemon server.
 
@@ -183,6 +221,9 @@ class DaemonState:
 
     def __init__(self) -> None:
         self.runs: dict[str, Run] = {}
+        # Alert rules created over the API (CLI / MCP). In-memory, like
+        # every other piece of daemon state. Keyed by rule id.
+        self.alert_rules: dict[str, dict] = {}
         self.active_run_id: Optional[str] = None
         self._ws_clients: list[Any] = []
         self._lock = asyncio.Lock()
@@ -364,6 +405,7 @@ class DaemonState:
                 series["entries"].append(new_entry)
             else:
                 series["entries"] = [new_entry]
+            self._evaluate_alert_rules(run, lid, mname, new_entry)
 
         elif etype == "progress":
             if loggable_id and loggable_id in run.loggables:
@@ -400,6 +442,7 @@ class DaemonState:
                 "text": data.get("text", ""),
                 "level": int(data.get("level") or 20),
                 "level_name": data.get("level_name", ""),
+                "triggered_by": data.get("triggered_by", "code"),
                 "loggable_id": event.get("loggable_id") or data.get("loggable_id"),
                 "timestamp": data.get("timestamp", time.time()),
             }
@@ -537,6 +580,62 @@ class DaemonState:
             })
             self.finalize_run(run.id)
 
+    def _evaluate_alert_rules(
+        self, run: Run, loggable_id: str, name: str, entry: dict,
+    ) -> None:
+        """Fire any alert rule whose condition the incoming metric satisfies.
+
+        Called from the metric branch of `_process_event` (under the ingest
+        lock). Only numeric values are evaluated — snapshot chart types
+        carry dict values and are skipped. Each rule fires at most once per
+        run; the fired alert lands in `run.alerts`, where the existing
+        `/runs/{id}/alerts/wait` endpoint (and thus `wait_for_alert`)
+        picks it up via the post-ingest notify.
+        """
+        value = entry.get("value")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return
+        for rule in self.alert_rules.values():
+            cond = rule["condition"]
+            if cond["metric"] != name:
+                continue
+            if cond.get("loggable_id") and cond["loggable_id"] != loggable_id:
+                continue
+            if rule.get("run_id") and rule["run_id"] != run.id:
+                continue
+            if any(f["run_id"] == run.id for f in rule["fired"]):
+                continue  # fire once per run
+            if not ALERT_CONDITION_OPS[cond["op"]](value, cond["value"]):
+                continue
+            ts = time.time()
+            rule["fired"].append({
+                "run_id": run.id,
+                "value": value,
+                "step": entry.get("step"),
+                "timestamp": ts,
+            })
+            level = int(rule.get("level") or 20)
+            alert = {
+                "title": rule.get("title", ""),
+                "text": rule.get("text", ""),
+                "level": level,
+                "level_name": _ALERT_LEVEL_NAMES.get(level, str(level)),
+                "triggered_by": "cli",
+                "condition": format_alert_condition(cond),
+                "rule_id": rule["id"],
+                "loggable_id": loggable_id,
+                "value": value,
+                "step": entry.get("step"),
+                "timestamp": ts,
+            }
+            run.alerts.append(alert)
+            run.significant_events.append({
+                "type": "alert",
+                "timestamp": ts,
+                "loggable_id": loggable_id,
+                "message": alert["title"],
+            })
+
 
 def create_daemon_app(state: DaemonState | None = None, port: int | None = None) -> Any:
     """Create the FastAPI daemon application.
@@ -628,7 +727,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
     _GATED_PREFIXES = (
         "/events", "/ingest", "/run", "/runs",
         "/logs", "/errors", "/loggables", "/load",
-        "/graph",
+        "/graph", "/alerts",
     )
 
     def _is_read(method: str) -> bool:
@@ -924,6 +1023,78 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
                 seen = len(run.alerts)
 
         return {"status": "timeout"}
+
+    # --- Alert rules (created via CLI / MCP, evaluated on metric ingest) ---
+
+    @app.get("/alerts")
+    async def list_alerts(run_id: Optional[str] = None):
+        """Unified alert listing: cli rules plus code-fired alerts.
+
+        Rules created over the API carry `triggered_by: "cli"` and a
+        structured condition; alerts fired by `nb.alert(...)` in pipeline
+        code appear with `triggered_by: "code"` and the run they fired in.
+        """
+        if run_id is not None and run_id not in state.runs:
+            return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
+        items: list[dict] = []
+        for rule in state.alert_rules.values():
+            if run_id and rule.get("run_id") and rule["run_id"] != run_id:
+                continue
+            items.append({**rule, "condition_str": format_alert_condition(rule["condition"])})
+        runs = [state.runs[run_id]] if run_id else list(state.runs.values())
+        for run in runs:
+            for alert in run.alerts:
+                if alert.get("triggered_by", "code") == "code":
+                    items.append({**alert, "run_id": run.id})
+        return {"alerts": items}
+
+    @app.post("/alerts")
+    async def create_alert_rule(body: dict[str, Any]):
+        title = (body.get("title") or "").strip()
+        if not title:
+            return JSONResponse(status_code=422, content={"error": "title is required"})
+        err = validate_alert_condition(body.get("condition"))
+        if err:
+            return JSONResponse(status_code=422, content={"error": err})
+        level = body.get("level", 20)
+        if isinstance(level, bool) or not isinstance(level, int):
+            return JSONResponse(status_code=422, content={"error": "level must be an integer"})
+        run_id = body.get("run_id")
+        if run_id is not None and run_id not in state.runs:
+            return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
+        condition = body["condition"]
+        rule = {
+            "id": uuid.uuid4().hex[:8],
+            "title": title,
+            "text": body.get("text") or "",
+            "level": level,
+            "triggered_by": "cli",
+            "condition": {
+                "metric": condition["metric"],
+                "op": condition["op"],
+                "value": condition["value"],
+                "loggable_id": condition.get("loggable_id"),
+            },
+            "run_id": run_id,
+            "created_at": time.time(),
+            "fired": [],
+        }
+        state.alert_rules[rule["id"]] = rule
+        return rule
+
+    @app.get("/alerts/{rule_id}")
+    async def get_alert_rule(rule_id: str):
+        rule = state.alert_rules.get(rule_id)
+        if rule is None:
+            return JSONResponse(status_code=404, content={"error": f"Alert rule '{rule_id}' not found"})
+        return {**rule, "condition_str": format_alert_condition(rule["condition"])}
+
+    @app.delete("/alerts/{rule_id}")
+    async def delete_alert_rule(rule_id: str):
+        if rule_id not in state.alert_rules:
+            return JSONResponse(status_code=404, content={"error": f"Alert rule '{rule_id}' not found"})
+        del state.alert_rules[rule_id]
+        return {"status": "deleted", "id": rule_id}
 
     # Backward-compatible endpoints (use latest run)
     @app.get("/graph")
