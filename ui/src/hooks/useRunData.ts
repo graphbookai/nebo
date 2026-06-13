@@ -1,16 +1,89 @@
 import { useEffect, useRef } from 'react'
-import { useStore, type RunState, type ImageEntry } from '@/store'
-import { api } from '@/lib/api'
+import { useStore, type RunState, type ImageEntry, type AudioEntry } from '@/store'
+import { api, type LogEntry, type MetricEntry, type LoggableMetricSeries } from '@/lib/api'
+
+// ─── Non-destructive hydration ────────────────────────────────────────────
+//
+// REST hydration and the live WebSocket both write the same run slices. If a
+// run is opened while still live, the WS appends entries to the store *while*
+// the REST fetch is in flight; a plain `set` of the REST snapshot would then
+// clobber those WS entries and lose them permanently (`loaded` flips true, so
+// there's no refetch). For a finished run there's no WS activity and the merge
+// degenerates to "use the REST snapshot", so this is safe in both cases.
+//
+// Every merge is keyed so the same emission seen on both paths dedupes to one.
+
+function logKey(l: LogEntry): string {
+  return `${l.timestamp}|${l.node ?? ''}|${l.step ?? ''}|${l.message}`
+}
+
+function mergeLogs(rest: LogEntry[], live: LogEntry[]): LogEntry[] {
+  const seen = new Set(rest.map(logKey))
+  // REST is the authoritative ordered prefix; append any live-only tail.
+  return [...rest, ...live.filter(l => !seen.has(logKey(l)))]
+}
+
+function mergeByMediaId<T extends { mediaId: string }>(
+  rest: Record<string, T[]>, live: Record<string, T[]>,
+): Record<string, T[]> {
+  const out: Record<string, T[]> = { ...rest }
+  for (const [node, liveEntries] of Object.entries(live)) {
+    const base = out[node] ?? []
+    const seen = new Set(base.map(e => e.mediaId))
+    out[node] = [...base, ...liveEntries.filter(e => !seen.has(e.mediaId))]
+  }
+  return out
+}
+
+function mergeMetricSeries(rest: LoggableMetricSeries, live: LoggableMetricSeries): LoggableMetricSeries {
+  const accumulates = rest.type === 'line' || rest.type === 'scatter'
+  if (!accumulates) {
+    // Snapshot (bar/pie/histogram): exactly one logical value — keep whichever
+    // emission is newer rather than unioning stale + fresh.
+    const restT = rest.entries[rest.entries.length - 1]?.timestamp ?? 0
+    const liveT = live.entries[live.entries.length - 1]?.timestamp ?? 0
+    return liveT > restT ? live : rest
+  }
+  // Accumulating: union by step (steps are unique per accumulating series).
+  const byStep = new Map<number | string, MetricEntry>()
+  for (const e of rest.entries) byStep.set(e.step ?? `t:${e.timestamp}`, e)
+  for (const e of live.entries) {
+    const k = e.step ?? `t:${e.timestamp}`
+    if (!byStep.has(k)) byStep.set(k, e)
+  }
+  const entries = [...byStep.values()].sort((a, b) => (a.step ?? 0) - (b.step ?? 0))
+  return { ...rest, entries }
+}
+
+function mergeMetrics(
+  rest: Record<string, Record<string, LoggableMetricSeries>>,
+  live: Record<string, Record<string, LoggableMetricSeries>>,
+): Record<string, Record<string, LoggableMetricSeries>> {
+  const out: Record<string, Record<string, LoggableMetricSeries>> = {}
+  for (const lid of new Set([...Object.keys(rest), ...Object.keys(live)])) {
+    const r = rest[lid] ?? {}
+    const l = live[lid] ?? {}
+    const merged: Record<string, LoggableMetricSeries> = { ...r }
+    for (const [name, lSeries] of Object.entries(l)) {
+      merged[name] = r[name] ? mergeMetricSeries(r[name], lSeries) : lSeries
+    }
+    out[lid] = merged
+  }
+  return out
+}
 
 function fetchSingleRun(runId: string, store: ReturnType<typeof useStore.getState>) {
   const { setRunGraph, setRunLogs, setRunErrors, setRunMetrics, setRunImages, setRunAudio } = store
+  // Read the *current* live slice inside each `.then()` (not from the captured
+  // `store` snapshot) so WS entries that landed during the fetch are merged in.
+  const current = () => useStore.getState().runs.get(runId)
   return Promise.all([
     api.getRunGraph(runId).then(g => setRunGraph(runId, g)),
     // Daemon returns logs with `loggable_id` while the UI's LogEntry stores
     // it as `node` (mirroring the WS path). Normalize here so REST-loaded
     // logs match the WS shape.
     api.getRunLogs(runId, { limit: 500 }).then(d => {
-      const normalized = d.logs.map((l: unknown) => {
+      const normalized: LogEntry[] = d.logs.map((l: unknown) => {
         const e = l as Record<string, unknown>
         return {
           timestamp: e.timestamp as number,
@@ -20,10 +93,10 @@ function fetchSingleRun(runId: string, store: ReturnType<typeof useStore.getStat
           step: (e.step ?? null) as number | null,
         }
       })
-      setRunLogs(runId, normalized)
+      setRunLogs(runId, mergeLogs(normalized, current()?.logs ?? []))
     }),
     api.getRunErrors(runId).then(d => setRunErrors(runId, d.errors)),
-    api.getRunMetrics(runId).then(d => setRunMetrics(runId, d.metrics)),
+    api.getRunMetrics(runId).then(d => setRunMetrics(runId, mergeMetrics(d.metrics, current()?.loggableMetrics ?? {}))),
     api.getRunImages(runId).then(d => {
       const mapped: Record<string, ImageEntry[]> = {}
       for (const [nodeId, entries] of Object.entries(d.images)) {
@@ -36,14 +109,14 @@ function fetchSingleRun(runId: string, store: ReturnType<typeof useStore.getStat
           labels: e.labels ?? null,
         }))
       }
-      setRunImages(runId, mapped)
+      setRunImages(runId, mergeByMediaId(mapped, current()?.loggableImages ?? {}))
     }),
     api.getRunAudio(runId).then(d => {
-      const mapped: Record<string, Array<{ node: string; mediaId: string; name: string; sr: number; step: number | null; timestamp: number }>> = {}
+      const mapped: Record<string, AudioEntry[]> = {}
       for (const [nodeId, entries] of Object.entries(d.audio)) {
         mapped[nodeId] = entries.map(e => ({ node: e.node, mediaId: e.media_id, name: e.name, sr: e.sr, step: e.step, timestamp: e.timestamp }))
       }
-      setRunAudio(runId, mapped)
+      setRunAudio(runId, mergeByMediaId(mapped, current()?.loggableAudio ?? {}))
     }),
   ]).catch((err) => { console.warn(`[useRunData] Failed to fetch data for run ${runId}:`, err) })
 }

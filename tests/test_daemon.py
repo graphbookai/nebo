@@ -140,6 +140,41 @@ class TestDaemonEventIngestion:
         assert run.logs[0].message == "hello world"
 
     @pytest.mark.asyncio
+    async def test_metric_before_register_is_not_dropped(self) -> None:
+        """A metric whose loggable_register hasn't arrived yet (e.g. after a
+        daemon restart mid-run) must be kept, not silently dropped — logs
+        already always append, so the two should be symmetric."""
+        self.state.create_run("s.py", run_id="r1")
+        await self.state.ingest_events([
+            {"type": "metric", "loggable_id": "train", "name": "loss",
+             "metric_type": "line", "value": 0.5, "step": 0},
+        ], "r1")
+        run = self.state.runs["r1"]
+        assert "train" in run.loggables
+        assert run.loggables["train"].auto_seeded is True
+        assert run.loggables["train"].metrics["loss"]["entries"][0]["value"] == 0.5
+
+    @pytest.mark.asyncio
+    async def test_late_register_upgrades_auto_seeded_loggable(self) -> None:
+        """A real loggable_register arriving after an auto-seeded placeholder
+        fills in metadata in place, without dropping it as a duplicate or
+        discarding the metrics already attached."""
+        self.state.create_run("s.py", run_id="r1")
+        await self.state.ingest_events([
+            {"type": "metric", "loggable_id": "train", "name": "loss",
+             "metric_type": "line", "value": 0.5, "step": 0},
+            {"type": "loggable_register", "data": {
+                "loggable_id": "train", "func_name": "train_fn",
+                "kind": "node", "docstring": "trains",
+            }},
+        ], "r1")
+        lg = self.state.runs["r1"].loggables["train"]
+        assert lg.func_name == "train_fn"
+        assert lg.docstring == "trains"
+        assert lg.auto_seeded is False
+        assert len(lg.metrics["loss"]["entries"]) == 1
+
+    @pytest.mark.asyncio
     async def test_ingest_edge(self) -> None:
         """Should track DAG edges and mark targets as non-source."""
         self.state.create_run("s.py", run_id="r1")
@@ -832,3 +867,101 @@ def test_alerts_wait_respects_min_level():
     )
     t.join(timeout=5)
     assert result["body"]["status"] == "timeout"
+
+
+class TestOfflineTextLogsReachUI:
+    """Text logs must survive into the projection and the REST snapshot the
+    UI hydrates from on a cold page open — i.e. when no WebSocket client was
+    connected while the run was emitting.
+
+    Regression guard for "text logs don't appear in the UI unless I was
+    actively viewing the page while the run was ongoing." The live UI path
+    streams logs over the WebSocket; the offline path relies entirely on
+    GET /runs/{id}/logs. These assert the offline path is complete for both
+    node-scoped and __global__ logs, including logs interleaved with metrics
+    and ingested incrementally (the network-mode wire shape).
+    """
+
+    def _offline_client(self):
+        from fastapi.testclient import TestClient
+        from nebo.server.daemon import DaemonState, create_daemon_app
+
+        state = DaemonState()
+        client = TestClient(create_daemon_app(state=state))
+        rid = "offline1"
+        # No WebSocket is ever connected — events arrive only via POST /events,
+        # incrementally, exactly as the SDK pushes them in network mode.
+        client.post(f"/events?run_id={rid}", json=[
+            {"type": "run_start", "run_id": rid, "script_path": "t.py", "args": []},
+        ])
+        client.post(f"/events?run_id={rid}", json=[
+            {"type": "loggable_register",
+             "data": {"loggable_id": "step", "func_name": "step", "kind": "node"}},
+        ])
+        client.post(f"/events?run_id={rid}", json=[
+            {"type": "log", "loggable_id": "step", "message": "node log A", "step": 0},
+        ])
+        client.post(f"/events?run_id={rid}", json=[
+            {"type": "metric", "loggable_id": "step", "name": "loss",
+             "metric_type": "line", "value": 1.0, "step": 0},
+        ])
+        client.post(f"/events?run_id={rid}", json=[
+            {"type": "log", "loggable_id": "__global__", "message": "global log B"},
+        ])
+        client.post(f"/events?run_id={rid}", json=[
+            {"type": "log", "loggable_id": "step", "message": "node log C", "step": 1},
+        ])
+        return client, rid
+
+    def test_offline_logs_in_rest_snapshot(self) -> None:
+        client, rid = self._offline_client()
+        body = client.get(f"/runs/{rid}/logs?limit=500").json()
+        messages = [l["message"] for l in body["logs"]]
+        assert messages == ["node log A", "global log B", "node log C"], messages
+
+    def test_offline_global_logs_present(self) -> None:
+        """Logs emitted outside any @nb.fn (the __global__ loggable) must be
+        retrievable — this is the common shape for metric-only ML runs."""
+        client, rid = self._offline_client()
+        body = client.get(f"/runs/{rid}/logs?limit=500").json()
+        global_logs = [l for l in body["logs"] if l["loggable_id"] == "__global__"]
+        assert [l["message"] for l in global_logs] == ["global log B"]
+
+    def test_offline_log_count_in_summary(self) -> None:
+        client, rid = self._offline_client()
+        summary = client.get(f"/runs/{rid}").json()
+        assert summary["log_count"] == 3
+
+    def test_offline_logs_keep_step_for_timeline_filter(self) -> None:
+        """`nb.log(msg, step=i)` must round-trip its step through the offline
+        REST path so the UI's step-filter (entry.step === clicked metric step)
+        can match logs to a clicked chart datapoint after the run finishes.
+        """
+        from fastapi.testclient import TestClient
+        from nebo.server.daemon import DaemonState, create_daemon_app
+
+        state = DaemonState()
+        client = TestClient(create_daemon_app(state=state))
+        rid = "stepfilter"
+        client.post(f"/events?run_id={rid}", json=[
+            {"type": "run_start", "run_id": rid, "script_path": "t.py", "args": []},
+            {"type": "loggable_register",
+             "data": {"loggable_id": "step", "func_name": "step", "kind": "node"}},
+        ])
+        for i in range(4):
+            client.post(f"/events?run_id={rid}", json=[
+                {"type": "log", "loggable_id": "step", "message": f"log {i}", "step": i},
+                {"type": "metric", "loggable_id": "step", "name": "loss",
+                 "metric_type": "line", "value": 1.0 / (i + 1), "step": i},
+            ])
+
+        logs = client.get(f"/runs/{rid}/logs?limit=500").json()["logs"]
+        assert [(l["message"], l["step"]) for l in logs] == [
+            ("log 0", 0), ("log 1", 1), ("log 2", 2), ("log 3", 3),
+        ]
+        # The metric entries carry the same steps the chart exposes on click.
+        series = client.get(f"/runs/{rid}/metrics").json()["metrics"]["step"]["loss"]
+        assert [e["step"] for e in series["entries"]] == [0, 1, 2, 3]
+        # Simulate the UI step filter: clicking step 2 keeps exactly that log.
+        clicked = 2
+        assert [l["message"] for l in logs if l["step"] == clicked] == ["log 2"]

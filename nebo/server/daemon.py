@@ -59,6 +59,11 @@ class LoggableState:
     kind: str = "node"
     func_name: str = ""
     docstring: Optional[str] = None
+    # True when this entry was created on-demand by a metric/image/audio event
+    # that arrived before its loggable_register (e.g. after a daemon restart
+    # mid-run, or out-of-order batches). A subsequent loggable_register
+    # upgrades the placeholder in place rather than being dropped as a dupe.
+    auto_seeded: bool = False
     exec_count: int = 0
     is_source: bool = True
     params: dict = field(default_factory=dict)
@@ -357,6 +362,23 @@ class DaemonState:
         async with self._event_notify:
             self._event_notify.notify_all()
 
+    def _ensure_loggable(self, run: Run, lid: str) -> LoggableState:
+        """Return ``run.loggables[lid]``, creating a placeholder if absent.
+
+        Metric/image/audio events carry a ``loggable_id`` but used to be
+        dropped outright when the matching ``loggable_register`` hadn't been
+        seen yet. That register is only emitted once per run, so a daemon
+        restart mid-run (or any out-of-order batch) silently lost every
+        subsequent metric for that loggable while logs — which always append
+        — survived. Seeding a placeholder here keeps the two symmetric; a
+        later real register upgrades it via the ``auto_seeded`` flag.
+        """
+        lg = run.loggables.get(lid)
+        if lg is None:
+            lg = LoggableState(loggable_id=lid, kind="node", auto_seeded=True)
+            run.loggables[lid] = lg
+        return lg
+
     def _process_event(self, run: Run, event: dict) -> None:
         """Process a single event into run state."""
         # Write to .nebo file if storage is enabled
@@ -382,11 +404,12 @@ class DaemonState:
 
         elif etype == "metric":
             lid = event.get("loggable_id", "")
-            if not lid or lid not in run.loggables:
+            if not lid:
                 return
+            lg = self._ensure_loggable(run, lid)
             mname = event.get("name", "")
             mtype = event.get("metric_type", "line")
-            series = run.loggables[lid].metrics.setdefault(
+            series = lg.metrics.setdefault(
                 mname, {"type": mtype, "entries": []}
             )
             # Server is tolerant of type mismatches: first-writer-wins.
@@ -458,7 +481,8 @@ class DaemonState:
             data = event.get("data", {})
             lid = data.get("loggable_id", loggable_id or "")
             kind = data.get("kind", "node")
-            if lid and lid not in run.loggables:
+            existing = run.loggables.get(lid) if lid else None
+            if lid and existing is None:
                 run.loggables[lid] = LoggableState(
                     loggable_id=lid,
                     kind=kind,
@@ -467,6 +491,15 @@ class DaemonState:
                     group=data.get("group"),
                     ui_hints=data.get("ui_hints"),
                 )
+            elif existing is not None and existing.auto_seeded:
+                # A real register arrived after a metric/media event seeded a
+                # placeholder — fill in the metadata and clear the flag.
+                existing.kind = kind
+                existing.func_name = data.get("func_name") or ""
+                existing.docstring = data.get("docstring")
+                existing.group = data.get("group")
+                existing.ui_hints = data.get("ui_hints")
+                existing.auto_seeded = False
 
         elif etype == "node_executed":
             data = event.get("data", {})
@@ -494,11 +527,12 @@ class DaemonState:
                     run.loggables[tgt].is_source = False
 
         elif etype == "image":
-            if loggable_id and loggable_id in run.loggables:
+            if loggable_id:
+                lg = self._ensure_loggable(run, loggable_id)
                 media_id = uuid.uuid4().hex[:16]
                 self._media_store[media_id] = event.pop("data", "")
                 event["media_id"] = media_id
-                run.loggables[loggable_id].images.append({
+                lg.images.append({
                     "media_id": media_id,
                     "name": event.get("name", ""),
                     "step": event.get("step"),
@@ -507,11 +541,12 @@ class DaemonState:
                 })
 
         elif etype == "audio":
-            if loggable_id and loggable_id in run.loggables:
+            if loggable_id:
+                lg = self._ensure_loggable(run, loggable_id)
                 media_id = uuid.uuid4().hex[:16]
                 self._media_store[media_id] = event.pop("data", "")
                 event["media_id"] = media_id
-                run.loggables[loggable_id].audio.append({
+                lg.audio.append({
                     "media_id": media_id,
                     "name": event.get("name", ""),
                     "sr": event.get("sr", 16000),
