@@ -43,7 +43,7 @@ export function MobileNav() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-baseline gap-2">
             <span className="text-sm font-medium truncate">{scriptName}</span>
             <RunIdChip runId={run.summary.id} />
           </div>

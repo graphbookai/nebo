@@ -77,13 +77,18 @@ export function RunDetailView() {
       {isDesktop && (
         <div className="border-b border-border shrink-0">
           <div className="flex items-center gap-3 px-4 py-2">
-            <span className="text-sm font-medium">{scriptName}</span>
-            {!isComparison && <RunIdChip runId={run.summary.id} />}
-            {run.graph?.workflow_description && (
-              <span className="text-xs text-muted-foreground truncate max-w-xs" title={run.graph.workflow_description}>
-                {run.graph.workflow_description.split('\n')[0].replace(/^#\s*/, '')}
-              </span>
-            )}
+            {/* Text items align on their baselines (mixed font sizes look
+                off-kilter when box-centered); the group as a whole still
+                centers against the tabs/buttons. */}
+            <div className="flex items-baseline gap-3 min-w-0">
+              <span className="text-sm font-medium whitespace-nowrap">{scriptName}</span>
+              {!isComparison && <RunIdChip runId={run.summary.id} />}
+              {run.graph?.workflow_description && (
+                <span className="text-xs text-muted-foreground truncate max-w-xs" title={run.graph.workflow_description}>
+                  {run.graph.workflow_description.split('\n')[0].replace(/^#\s*/, '')}
+                </span>
+              )}
+            </div>
             <Tabs
               value={viewMode}
               onValueChange={(v) => setViewMode(v as 'graph' | 'flat')}
