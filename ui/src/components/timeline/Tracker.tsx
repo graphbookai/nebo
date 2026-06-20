@@ -13,6 +13,7 @@ const HEIGHT_KEY = 'nebo_tracker_height'
 const ROW_H = 22
 const HEADER_H = 26
 const TREE_W = 220
+const PAD = 12  // horizontal inset (px) so edge ticks/datapoints aren't clipped
 const MODALITIES: StreamModality[] = ['text', 'image', 'audio']
 
 function loadHeight(): number {
@@ -60,7 +61,7 @@ export function Tracker({ runId }: { runId: string }) {
     return m === Infinity ? 0 : m
   }, [domainLeaves])
 
-  const axis = useAxisTransform(min, max)
+  const axis = useAxisTransform(min, max, PAD)
 
   // One flattened row list drives BOTH the tree column and the canvas, so
   // they render identical rows at identical heights in one shared scroll.
@@ -118,8 +119,10 @@ export function Tracker({ runId }: { runId: string }) {
     const el = gridRef.current
     if (!el || range <= 0) return min
     const rect = el.getBoundingClientRect()
-    const trackX = (clientX - rect.left - axis.panX) / axis.scale
-    const frac = Math.max(0, Math.min(1, trackX / rect.width))
+    const innerLeft = rect.left + PAD
+    const innerWidth = Math.max(1, rect.width - 2 * PAD)
+    const trackX = (clientX - innerLeft - axis.panX) / axis.scale
+    const frac = Math.max(0, Math.min(1, trackX / innerWidth))
     const v = min + frac * range
     return isStep ? Math.round(v) : v
   }, [min, range, isStep, axis.panX, axis.scale])
@@ -184,8 +187,8 @@ export function Tracker({ runId }: { runId: string }) {
               </div>
             ) : (
               <>
-                <TimelineRuler ticks={ticks} axis={axis} isStep={isStep} minTime={minTime} height={HEADER_H} playheadPct={playheadPct} />
-                <TimelineRows rows={rows} rowHeight={ROW_H} isStep={isStep} axis={axis} ticks={ticks} playheadPct={playheadPct} />
+                <TimelineRuler ticks={ticks} axis={axis} isStep={isStep} minTime={minTime} height={HEADER_H} pad={PAD} playheadPct={playheadPct} />
+                <TimelineRows rows={rows} rowHeight={ROW_H} isStep={isStep} axis={axis} ticks={ticks} pad={PAD} playheadPct={playheadPct} />
               </>
             )}
           </div>
