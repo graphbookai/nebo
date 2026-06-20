@@ -66,7 +66,7 @@ export function Tracker({ runId }: { runId: string }) {
 
   const onReset = useCallback(() => { axis.reset(); if (isStep) setStep(null); else setTime(null) }, [axis, isStep, setStep, setTime])
   const toggleModality = useCallback((m: StreamModality) => setActiveModalities(prev => {
-    const next = new Set(prev); next.has(m) ? next.delete(m) : next.add(m); return next
+    const next = new Set(prev); if (next.has(m)) next.delete(m); else next.add(m); return next
   }), [])
 
   // Stream selection → focus the owning loggable card in the main view.

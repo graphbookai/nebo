@@ -22,8 +22,19 @@ export function useAxisTransform(min: number, max: number): AxisTransform {
   const panStartX = useRef(0)
   const panStartPanX = useRef(0)
   const panning = useRef(false)
+  const [containerWidth, setContainerWidth] = useState(0)
+  const observerRef = useRef<ResizeObserver | null>(null)
 
-  const setContainer = useCallback((el: HTMLElement | null) => { containerRef.current = el }, [])
+  const setContainer = useCallback((el: HTMLElement | null) => {
+    containerRef.current = el
+    observerRef.current?.disconnect()
+    if (el) {
+      setContainerWidth(el.clientWidth)
+      const ro = new ResizeObserver(() => setContainerWidth(el.clientWidth))
+      ro.observe(el)
+      observerRef.current = ro
+    }
+  }, [])
   const toPercent = useCallback((v: number) => (range > 0 ? ((v - min) / range) * 100 : 0), [min, range])
 
   const clampPanX = useCallback((px: number, s: number) => {
@@ -57,10 +68,10 @@ export function useAxisTransform(min: number, max: number): AxisTransform {
 
   const innerStyle = useMemo(() => ({ width: `${scale * 100}%`, transform: `translateX(${panX}px)` }), [scale, panX])
   const visibleRange = useMemo<[number, number]>(() => {
-    const w = containerRef.current?.clientWidth ?? 300
+    const w = containerWidth || 300
     const minPct = (-panX / (w * scale)) * 100
     return [minPct - 2, minPct + 100 / scale + 2]
-  }, [panX, scale])
+  }, [panX, scale, containerWidth])
 
   return { scale, panX, innerStyle, toPercent, visibleRange, onWheel, beginPan, onPanMove, endPan, reset, setContainer }
 }
