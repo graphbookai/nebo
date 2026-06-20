@@ -123,9 +123,9 @@ export type TimelineMode = 'time' | 'step'
 
 export interface TimelineState {
   mode: TimelineMode
-  timeStart: number | null
-  timeEnd: number | null
   step: number | null
+  time: number | null          // single playhead timestamp
+  selectedStream: string | null
 }
 
 export interface ComparisonGroup {
@@ -224,8 +224,9 @@ interface NeboStore {
   // Timeline
   timeline: TimelineState
   setTimelineMode: (mode: TimelineMode) => void
-  setTimeRange: (start: number | null, end: number | null) => void
   setTimelineStep: (step: number | null) => void
+  setTimelineTime: (time: number | null) => void
+  setSelectedStream: (path: string | null) => void
 
   // Settings
   settings: Settings
@@ -405,10 +406,11 @@ export const useStore = create<NeboStore>((set, get) => ({
   rightPanelOpen: false,
   toggleRightPanel: () => set(state => ({ rightPanelOpen: !state.rightPanelOpen })),
 
-  timeline: { mode: 'time', timeStart: null, timeEnd: null, step: null },
+  timeline: { mode: 'time', step: null, time: null, selectedStream: null },
   setTimelineMode: (mode) => set(state => ({ timeline: { ...state.timeline, mode } })),
-  setTimeRange: (start, end) => set(state => ({ timeline: { ...state.timeline, timeStart: start, timeEnd: end } })),
   setTimelineStep: (step) => set(state => ({ timeline: { ...state.timeline, step } })),
+  setTimelineTime: (time) => set(state => ({ timeline: { ...state.timeline, time } })),
+  setSelectedStream: (path) => set(state => ({ timeline: { ...state.timeline, selectedStream: path } })),
 
   settings: initialSettings,
 

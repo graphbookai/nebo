@@ -5,7 +5,6 @@ import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { useComparisonContext } from '@/hooks/useComparisonContext'
 import { DagGraph } from '@/components/graph/DagGraph'
 import { LoggableGridView } from '@/components/graph/LoggableGridView'
-import { TimelineScrubber } from '@/components/timeline/TimelineScrubber'
 import { RunHoverInfo } from '@/components/runs/RunHoverInfo'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PanelRight } from 'lucide-react'
@@ -151,8 +150,6 @@ export function RunDetailView() {
         )}
       </div>
 
-      {/* Timeline scrubber */}
-      <TimelineScrubber runId={effectiveRunId!} />
     </div>
   )
 }
