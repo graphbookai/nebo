@@ -88,6 +88,7 @@ function fetchSingleRun(runId: string, store: ReturnType<typeof useStore.getStat
         return {
           timestamp: e.timestamp as number,
           node: (e.node ?? e.loggable_id ?? null) as string | null,
+          name: (e.name as string) ?? 'text',
           message: (e.message ?? '') as string,
           level: (e.level ?? 'info') as string,
           step: (e.step ?? null) as number | null,

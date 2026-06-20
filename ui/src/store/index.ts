@@ -761,6 +761,7 @@ export const useStore = create<NeboStore>((set, get) => ({
             newLogs.push({
               timestamp: (event.timestamp as number) ?? Date.now() / 1000,
               node: loggableId ?? null,
+              name: (event.name as string) ?? (data.name as string) ?? 'text',
               message: (event.message as string) ?? (data.message as string) ?? '',
               level: (event.level as string) ?? 'info',
               step: (event.step as number) ?? null,

@@ -69,6 +69,7 @@ export interface UiConfig {
 export interface LogEntry {
   timestamp: number
   node: string | null
+  name: string
   message: string
   level: string
   step: number | null
