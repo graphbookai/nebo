@@ -89,7 +89,7 @@ def _format_tensor(obj: Any) -> str:
     return "\n".join(parts)
 
 
-def log(message: Union[str, Any], *, step: Optional[int] = None) -> None:
+def log(message: Union[str, Any], *, name: Optional[str] = None, step: Optional[int] = None) -> None:
     """Log a message to the current node.
 
     Accepts plain strings as well as tensor-like objects (numpy
@@ -99,6 +99,7 @@ def log(message: Union[str, Any], *, step: Optional[int] = None) -> None:
 
     Args:
         message: The message string, or a tensor/ndarray to format.
+        name: Stream name for this log; defaults to "text".
         step: Optional step counter.
     """
     _ensure_initialized()
@@ -112,12 +113,14 @@ def log(message: Union[str, Any], *, step: Optional[int] = None) -> None:
     state = get_state()
     node_id = _current_node.get() or GLOBAL_LOGGABLE_ID
     timestamp = time.time()
+    name = name if name else "text"
 
     state.ensure_loggable(node_id)
 
     entry = {
         "type": "log",
         "loggable_id": node_id,
+        "name": name,
         "message": message,
         "step": step,
         "timestamp": timestamp,

@@ -45,6 +45,21 @@ class TestLogging:
     def setup_method(self) -> None:
         SessionState.reset_singleton()
 
+    def test_log_default_name_is_text(self) -> None:
+        import nebo as nb
+        from nebo.core.state import get_state
+        nb.log("hello")
+        entry = get_state().loggables["__global__"].logs[-1]
+        assert entry["name"] == "text"
+
+    def test_log_explicit_name(self) -> None:
+        import nebo as nb
+        from nebo.core.state import get_state
+        nb.log("hi", name="status")
+        entry = get_state().loggables["__global__"].logs[-1]
+        assert entry["name"] == "status"
+        assert entry["message"] == "hi"
+
     def test_log_inside_step(self) -> None:
         """log() inside a step should attach to that node's recent_logs ring."""
         @fn()
