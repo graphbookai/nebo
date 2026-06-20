@@ -167,10 +167,15 @@ export function Tracker({ runId }: { runId: string }) {
               selectedPath={timeline.selectedStream} onSelect={onSelect} onToggle={onToggleNode}
             />
           </div>
-          {/* Canvas column — sticky ruler + scrollable rows; shares the tree's scroll. */}
+          {/* Canvas column — sticky ruler + rows. Uses overflow-x:clip (NOT
+              hidden) to clip the zoom transform: `hidden` on one axis forces
+              the other to `auto`, which would make this column its own
+              vertical scroller (breaking shared scroll + ruler stickiness).
+              `clip` leaves overflow-y visible so the single outer container
+              scrolls both columns together. */}
           <div
             ref={setGrid}
-            className="relative flex-1 cursor-crosshair select-none overflow-x-hidden"
+            className="relative flex-1 cursor-crosshair select-none overflow-x-clip"
             onPointerDown={onCanvasDown} onPointerMove={onCanvasMove} onPointerUp={onCanvasUp} onPointerLeave={onCanvasUp}
           >
             {range <= 0 ? (
