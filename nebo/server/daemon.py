@@ -26,6 +26,7 @@ class LogEntry:
     timestamp: float
     node: Optional[str]
     message: str
+    name: str = "text"
     level: str = "info"
     type: str = "log"
     step: Optional[int] = None
@@ -395,6 +396,7 @@ class DaemonState:
                 timestamp=event.get("timestamp", time.time()),
                 node=loggable_id,
                 message=event.get("message", ""),
+                name=event.get("name") or "text",
                 level=event.get("level", "info"),
                 step=event.get("step"),
             )
@@ -838,7 +840,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         logs = run.logs
         if loggable_id:
             logs = [l for l in logs if l.node == loggable_id]
-        return {"logs": [{"timestamp": l.timestamp, "loggable_id": l.node, "message": l.message, "level": l.level, "step": l.step} for l in logs[-limit:]]}
+        return {"logs": [{"timestamp": l.timestamp, "loggable_id": l.node, "name": l.name, "message": l.message, "level": l.level, "step": l.step} for l in logs[-limit:]]}
 
     @app.get("/runs/{run_id}/errors")
     async def get_run_errors(run_id: str):
@@ -1147,7 +1149,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         logs = run.logs
         if loggable_id:
             logs = [l for l in logs if l.node == loggable_id]
-        return {"logs": [{"timestamp": l.timestamp, "loggable_id": l.node, "message": l.message} for l in logs[-limit:]]}
+        return {"logs": [{"timestamp": l.timestamp, "loggable_id": l.node, "name": l.name, "message": l.message} for l in logs[-limit:]]}
 
     @app.get("/errors")
     async def get_errors():

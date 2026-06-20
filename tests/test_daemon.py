@@ -140,6 +140,18 @@ class TestDaemonEventIngestion:
         assert run.logs[0].message == "hello world"
 
     @pytest.mark.asyncio
+    async def test_log_event_name_round_trips(self) -> None:
+        """Text-log events carry a stream name; absent name defaults to 'text'."""
+        self.state.create_run("s.py", run_id="r1")
+        await self.state.ingest_events([
+            {"type": "log", "loggable_id": "__global__", "name": "status", "message": "hi"},
+            {"type": "log", "loggable_id": "__global__", "message": "no-name"},
+        ], "r1")
+        run = self.state.runs["r1"]
+        assert run.logs[0].name == "status"
+        assert run.logs[1].name == "text"
+
+    @pytest.mark.asyncio
     async def test_metric_before_register_is_not_dropped(self) -> None:
         """A metric whose loggable_register hasn't arrived yet (e.g. after a
         daemon restart mid-run) must be kept, not silently dropped — logs
