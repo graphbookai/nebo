@@ -4,20 +4,20 @@ import { useStreams } from '@/hooks/useStreams'
 import { useAxisTransform } from '@/hooks/useAxisTransform'
 import { StreamTree } from './StreamTree'
 import { TrackerControls } from './TrackerControls'
-import { TimelineGrid } from './TimelineGrid'
-import { Button } from '@/components/ui/button'
-import { ChevronDown, ChevronUp } from 'lucide-react'
-import type { StreamModality, StreamLeaf } from '@/lib/streams'
+import { TimelineRuler, TimelineRows } from './TimelineGrid'
+import { generateTicks } from './ticks'
+import { Input } from '@/components/ui/input'
+import { flattenRows, type StreamModality } from '@/lib/streams'
 
 const HEIGHT_KEY = 'nebo_tracker_height'
 const ROW_H = 22
-const HEADER_H = 18
+const HEADER_H = 26
 const TREE_W = 220
 const MODALITIES: StreamModality[] = ['text', 'image', 'audio']
 
 function loadHeight(): number {
   const v = Number(localStorage.getItem(HEIGHT_KEY))
-  return Number.isFinite(v) && v >= 120 ? v : 200
+  return Number.isFinite(v) && v >= 120 ? v : 220
 }
 
 export function Tracker({ runId }: { runId: string }) {
@@ -31,21 +31,19 @@ export function Tracker({ runId }: { runId: string }) {
   const [height, setHeight] = useState(loadHeight)
   const heightRef = useRef(height)
   const [collapsed, setCollapsed] = useState(false)
+  const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(() => new Set())
+  const [query, setQuery] = useState('')
   const [activeModalities, setActiveModalities] = useState<Set<StreamModality>>(() => new Set(MODALITIES))
 
-  // Filter leaves by active modality; keep tree order (depth-first by path).
-  const visibleLeaves: StreamLeaf[] = useMemo(
-    () => model.leaves
-      .filter(l => activeModalities.has(l.modality))
-      .sort((a, b) => a.path.localeCompare(b.path)),
+  // X domain from modality-visible leaves (independent of search/collapse so
+  // the zoom range doesn't jump while typing or collapsing).
+  const domainLeaves = useMemo(
+    () => model.leaves.filter(l => activeModalities.has(l.modality)),
     [model.leaves, activeModalities],
   )
-  const visibleTree = model.tree // StreamTree filters by its own search; modality filter applies to grid rows
-
-  // Shared X domain across all rows.
   const [min, max] = useMemo(() => {
     let lo = Infinity, hi = -Infinity
-    for (const l of visibleLeaves) {
+    for (const l of domainLeaves) {
       if (isStep) {
         if (l.minStep != null) lo = Math.min(lo, l.minStep)
         if (l.maxStep != null) hi = Math.max(hi, l.maxStep)
@@ -55,21 +53,45 @@ export function Tracker({ runId }: { runId: string }) {
     }
     if (lo === Infinity) { lo = 0; hi = 0 }
     return [lo, hi]
-  }, [visibleLeaves, isStep])
+  }, [domainLeaves, isStep])
   const minTime = useMemo(() => {
     let m = Infinity
-    for (const l of visibleLeaves) m = Math.min(m, l.minTime)
+    for (const l of domainLeaves) m = Math.min(m, l.minTime)
     return m === Infinity ? 0 : m
-  }, [visibleLeaves])
+  }, [domainLeaves])
 
   const axis = useAxisTransform(min, max)
+
+  // One flattened row list drives BOTH the tree column and the canvas, so
+  // they render identical rows at identical heights in one shared scroll.
+  const rows = useMemo(
+    () => flattenRows(model.tree, collapsedNodes, query, activeModalities),
+    [model.tree, collapsedNodes, query, activeModalities],
+  )
+
+  const range = max - min
+  const ticks = useMemo(() => {
+    if (range <= 0) return []
+    const [a, b] = axis.visibleRange
+    const vMin = min + (a / 100) * range
+    const vMax = min + (b / 100) * range
+    const raw = generateTicks(Math.max(min, vMin), Math.min(max, vMax))
+    return isStep ? raw.map(Math.round) : raw
+  }, [min, max, range, isStep, axis.visibleRange])
+
+  const playhead = isStep ? timeline.step : timeline.time
+  const playheadPct = playhead != null && range > 0 ? axis.toPercent(playhead) : null
 
   const onReset = useCallback(() => { axis.reset(); if (isStep) setStep(null); else setTime(null) }, [axis, isStep, setStep, setTime])
   const toggleModality = useCallback((m: StreamModality) => setActiveModalities(prev => {
     const next = new Set(prev); if (next.has(m)) next.delete(m); else next.add(m); return next
   }), [])
+  const onToggleNode = useCallback((path: string) => setCollapsedNodes(prev => {
+    const next = new Set(prev); if (next.has(path)) next.delete(path); else next.add(path); return next
+  }), [])
 
-  // Stream selection → focus the owning loggable card in the main view.
+  // Selecting a stream highlights it and scrolls the main view to the owning
+  // loggable card — it does NOT filter the content panels.
   const onSelect = useCallback((path: string) => {
     const next = timeline.selectedStream === path ? null : path
     setSelectedStream(next)
@@ -88,41 +110,79 @@ export function Tracker({ runId }: { runId: string }) {
   }
   const onHandleUp = () => { if (dragging.current) { dragging.current = false; localStorage.setItem(HEIGHT_KEY, String(heightRef.current)) } }
 
+  // Scrub the playhead (left-drag) / pan (middle-drag) on the canvas.
+  const gridRef = useRef<HTMLDivElement | null>(null)
+  const scrubbing = useRef(false)
+  const setGrid = useCallback((el: HTMLDivElement | null) => { gridRef.current = el; axis.setContainer(el) }, [axis])
+  const fromPixel = useCallback((clientX: number) => {
+    const el = gridRef.current
+    if (!el || range <= 0) return min
+    const rect = el.getBoundingClientRect()
+    const trackX = (clientX - rect.left - axis.panX) / axis.scale
+    const frac = Math.max(0, Math.min(1, trackX / rect.width))
+    const v = min + frac * range
+    return isStep ? Math.round(v) : v
+  }, [min, range, isStep, axis.panX, axis.scale])
+  const scrub = useCallback((clientX: number) => {
+    const v = fromPixel(clientX); if (isStep) setStep(v); else setTime(v)
+  }, [fromPixel, isStep, setStep, setTime])
+  const onCanvasDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* capture is best-effort */ }
+    if (e.button === 1) axis.beginPan(e.clientX)
+    else { scrubbing.current = true; scrub(e.clientX) }
+  }
+  const onCanvasMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (scrubbing.current) scrub(e.clientX); else axis.onPanMove(e.clientX)
+  }
+  const onCanvasUp = () => { scrubbing.current = false; axis.endPan() }
+
   const minStep = isStep ? min : 0
   const maxStep = isStep ? max : 0
   const hasSteps = isStep && max > min
 
   return (
-    <div className="shrink-0 border-t border-border bg-background" style={{ height: collapsed ? 32 : height }}>
-      {/* resize handle (hidden when collapsed) */}
+    <div className="shrink-0 border-t border-border bg-background flex flex-col" style={collapsed ? undefined : { height }}>
+      {/* resize handle (only when expanded) */}
       {!collapsed && (
         <div
-          className="h-1 w-full cursor-ns-resize hover:bg-primary/40"
+          className="h-1 w-full shrink-0 cursor-ns-resize hover:bg-primary/40"
           onPointerDown={onHandleDown} onPointerMove={onHandleMove} onPointerUp={onHandleUp}
         />
       )}
-      <div className="flex items-center justify-between px-2 h-7 border-b border-border">
-        <span className="text-[11px] font-medium text-muted-foreground">Streams</span>
-        <Button variant="ghost" className="h-6 w-6 p-0" onClick={() => setCollapsed(c => !c)} title={collapsed ? 'Expand tracker' : 'Collapse tracker'}>
-          {collapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-        </Button>
-      </div>
+      {/* Controls row is always visible so the collapse toggle stays reachable. */}
+      <TrackerControls
+        minStep={minStep} maxStep={maxStep} hasSteps={hasSteps}
+        activeModalities={activeModalities} onToggleModality={toggleModality} onReset={onReset}
+        collapsed={collapsed} onToggleCollapse={() => setCollapsed(c => !c)}
+      />
       {!collapsed && (
-        <div className="flex flex-col" style={{ height: height - 32 - 4 }}>
-          <TrackerControls
-            minStep={minStep} maxStep={maxStep} hasSteps={hasSteps}
-            activeModalities={activeModalities} onToggleModality={toggleModality} onReset={onReset}
-          />
-          <div className="flex flex-1 overflow-hidden">
-            <div className="shrink-0 border-r border-border" style={{ width: TREE_W }}>
-              <StreamTree nodes={visibleTree} rowHeight={ROW_H} onSelect={onSelect} />
+        <div className="flex flex-1 overflow-x-hidden overflow-y-auto">
+          {/* Tree column — sticky search header + rows. */}
+          <div className="shrink-0 border-r border-border" style={{ width: TREE_W }}>
+            <div className="sticky top-0 z-10 border-b border-border bg-background p-1" style={{ height: HEADER_H }}>
+              <Input placeholder="Search streams…" value={query} onChange={e => setQuery(e.target.value)} className="h-[18px] text-[11px]" />
             </div>
-            <div className="flex-1 overflow-auto">
-              <TimelineGrid
-                leaves={visibleLeaves} rowHeight={ROW_H} headerHeight={HEADER_H}
-                min={min} max={max} isStep={isStep} minTime={minTime} axis={axis}
-              />
-            </div>
+            <StreamTree
+              rows={rows} rowHeight={ROW_H} collapsed={collapsedNodes}
+              selectedPath={timeline.selectedStream} onSelect={onSelect} onToggle={onToggleNode}
+            />
+          </div>
+          {/* Canvas column — sticky ruler + scrollable rows; shares the tree's scroll. */}
+          <div
+            ref={setGrid}
+            className="relative flex-1 cursor-crosshair select-none overflow-x-hidden"
+            onPointerDown={onCanvasDown} onPointerMove={onCanvasMove} onPointerUp={onCanvasUp} onPointerLeave={onCanvasUp}
+          >
+            {range <= 0 ? (
+              <div className="sticky top-0 flex h-full items-center justify-center text-[11px] text-muted-foreground">
+                {isStep ? 'No step data' : 'No time data'}
+              </div>
+            ) : (
+              <>
+                <TimelineRuler ticks={ticks} axis={axis} isStep={isStep} minTime={minTime} height={HEADER_H} playheadPct={playheadPct} />
+                <TimelineRows rows={rows} rowHeight={ROW_H} isStep={isStep} axis={axis} ticks={ticks} playheadPct={playheadPct} />
+              </>
+            )}
           </div>
         </div>
       )}

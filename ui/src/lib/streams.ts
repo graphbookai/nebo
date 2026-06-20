@@ -95,3 +95,48 @@ export function buildStreamTree(leaves: StreamLeaf[]): StreamTreeNode[] {
   sortRec(roots)
   return roots
 }
+
+// A single flattened row shared by the tree column and the canvas, so both
+// render the same ordered list at the same row height (keeping them aligned).
+export interface FlatRow {
+  key: string          // unique row key (the node path)
+  label: string        // display label (this node's path segment, e.g. "loss")
+  path: string
+  depth: number
+  isLeaf: boolean
+  leaf: StreamLeaf | null
+}
+
+// Flatten the tree into display rows, honoring collapse + search query +
+// active modalities. A leaf row shows when its modality is active and (no
+// query OR its path matches). A branch shows when it has any visible
+// descendant leaf; a collapsed branch hides its children but still shows.
+export function flattenRows(
+  nodes: StreamTreeNode[],
+  collapsed: Set<string>,
+  query: string,
+  activeModalities: Set<StreamModality>,
+): FlatRow[] {
+  const q = query.trim().toLowerCase()
+  const leafVisible = (leaf: StreamLeaf) =>
+    activeModalities.has(leaf.modality) && (!q || leaf.path.toLowerCase().includes(q))
+  const hasVisibleLeaf = (node: StreamTreeNode): boolean => {
+    if (node.leaf && node.children.length === 0) return leafVisible(node.leaf)
+    return node.children.some(hasVisibleLeaf)
+  }
+  const out: FlatRow[] = []
+  const walk = (ns: StreamTreeNode[], depth: number) => {
+    for (const n of ns) {
+      const isLeaf = n.leaf != null && n.children.length === 0
+      if (isLeaf) {
+        if (leafVisible(n.leaf!)) out.push({ key: n.path, label: n.key, path: n.path, depth, isLeaf: true, leaf: n.leaf })
+        continue
+      }
+      if (!hasVisibleLeaf(n)) continue
+      out.push({ key: n.path, label: n.key, path: n.path, depth, isLeaf: false, leaf: null })
+      if (!collapsed.has(n.path)) walk(n.children, depth + 1)
+    }
+  }
+  walk(nodes, 0)
+  return out
+}

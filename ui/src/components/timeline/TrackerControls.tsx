@@ -3,7 +3,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react'
+import { ChevronLeft, ChevronRight, RotateCcw, ChevronDown, ChevronUp } from 'lucide-react'
 import type { StreamModality } from '@/lib/streams'
 
 const MODALITY_COLORS: Record<StreamModality, string> = {
@@ -21,9 +21,11 @@ interface Props {
   activeModalities: Set<StreamModality>
   onToggleModality: (m: StreamModality) => void
   onReset: () => void
+  collapsed: boolean
+  onToggleCollapse: () => void
 }
 
-export function TrackerControls({ minStep, maxStep, hasSteps, activeModalities, onToggleModality, onReset }: Props) {
+export function TrackerControls({ minStep, maxStep, hasSteps, activeModalities, onToggleModality, onReset, collapsed, onToggleCollapse }: Props) {
   const timeline = useStore(s => s.timeline)
   const setMode = useStore(s => s.setTimelineMode)
   const setStep = useStore(s => s.setTimelineStep)
@@ -36,7 +38,26 @@ export function TrackerControls({ minStep, maxStep, hasSteps, activeModalities, 
   }
 
   return (
-    <div className="flex items-center gap-2 px-2 py-1.5 border-b border-border bg-background flex-wrap">
+    <div className="flex items-center gap-2 px-2 py-1.5 border-b border-border bg-background flex-wrap shrink-0">
+      {/* Modality chips — left, near the stream filter. */}
+      <div className="flex items-center gap-1">
+        {MODALITIES.map(m => {
+          const active = activeModalities.has(m)
+          return (
+            <Badge
+              key={m}
+              variant={active ? 'default' : 'outline'}
+              className="cursor-pointer select-none gap-1 px-2 py-0.5 text-[10px]"
+              style={active ? { backgroundColor: MODALITY_COLORS[m], borderColor: MODALITY_COLORS[m] } : undefined}
+              onClick={() => onToggleModality(m)}
+            >
+              <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: active ? '#fff' : MODALITY_COLORS[m] }} />
+              {MODALITY_LABELS[m]}
+            </Badge>
+          )
+        })}
+      </div>
+
       <Select value={timeline.mode} onValueChange={(v) => setMode(v as 'time' | 'step')}>
         <SelectTrigger className="h-7 w-[88px] text-xs"><SelectValue /></SelectTrigger>
         <SelectContent>
@@ -73,23 +94,9 @@ export function TrackerControls({ minStep, maxStep, hasSteps, activeModalities, 
         <RotateCcw size={14} />
       </Button>
 
-      <div className="ml-auto flex items-center gap-1">
-        {MODALITIES.map(m => {
-          const active = activeModalities.has(m)
-          return (
-            <Badge
-              key={m}
-              variant={active ? 'default' : 'outline'}
-              className="cursor-pointer select-none gap-1 px-2 py-0.5 text-[10px]"
-              style={active ? { backgroundColor: MODALITY_COLORS[m], borderColor: MODALITY_COLORS[m] } : undefined}
-              onClick={() => onToggleModality(m)}
-            >
-              <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: active ? '#fff' : MODALITY_COLORS[m] }} />
-              {MODALITY_LABELS[m]}
-            </Badge>
-          )
-        })}
-      </div>
+      <Button variant="ghost" className="ml-auto h-7 w-7 p-0" onClick={onToggleCollapse} title={collapsed ? 'Expand tracker' : 'Collapse tracker'}>
+        {collapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+      </Button>
     </div>
   )
 }
