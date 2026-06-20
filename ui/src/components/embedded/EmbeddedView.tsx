@@ -12,6 +12,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 import { ConfigChips } from '@/components/shared/ConfigChips'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { DEFAULT_RUN_COLOR } from '@/lib/colors'
+import { Tracker } from '@/components/timeline/Tracker'
 
 /**
  * Top-level dispatcher for `?view=<kind>&run=<id>...` URLs. Renders only the
@@ -67,6 +68,7 @@ function EmbeddedRun({ runId }: { runId: string }) {
       <div className="flex-1 overflow-hidden">
         <DagGraph runId={runId} />
       </div>
+      <Tracker runId={runId} />
     </div>
   )
 }

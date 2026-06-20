@@ -14,6 +14,7 @@ import { EmbeddedView } from '@/components/embedded/EmbeddedView'
 import { ChartTooltip } from '@/components/charts/ChartTooltip'
 import { TokenPrompt } from '@/components/auth/TokenPrompt'
 import { getUnauthorized, subscribeUnauthorized } from '@/lib/auth'
+import { Tracker } from '@/components/timeline/Tracker'
 
 export default function App() {
   useWebSocket()
@@ -66,39 +67,37 @@ export default function App() {
       )}
 
       {isDesktop ? (
-        /* Desktop: sidebar + detail + right panel */
-        <div className="flex flex-1 overflow-hidden">
-          <div className="w-64 shrink-0 overflow-hidden">
-            <ErrorBoundary label="Sidebar">
-              <Sidebar />
-            </ErrorBoundary>
-          </div>
-          <div className="flex-1 overflow-hidden">
-            <ErrorBoundary label="RunDetailView">
-              <RunDetailView />
-            </ErrorBoundary>
-          </div>
-          {selectedRunId && rightPanelOpen && (
-            <div className="w-80 shrink-0 overflow-hidden">
-              <ErrorBoundary label="RightPanel">
-                <RightPanel runId={selectedRunId} />
-              </ErrorBoundary>
+        /* Desktop: (sidebar + detail + right panel) above, full-width tracker below */
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex flex-1 overflow-hidden">
+            <div className="w-64 shrink-0 overflow-hidden">
+              <ErrorBoundary label="Sidebar"><Sidebar /></ErrorBoundary>
             </div>
+            <div className="flex-1 overflow-hidden">
+              <ErrorBoundary label="RunDetailView"><RunDetailView /></ErrorBoundary>
+            </div>
+            {selectedRunId && rightPanelOpen && (
+              <div className="w-80 shrink-0 overflow-hidden">
+                <ErrorBoundary label="RightPanel"><RightPanel runId={selectedRunId} /></ErrorBoundary>
+              </div>
+            )}
+          </div>
+          {selectedRunId && (
+            <ErrorBoundary label="Tracker"><Tracker runId={selectedRunId} /></ErrorBoundary>
           )}
         </div>
       ) : (
-        /* Mobile: full-screen switching */
+        /* Mobile: full-screen switching, tracker pinned at the bottom of detail */
         <>
           <MobileNav />
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-hidden flex flex-col">
             <ErrorBoundary label="MainContent">
-              {selectedRunId ? (
-                <RunDetailView />
-              ) : (
-                <RunList />
-              )}
+              {selectedRunId ? <RunDetailView /> : <RunList />}
             </ErrorBoundary>
           </div>
+          {selectedRunId && (
+            <ErrorBoundary label="Tracker"><Tracker runId={selectedRunId} /></ErrorBoundary>
+          )}
         </>
       )}
     </div>
