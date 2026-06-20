@@ -29,6 +29,7 @@ export function Tracker({ runId }: { runId: string }) {
   const isStep = timeline.mode === 'step'
 
   const [height, setHeight] = useState(loadHeight)
+  const heightRef = useRef(height)
   const [collapsed, setCollapsed] = useState(false)
   const [activeModalities, setActiveModalities] = useState<Set<StreamModality>>(() => new Set(MODALITIES))
 
@@ -39,10 +40,7 @@ export function Tracker({ runId }: { runId: string }) {
       .sort((a, b) => a.path.localeCompare(b.path)),
     [model.leaves, activeModalities],
   )
-  const visibleTree = useMemo(
-    () => model.tree, // StreamTree filters by its own search; modality filter applies to grid rows
-    [model.tree],
-  )
+  const visibleTree = model.tree // StreamTree filters by its own search; modality filter applies to grid rows
 
   // Shared X domain across all rows.
   const [min, max] = useMemo(() => {
@@ -58,7 +56,11 @@ export function Tracker({ runId }: { runId: string }) {
     if (lo === Infinity) { lo = 0; hi = 0 }
     return [lo, hi]
   }, [visibleLeaves, isStep])
-  const minTime = useMemo(() => Math.min(...visibleLeaves.map(l => l.minTime), Infinity) || 0, [visibleLeaves])
+  const minTime = useMemo(() => {
+    let m = Infinity
+    for (const l of visibleLeaves) m = Math.min(m, l.minTime)
+    return m === Infinity ? 0 : m
+  }, [visibleLeaves])
 
   const axis = useAxisTransform(min, max)
 
@@ -81,9 +83,10 @@ export function Tracker({ runId }: { runId: string }) {
   const onHandleMove = (e: React.PointerEvent) => {
     if (!dragging.current) return
     const h = Math.max(120, Math.min(window.innerHeight * 0.7, window.innerHeight - e.clientY))
+    heightRef.current = h
     setHeight(h)
   }
-  const onHandleUp = () => { if (dragging.current) { dragging.current = false; localStorage.setItem(HEIGHT_KEY, String(height)) } }
+  const onHandleUp = () => { if (dragging.current) { dragging.current = false; localStorage.setItem(HEIGHT_KEY, String(heightRef.current)) } }
 
   const minStep = isStep ? min : 0
   const maxStep = isStep ? max : 0
