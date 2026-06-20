@@ -76,7 +76,7 @@ export function TimelineGrid({ leaves, rowHeight, headerHeight, min, max, isStep
 
   return (
     <div
-      ref={containerRef}
+      ref={(el) => { containerRef.current = el; axis.setContainer(el) }}
       className="relative h-full w-full overflow-hidden bg-background"
       onWheel={axis.onWheel}
       onPointerDown={(e) => { (e.target as HTMLElement).setPointerCapture(e.pointerId); if (e.button === 1) axis.beginPan(e.clientX); else setPlayhead(e.clientX) }}
