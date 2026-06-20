@@ -2,7 +2,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useStore, type ImageEntry } from '@/store'
-import { useTimelineFilter, useStreamSelection } from '@/hooks/useTimelineFilter'
+import { useTimelineFilter } from '@/hooks/useTimelineFilter'
 import { useMedia } from '@/hooks/useMedia'
 import { formatTimestamp } from '@/lib/utils'
 import { ComparisonGrid } from '@/components/shared/ComparisonGrid'
@@ -160,13 +160,11 @@ export function VirtualizedImageList({
 function ComparisonImageCell({ runId, loggableId, fillParent }: { runId: string; loggableId: string; fillParent?: boolean }) {
   const allImages = useStore(s => s.runs.get(runId)?.loggableImages[loggableId]) ?? []
   const timelineFilter = useTimelineFilter()
-  const { isSelected } = useStreamSelection(runId)
 
   const images = useMemo(() => {
-    let out = timelineFilter ? allImages.filter(img => timelineFilter.matchEntry(img)) : allImages
-    out = out.filter(img => isSelected(img.node, 'image', img.name))
+    const out = timelineFilter ? allImages.filter(img => timelineFilter.matchEntry(img)) : allImages
     return out
-  }, [allImages, timelineFilter, isSelected])
+  }, [allImages, timelineFilter])
 
   if (images.length === 0) {
     return <p className="text-xs text-muted-foreground p-2">No images</p>
@@ -186,14 +184,12 @@ function SingleRunImages({ runId, loggableId, fillParent }: { runId: string; log
   const allImages = useStore(s => s.runs.get(runId)?.loggableImages[loggableId]) ?? []
   const exportLimit = useStore(s => s.exportEntryLimit)
   const timelineFilter = useTimelineFilter()
-  const { isSelected } = useStreamSelection(runId)
 
   const images = useMemo(() => {
     let out = timelineFilter ? allImages.filter(img => timelineFilter.matchEntry(img)) : allImages
-    out = out.filter(img => isSelected(img.node, 'image', img.name))
     if (exportLimit) out = out.slice(0, exportLimit)
     return out
-  }, [allImages, timelineFilter, exportLimit, isSelected])
+  }, [allImages, timelineFilter, exportLimit])
 
   if (images.length === 0) {
     return <p className="text-xs text-muted-foreground">No images for this node</p>

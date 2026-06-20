@@ -9,7 +9,7 @@ import { AudioItem } from '@/components/node-tabs/NodeAudio'
 import { NodeLogs } from '@/components/node-tabs/NodeLogs'
 import { topologicalSort } from '@/lib/graph'
 import { DEFAULT_RUN_COLOR } from '@/lib/colors'
-import { useTimelineFilter, useStreamSelection } from '@/hooks/useTimelineFilter'
+import { useTimelineFilter } from '@/hooks/useTimelineFilter'
 import { useContextMenu } from '@/hooks/useContextMenu'
 import { GridCardContextMenu, type GridCardKind } from './GridCardContextMenu'
 import type { LoggableMetricSeries } from '@/lib/api'
@@ -125,12 +125,10 @@ function ImageCardBody({
   entries: ImageEntry[]
 }) {
   const timelineFilter = useTimelineFilter()
-  const { isSelected } = useStreamSelection(runId)
   const visible = useMemo(() => {
-    let out = timelineFilter ? entries.filter(e => timelineFilter.matchEntry(e)) : entries
-    out = out.filter(e => isSelected(e.node, 'image', e.name))
+    const out = timelineFilter ? entries.filter(e => timelineFilter.matchEntry(e)) : entries
     return out
-  }, [entries, timelineFilter, isSelected])
+  }, [entries, timelineFilter])
   if (visible.length === 0) return <EmptyForRange />
   return (
     <VirtualizedImageList
@@ -145,12 +143,10 @@ function ImageCardBody({
 
 function AudioCardBody({ runId, entries }: { runId: string; entries: AudioEntry[] }) {
   const timelineFilter = useTimelineFilter()
-  const { isSelected } = useStreamSelection(runId)
   const visible = useMemo(() => {
-    let out = timelineFilter ? entries.filter(e => timelineFilter.matchEntry(e)) : entries
-    out = out.filter(e => isSelected(e.node, 'audio', e.name))
+    const out = timelineFilter ? entries.filter(e => timelineFilter.matchEntry(e)) : entries
     return out
-  }, [entries, timelineFilter, isSelected])
+  }, [entries, timelineFilter])
   if (visible.length === 0) return <EmptyForRange />
   return (
     <div className="space-y-3">
