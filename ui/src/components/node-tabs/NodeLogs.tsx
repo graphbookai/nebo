@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useStore } from '@/store'
-import { useTimelineFilter } from '@/hooks/useTimelineFilter'
+import { useTimelineFilter, useStreamSelection } from '@/hooks/useTimelineFilter'
 import { formatTimestamp } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { Search } from 'lucide-react'
@@ -97,6 +97,7 @@ function ComparisonLogCell({ runId, loggableId, search, levelFilter, fillParent 
   const logs = useStore(s => s.runs.get(runId)?.logs ?? [])
   const errors = useStore(s => s.runs.get(runId)?.errors ?? [])
   const timelineFilter = useTimelineFilter()
+  const { isSelected } = useStreamSelection(runId)
 
   const nodeErrors = useMemo(() => errors.filter(e => e.node_name === loggableId), [errors, loggableId])
 
@@ -113,8 +114,9 @@ function ComparisonLogCell({ runId, loggableId, search, levelFilter, fillParent 
     if (timelineFilter) {
       filtered = filtered.filter(l => timelineFilter.matchEntry(l))
     }
+    filtered = filtered.filter(l => isSelected(l.node, 'text', l.name))
     return filtered
-  }, [logs, loggableId, levelFilter, search, timelineFilter])
+  }, [logs, loggableId, levelFilter, search, timelineFilter, isSelected])
 
   if (nodeLogs.length === 0 && nodeErrors.length === 0) {
     return <p className="text-xs text-muted-foreground p-2">No logs</p>
@@ -174,6 +176,7 @@ function SingleRunLogs({ runId, loggableId, search, setSearch, levelFilter, setL
   const scrollRef = useRef<HTMLDivElement>(null)
   const [autoScroll, setAutoScroll] = useState(true)
   const timelineFilter = useTimelineFilter()
+  const { isSelected } = useStreamSelection(runId)
 
   const nodeErrors = useMemo(() => errors.filter(e => e.node_name === loggableId), [errors, loggableId])
 
@@ -190,9 +193,10 @@ function SingleRunLogs({ runId, loggableId, search, setSearch, levelFilter, setL
     if (timelineFilter) {
       filtered = filtered.filter(l => timelineFilter.matchEntry(l))
     }
+    filtered = filtered.filter(l => isSelected(l.node, 'text', l.name))
     if (exportLimit) filtered = filtered.slice(0, exportLimit)
     return filtered
-  }, [logs, loggableId, levelFilter, search, timelineFilter, exportLimit])
+  }, [logs, loggableId, levelFilter, search, timelineFilter, exportLimit, isSelected])
 
   const allNodeLogs = useMemo(() => logs.filter(l => l.node === loggableId), [logs, loggableId])
 

@@ -9,7 +9,7 @@ import { AudioItem } from '@/components/node-tabs/NodeAudio'
 import { NodeLogs } from '@/components/node-tabs/NodeLogs'
 import { topologicalSort } from '@/lib/graph'
 import { DEFAULT_RUN_COLOR } from '@/lib/colors'
-import { useTimelineFilter } from '@/hooks/useTimelineFilter'
+import { useTimelineFilter, useStreamSelection } from '@/hooks/useTimelineFilter'
 import { useContextMenu } from '@/hooks/useContextMenu'
 import { GridCardContextMenu, type GridCardKind } from './GridCardContextMenu'
 import type { LoggableMetricSeries } from '@/lib/api'
@@ -125,10 +125,12 @@ function ImageCardBody({
   entries: ImageEntry[]
 }) {
   const timelineFilter = useTimelineFilter()
+  const { isSelected } = useStreamSelection(runId)
   const visible = useMemo(() => {
-    if (!timelineFilter) return entries
-    return entries.filter(e => timelineFilter.matchEntry(e))
-  }, [entries, timelineFilter])
+    let out = timelineFilter ? entries.filter(e => timelineFilter.matchEntry(e)) : entries
+    out = out.filter(e => isSelected(e.node, 'image', e.name))
+    return out
+  }, [entries, timelineFilter, isSelected])
   if (visible.length === 0) return <EmptyForRange />
   return (
     <VirtualizedImageList
@@ -143,10 +145,12 @@ function ImageCardBody({
 
 function AudioCardBody({ runId, entries }: { runId: string; entries: AudioEntry[] }) {
   const timelineFilter = useTimelineFilter()
+  const { isSelected } = useStreamSelection(runId)
   const visible = useMemo(() => {
-    if (!timelineFilter) return entries
-    return entries.filter(e => timelineFilter.matchEntry(e))
-  }, [entries, timelineFilter])
+    let out = timelineFilter ? entries.filter(e => timelineFilter.matchEntry(e)) : entries
+    out = out.filter(e => isSelected(e.node, 'audio', e.name))
+    return out
+  }, [entries, timelineFilter, isSelected])
   if (visible.length === 0) return <EmptyForRange />
   return (
     <div className="space-y-3">
@@ -488,9 +492,18 @@ export function LoggableGridView({ runId }: LoggableGridViewProps) {
           // min(...,100%) keeps a lone column from overflowing containers
           // narrower than the card minimum.
           <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(min(320px,100%),1fr))]">
-            {flatCards.map(card => (
-              <GridCardWrapper key={card.cardId} runId={runId} card={card} />
-            ))}
+            {(() => {
+              const seenLoggables = new Set<string>()
+              return flatCards.map(card => {
+                const isFirst = !seenLoggables.has(card.loggableId)
+                if (isFirst) seenLoggables.add(card.loggableId)
+                return (
+                  <div key={card.cardId} id={isFirst ? `loggable-card-${card.loggableId}` : undefined}>
+                    <GridCardWrapper runId={runId} card={card} />
+                  </div>
+                )
+              })
+            })()}
           </div>
         )}
       </div>

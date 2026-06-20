@@ -1,7 +1,7 @@
 // Renders a single loggable's tab; works for node- and global-kind loggables.
 import { useMemo } from 'react'
 import { useStore, type AudioEntry } from '@/store'
-import { useTimelineFilter } from '@/hooks/useTimelineFilter'
+import { useTimelineFilter, useStreamSelection } from '@/hooks/useTimelineFilter'
 import { useMedia } from '@/hooks/useMedia'
 import { formatTimestamp } from '@/lib/utils'
 import { ComparisonGrid } from '@/components/shared/ComparisonGrid'
@@ -61,11 +61,13 @@ export function AudioItem({ runId, entry, showTimestamp }: { runId: string; entr
 function ComparisonAudioCell({ runId, loggableId, fillParent }: { runId: string; loggableId: string; fillParent?: boolean }) {
   const allAudioEntries = useStore(s => s.runs.get(runId)?.loggableAudio[loggableId]) ?? []
   const timelineFilter = useTimelineFilter()
+  const { isSelected } = useStreamSelection(runId)
 
   const audioEntries = useMemo(() => {
-    if (!timelineFilter) return allAudioEntries
-    return allAudioEntries.filter(entry => timelineFilter.matchEntry(entry))
-  }, [allAudioEntries, timelineFilter])
+    let out = timelineFilter ? allAudioEntries.filter(entry => timelineFilter.matchEntry(entry)) : allAudioEntries
+    out = out.filter(e => isSelected(e.node, 'audio', e.name))
+    return out
+  }, [allAudioEntries, timelineFilter, isSelected])
 
   if (audioEntries.length === 0) {
     return <p className="text-xs text-muted-foreground p-2">No audio</p>
@@ -86,12 +88,14 @@ function SingleRunAudio({ runId, loggableId, fillParent }: { runId: string; logg
   const allAudioEntries = useStore(s => s.runs.get(runId)?.loggableAudio[loggableId]) ?? []
   const exportLimit = useStore(s => s.exportEntryLimit)
   const timelineFilter = useTimelineFilter()
+  const { isSelected } = useStreamSelection(runId)
 
   const audioEntries = useMemo(() => {
     let out = timelineFilter ? allAudioEntries.filter(e => timelineFilter.matchEntry(e)) : allAudioEntries
+    out = out.filter(e => isSelected(e.node, 'audio', e.name))
     if (exportLimit) out = out.slice(0, exportLimit)
     return out
-  }, [allAudioEntries, timelineFilter, exportLimit])
+  }, [allAudioEntries, timelineFilter, exportLimit, isSelected])
 
   if (audioEntries.length === 0) {
     return <p className="text-xs text-muted-foreground">No audio for this node</p>
