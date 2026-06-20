@@ -149,7 +149,6 @@ export function RunDetailView() {
           </div>
         )}
       </div>
-
     </div>
   )
 }

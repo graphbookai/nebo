@@ -238,7 +238,7 @@ async def log_text(
 ) -> dict[str, Any]:
     """Push one or more text log entries into a run.
 
-    Each entry: ``{loggable_id?, message, level?, step?}``. ``level``
+    Each entry: ``{loggable_id?, message, name?, level?, step?}``. ``level``
     is one of ``info`` (default), ``warning``, ``error``. ``loggable_id``
     defaults to ``__agent__`` — the sandbox loggable for entries authored by
     an external agent.

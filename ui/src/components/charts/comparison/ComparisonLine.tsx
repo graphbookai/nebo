@@ -13,7 +13,7 @@ import { formatTick } from '@/components/charts/formatTick'
 
 // Each dataset carries a precomputed `_stepIndex: Map<x, y>` so the
 // plugin doesn't have to scan the data array on every redraw. This
-// matters once the timeline scrubber starts driving step changes
+// matters once the timeline tracker starts driving step changes
 // interactively — without the index, every step delta is O(N) per run.
 type StepIndexedDataset = { _stepIndex?: Map<number, number> }
 

@@ -86,9 +86,9 @@ function LogsCardBody({ runId, loggableId }: { runId: string; loggableId: string
   return <NodeLogs runId={runId} loggableId={loggableId} />
 }
 
-// "No entries in current range" shown when the timeline scrubber excludes
+// "No entries in current range" shown when the timeline tracker excludes
 // every entry in this card. The card stays visible so the user can widen
-// the scrubber without losing track of which loggables actually exist.
+// the tracker without losing track of which loggables actually exist.
 function EmptyForRange() {
   return (
     <p className="text-xs text-muted-foreground">No entries in current range</p>
@@ -107,7 +107,7 @@ function MetricCardBody({
   series: LoggableMetricSeries
 }) {
   const runColor = useStore(s => s.runColors.get(runId)) ?? DEFAULT_RUN_COLOR
-  // The step scrubber doesn't filter metric entries here. Line/scatter
+  // The step tracker doesn't filter metric entries here. Line/scatter
   // are accumulating and their renderers mark the active step inline
   // (vertical guideline / dimmed non-matching points); bar/pie/histogram
   // are stepless snapshots. Filtering would only ever hide context.
