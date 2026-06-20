@@ -336,7 +336,7 @@ def log_text(
 ) -> Any:
     """Push text log entries to the daemon.
 
-    Each entry: ``{loggable_id?, message, level?, step?}``. Level defaults
+    Each entry: ``{loggable_id?, message, name?, level?, step?}``. Level defaults
     to ``info``; `loggable_id` defaults to ``__agent__``.
     """
     events: list[dict[str, Any]] = []
@@ -346,6 +346,7 @@ def log_text(
         events.append({
             "type": "log",
             "loggable_id": lid,
+            "name": e.get("name") or "text",
             "message": e.get("message", ""),
             "level": e.get("level", "info"),
             "step": e.get("step"),

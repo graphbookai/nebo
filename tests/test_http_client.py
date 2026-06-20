@@ -168,6 +168,17 @@ def test_log_text_routes_default_to_agent(monkeypatch):
     assert log_event["loggable_id"] == "__agent__"
 
 
+def test_log_text_forwards_name(monkeypatch):
+    posted: list = []
+    monkeypatch.setattr(
+        "nebo.client._post",
+        lambda path, body, **c: posted.append((path, body)) or {"status": "ok"},
+    )
+    log_text([{"message": "hi", "name": "status"}], run_id="r1")
+    log_event = next(e for e in posted[0][1] if e["type"] == "log")
+    assert log_event["name"] == "status"
+
+
 import pytest
 from nebo.client import log_image, log_audio
 
