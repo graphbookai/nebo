@@ -113,7 +113,7 @@ Features
 * **Progress tracking**: ``nb.track()`` for tqdm-like progress bars in the and UI
 * **Persistent .nebo files**: Append-only binary log files using MessagePack for crash-safe persistence
 * **Web UI**: Mobile-first viewing of metrics charting, image/audio viewers, run comparison, and DAG visualization
-* **Skills & MCP integration**: A full nebo CLI, 2 agent skills, and MCP server for AI agents to observe, control, and *push data into* pipelines (incl. ``log_line`` / ``log_image`` / ``log_audio`` / ``log_text``)
+* **Skills & MCP integration**: A full nebo CLI, 2 agent skills, and MCP server for AI agents to observe, control, and *push data into* pipelines (incl. ``log_line`` / ``log_image`` / ``log_audio`` / ``nb.log``)
 * **UI configuration from code**: ``nb.ui()`` and ``@nb.fn(ui={})`` set display defaults
 * **Notebook embedding**: ``nb.show()`` returns a Jupyter-renderable iframe of any slice of a run
 * **Hugging Face Spaces deploy**: ``nebo deploy`` ships the daemon to a Space with shared-secret auth and configurable public/private read+write modes

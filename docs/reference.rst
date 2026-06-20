@@ -45,11 +45,12 @@ Decorators
 Logging Functions
 -----------------
 
-.. function:: nb.log(message: str | Any, *, step: int | None = None) -> None
+.. function:: nb.log(message: str | Any, *, name: str = "text", step: int | None = None) -> None
 
-    Log a text message to the current node. Tensor-like objects (NumPy arrays, PyTorch tensors) are auto-formatted with shape, dtype, and statistics.
+    Log a text message to the current node as a named stream. Tensor-like objects (NumPy arrays, PyTorch tensors) are auto-formatted with shape, dtype, and statistics.
 
     :param message: The message string or tensor-like object.
+    :param name: Stream name for this log entry. Defaults to ``"text"``. Multiple names create distinct streams that appear separately in the Tracker tree.
     :param step: Optional step counter.
 
 .. function:: nb.log_line(name, value, *, step=None, tags=None)
@@ -118,12 +119,12 @@ Steps and tags apply to the accumulating helpers (``log_line`` and
 is a ``TypeError``.
 
 Clicking any point on a line or scatter chart in the web UI sets a
-global step filter: the timeline scrubber switches to step mode, the
-clicked step is highlighted on every line/scatter chart (vertical
+global step filter: the Tracker (bottom panel) switches to step mode,
+the clicked step is highlighted on every line/scatter chart (vertical
 guideline + value bubble for line, dimmed non-matching points for
 scatter), and the per-node logs/images/audio panels filter to entries
-whose ``step`` matches. Click the same point again or double-click the
-scrubber to clear the filter.
+whose ``step`` matches. Click the same point again or use the Tracker's
+reset button to clear the filter.
 
 Example::
 

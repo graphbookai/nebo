@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Nebo is a modern logging SDK for multi-modal data. Users decorate functions with `@nb.fn()` and emit events with `nb.log()` (text), `nb.log_line` / `log_bar` / `log_pie` / `log_scatter` / `log_histogram` (one helper per chart type), `nb.log_image` (with `nb.labels.{Points, Boxes, Circles, Polygons, Bitmasks}` overlays), `nb.log_audio`, `nb.log_cfg`, `nb.alert`, and `nb.track()`. Nebo infers a DAG from the call graph and surfaces everything through append-only `.nebo` files, a FastAPI daemon, a React web UI, and MCP tools. The repo contains the Python package (`nebo/`), the web UI (`ui/`), tests (`tests/`), docs (`docs/`), and runnable examples (`examples/`).
+Nebo is a modern logging SDK for multi-modal data. Users decorate functions with `@nb.fn()` and emit events with `nb.log()` (text; optional `name=` param, default `"text"`), `nb.log_line` / `log_bar` / `log_pie` / `log_scatter` / `log_histogram` (one helper per chart type), `nb.log_image` (with `nb.labels.{Points, Boxes, Circles, Polygons, Bitmasks}` overlays), `nb.log_audio`, `nb.log_cfg`, `nb.alert`, and `nb.track()`. Nebo infers a DAG from the call graph and surfaces everything through append-only `.nebo` files, a FastAPI daemon, a React web UI, and MCP tools. The repo contains the Python package (`nebo/`), the web UI (`ui/`), tests (`tests/`), docs (`docs/`), and runnable examples (`examples/`).
 
 Nebo is a **logging** SDK — it does not run human-in-the-loop interactive features (no `nb.ask`, no pauseable nodes). Anything that needs to block on user input belongs outside the SDK.
 
@@ -91,7 +91,18 @@ Per chart type:
 
 Step/tags only flow on the wire for accumulating types (line, scatter). `_emit_metric` in `nebo/logging/logger.py` strips them to `None`/`[]` for snapshot types (bar/pie/histogram) so stale values can't leak.
 
-Step filter: clicking a datapoint on a line or scatter chart sets `timeline.step` (and auto-flips `timeline.mode` to `'step'`) via the chart's `onClick`. `useTimelineFilter` then narrows logs/images/audio panels to entries whose `step` matches; metric charts ignore the entry-level filter and instead mark the active step inline (LineMetric draws a vertical guideline + value bubble via an inline chart.js plugin; ScatterMetric dims non-matching points). `useTimelineBounds` walks line/scatter entries so the scrubber's step range covers any clickable step. **Don't filter metric entries by step at the parent level** (e.g. in `LoggableGridView.MetricCardBody`) — doing so collapses the chart and breaks the in-chart highlight.
+Step filter: clicking a datapoint on a line or scatter chart sets `timeline.step` (and auto-flips `timeline.mode` to `'step'`) via the chart's `onClick`. `useTimelineFilter` (`src/hooks/useTimelineFilter.ts`) then narrows logs/images/audio panels to entries whose `step` matches; metric charts ignore the entry-level filter and instead mark the active step inline (LineMetric draws a vertical guideline + value bubble via an inline chart.js plugin; ScatterMetric dims non-matching points). **Don't filter metric entries by step at the parent level** (e.g. in `LoggableGridView.MetricCardBody`) — doing so collapses the chart and breaks the in-chart highlight.
+
+**Tracker (bottom panel).** The bottom of the UI is the **Tracker** — a full-width, resizable and collapsible panel that replaces the old timeline scrubber. It is built around **streams**: a stream is a named series of datapoints within a loggable. Full stream paths are `/<func_name>/<name>` for `@nb.fn` nodes, `/agent/<name>` for the `__agent__` loggable, and `/<name>` (root) for the global loggable. `nb.log()` entries are streams named `"text"` by default (or whatever `name=` was passed). Names split on `/` to form a searchable tree. Key sub-components (`ui/src/components/timeline/`):
+
+- `StreamTree.tsx` — left pane; shows a `/`-delimited tree of text/image/audio streams (metrics are NOT in the tree). Selecting a stream scrolls the main view to that loggable's card and narrows the content panels to that stream via `timeline.selectedStream` in the store.
+- `TrackerControls.tsx` — Step/Time mode dropdown, numeric step input, prev/next step arrows, a reset button, and modality chips (text/image/audio). No play/pause button.
+- `TimelineGrid.tsx` — rows of per-stream datapoints with a single playhead for both step and time modes. Time mode is a single playhead (not the old two-handle range). Horizontal zoom/pan is retained (mouse wheel zoom, middle-drag pan).
+- `Tracker.tsx` — top-level panel shell (resize handle, collapse toggle).
+
+Supporting modules: `ui/src/lib/streams.ts` (stream path helpers), `ui/src/hooks/useStreams.ts` (stream data hook), `ui/src/hooks/useAxisTransform.ts` (zoom/pan math). The store `timeline` slice is `{ mode, step, time, selectedStream }`.
+
+The old `ui/src/components/timeline/TimelineScrubber.tsx` was removed.
 
 UI invariant: chart components index palette colors by `allLabels.indexOf(label)` (the full vocabulary), never by the iteration index over the filtered list — otherwise toggling a label off via the chip row reshuffles the remaining colors. `ScatterMetric` and `HistogramMetric` both follow this rule.
 
@@ -156,7 +167,7 @@ Smoothed values are rendered, not persisted: raw entries in the store remain unt
 
 ### Web UI (`ui/`)
 
-React 19 + Vite 7 + TypeScript + Tailwind v4 + shadcn-style components. State via `zustand` (`src/store/index.ts`). WebSocket handled in `src/hooks/useWebSocket.ts`, connecting to the daemon's `/stream` endpoint. Graph rendering uses `@xyflow/react` with `@dagrejs/dagre` layout (`src/components/graph/DagGraph.tsx`). Metrics charts use **Chart.js 4** (registered in `src/components/charts/registerChartJs.ts`) with `chartjs-plugin-zoom` for pan/zoom; the shared lifecycle hook is `src/components/charts/useChartJs.ts`. The default view is "Flat" (store key `'flat'`, wire value `nb.ui(view="flat")`); the DAG view is opt-in. The `@/` import alias maps to `ui/src/`. shadcn registry is configured via `.mcp.json` (the `shadcn` MCP server).
+React 19 + Vite 7 + TypeScript + Tailwind v4 + shadcn-style components. State via `zustand` (`src/store/index.ts`). WebSocket handled in `src/hooks/useWebSocket.ts`, connecting to the daemon's `/stream` endpoint. Graph rendering uses `@xyflow/react` with `@dagrejs/dagre` layout (`src/components/graph/DagGraph.tsx`). Metrics charts use **Chart.js 4** (registered in `src/components/charts/registerChartJs.ts`) with `chartjs-plugin-zoom` for pan/zoom; the shared lifecycle hook is `src/components/charts/useChartJs.ts`. The bottom panel is the **Tracker** (`src/components/timeline/`); see "Tracker" under the Metrics model section. The default view is "Flat" (store key `'flat'`, wire value `nb.ui(view="flat")`); the DAG view is opt-in. The `@/` import alias maps to `ui/src/`. shadcn registry is configured via `.mcp.json` (the `shadcn` MCP server).
 
 ### Tests
 

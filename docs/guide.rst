@@ -16,7 +16,7 @@ Nebo provides several logging functions.
 Text Logs
 ---------
 
-``nb.log(message)`` logs a plain text message. Tensor-like objects (NumPy arrays, PyTorch tensors) are auto-formatted with shape, dtype, and statistics:
+``nb.log(message, *, name="text")`` logs a plain text message as a named stream. The ``name`` parameter (default ``"text"``) identifies the stream in the Tracker tree; passing different names creates separate streams within the same loggable. Tensor-like objects (NumPy arrays, PyTorch tensors) are auto-formatted with shape, dtype, and statistics:
 
 .. code-block:: python
 
@@ -112,9 +112,9 @@ Step filtering across panels
 
 In the web UI, you can filter your view of data by:
  * clicking any datapoint on a line or scatter chart
- * navigating/scrubbing the tracker in the bottom
+ * entering a step directly in the Tracker controls (bottom panel)
 
-Click the same point again, or double-click the scrubber, to clear
+Click the same point again, or use the Tracker's reset button, to clear
 the filter. Bar/pie/histogram are stepless and stay visible when the
 filter is active.
 
