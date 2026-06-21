@@ -1,10 +1,12 @@
 import { useCallback, useEffect } from 'react'
 import { useStore } from '@/store'
+import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { ChevronLeft, ChevronRight, Maximize, ChevronDown, ChevronUp } from 'lucide-react'
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
+import { ChevronLeft, ChevronRight, Maximize, ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react'
 import type { StreamModality } from '@/lib/streams'
 
 const MODALITY_COLORS: Record<StreamModality, string> = {
@@ -32,6 +34,7 @@ export function TrackerControls({ minStep, maxStep, hasSteps, activeModalities, 
   const setMode = useStore(s => s.setTimelineMode)
   const setStep = useStore(s => s.setTimelineStep)
   const isStep = timeline.mode === 'step'
+  const isDesktop = useIsDesktop()
 
   const stepBy = useCallback((d: number) => {
     if (!hasSteps) return
@@ -54,35 +57,74 @@ export function TrackerControls({ minStep, maxStep, hasSteps, activeModalities, 
     return () => window.removeEventListener('keydown', handler)
   }, [hasSteps, stepBy])
 
+  // Filter controls reused inline (desktop) or inside the mobile menu popover.
+  const chips = (
+    <div className="flex flex-wrap items-center gap-1">
+      {MODALITIES.map(m => {
+        const active = activeModalities.has(m)
+        return (
+          <Badge
+            key={m}
+            variant={active ? 'default' : 'outline'}
+            className="cursor-pointer select-none gap-1 px-2 py-0.5 text-[10px]"
+            style={active ? { backgroundColor: MODALITY_COLORS[m], borderColor: MODALITY_COLORS[m] } : undefined}
+            onClick={() => onToggleModality(m)}
+          >
+            <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: active ? '#fff' : MODALITY_COLORS[m] }} />
+            {MODALITY_LABELS[m]}
+          </Badge>
+        )
+      })}
+    </div>
+  )
+
+  const modeSelect = (triggerClass: string) => (
+    <Select value={timeline.mode} onValueChange={(v) => setMode(v as 'time' | 'step')}>
+      <SelectTrigger className={triggerClass}><SelectValue /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="step">Step</SelectItem>
+        <SelectItem value="time">Time</SelectItem>
+      </SelectContent>
+    </Select>
+  )
+
   return (
-    <div className="flex items-center gap-2 px-2 py-1.5 border-b border-border bg-background flex-wrap shrink-0">
-      {/* Modality chips — left, near the stream filter. */}
-      <div className="flex items-center gap-1">
-        {MODALITIES.map(m => {
-          const active = activeModalities.has(m)
-          return (
-            <Badge
-              key={m}
-              variant={active ? 'default' : 'outline'}
-              className="cursor-pointer select-none gap-1 px-2 py-0.5 text-[10px]"
-              style={active ? { backgroundColor: MODALITY_COLORS[m], borderColor: MODALITY_COLORS[m] } : undefined}
-              onClick={() => onToggleModality(m)}
-            >
-              <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: active ? '#fff' : MODALITY_COLORS[m] }} />
-              {MODALITY_LABELS[m]}
-            </Badge>
-          )
-        })}
-      </div>
+    <div className="flex items-center gap-2 border-b border-border bg-background px-2 py-1.5 shrink-0">
+      {isDesktop ? (
+        <>
+          {chips}
+          {modeSelect('h-7 w-[88px] text-xs')}
+        </>
+      ) : (
+        // Mobile: fold the filter controls into a single menu popover.
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className="h-7 gap-1.5 px-2 text-xs">
+              <SlidersHorizontal size={14} /> Filters
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-60 space-y-3">
+            <div className="space-y-1.5">
+              <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Modalities</div>
+              {chips}
+            </div>
+            <div className="space-y-1.5">
+              <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Axis</div>
+              {modeSelect('h-7 w-full text-xs')}
+            </div>
+            <div className="flex flex-col gap-1.5 pt-1">
+              <Button variant="outline" className="h-7 justify-start gap-2 text-xs" onClick={onResetZoom}>
+                <Maximize size={14} /> Reset zoom
+              </Button>
+              <Button variant="outline" className="h-7 justify-start text-xs" onClick={onClearFilters}>
+                Clear all filters
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
 
-      <Select value={timeline.mode} onValueChange={(v) => setMode(v as 'time' | 'step')}>
-        <SelectTrigger className="h-7 w-[88px] text-xs"><SelectValue /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="step">Step</SelectItem>
-          <SelectItem value="time">Time</SelectItem>
-        </SelectContent>
-      </Select>
-
+      {/* Step navigation stays in the bar on both layouts. */}
       <div className="flex items-center gap-0.5">
         <Button variant="ghost" className="h-7 w-7 p-0" disabled={!hasSteps} title="Previous step" onClick={() => stepBy(-1)}>
           <ChevronLeft size={15} />
@@ -107,13 +149,16 @@ export function TrackerControls({ minStep, maxStep, hasSteps, activeModalities, 
         />
       )}
 
-      <Button variant="ghost" className="h-7 w-7 p-0" title="Reset zoom" onClick={onResetZoom}>
-        <Maximize size={14} />
-      </Button>
-
-      <Button variant="ghost" className="h-7 px-2 text-xs text-muted-foreground" title="Clear all filters" onClick={onClearFilters}>
-        Clear all filters
-      </Button>
+      {isDesktop && (
+        <>
+          <Button variant="ghost" className="h-7 w-7 p-0" title="Reset zoom" onClick={onResetZoom}>
+            <Maximize size={14} />
+          </Button>
+          <Button variant="ghost" className="h-7 px-2 text-xs text-muted-foreground" title="Clear all filters" onClick={onClearFilters}>
+            Clear all filters
+          </Button>
+        </>
+      )}
 
       <Button variant="ghost" className="ml-auto h-7 w-7 p-0" onClick={onToggleCollapse} title={collapsed ? 'Expand tracker' : 'Collapse tracker'}>
         {collapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}

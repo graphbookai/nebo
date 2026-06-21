@@ -173,8 +173,9 @@ export function Tracker({ runId }: { runId: string }) {
           there are few streams. */}
       {!collapsed && (
         <div className="flex flex-1 items-start overflow-x-hidden overflow-y-auto">
-          {/* Tree column — sticky search header + rows. */}
-          <div className="min-h-full shrink-0 border-r border-border" style={{ width: TREE_W }}>
+          {/* Tree column — sticky search header + rows. Capped at 15% of the
+              tracker width so it never dominates on narrow viewports. */}
+          <div className="min-h-full shrink-0 border-r border-border" style={{ width: TREE_W, maxWidth: '15%' }}>
             <div className="sticky top-0 z-10 border-b border-border bg-background p-1" style={{ height: HEADER_H }}>
               <Input placeholder="Search streams…" value={query} onChange={e => setQuery(e.target.value)} className="h-[18px] text-[11px]" />
             </div>
