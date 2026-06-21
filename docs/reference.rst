@@ -123,8 +123,10 @@ global step filter: the Tracker (bottom panel) switches to step mode,
 the clicked step is highlighted on every line/scatter chart (vertical
 guideline + value bubble for line, dimmed non-matching points for
 scatter), and the per-node logs/images/audio panels filter to entries
-whose ``step`` matches. Click the same point again or use the Tracker's
-reset button to clear the filter.
+whose ``step`` matches. Use the Tracker's **Clear all filters** button to
+clear the step filter (the **Reset zoom** button only resets the timeline
+zoom). You can also step through with the prev/next arrows or
+Ctrl/⌘+Left/Right.
 
 Example::
 

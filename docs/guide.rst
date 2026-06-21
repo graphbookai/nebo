@@ -113,10 +113,10 @@ Step filtering across panels
 In the web UI, you can filter your view of data by:
  * clicking any datapoint on a line or scatter chart
  * entering a step directly in the Tracker controls (bottom panel)
+ * stepping with the prev/next arrows or Ctrl/⌘+Left/Right
 
-Click the same point again, or use the Tracker's reset button, to clear
-the filter. Bar/pie/histogram are stepless and stay visible when the
-filter is active.
+Use the Tracker's **Clear all filters** button to clear the filter.
+Bar/pie/histogram are stepless and stay visible when the filter is active.
 
 Images
 ------
