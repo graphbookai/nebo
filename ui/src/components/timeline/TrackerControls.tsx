@@ -3,7 +3,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { ChevronLeft, ChevronRight, Maximize2, ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Maximize, ChevronDown, ChevronUp } from 'lucide-react'
 import type { StreamModality } from '@/lib/streams'
 
 const MODALITY_COLORS: Record<StreamModality, string> = {
@@ -92,7 +92,7 @@ export function TrackerControls({ minStep, maxStep, hasSteps, activeModalities, 
       )}
 
       <Button variant="ghost" className="h-7 w-7 p-0" title="Reset zoom" onClick={onResetZoom}>
-        <Maximize2 size={14} />
+        <Maximize size={14} />
       </Button>
 
       <Button variant="ghost" className="h-7 px-2 text-xs text-muted-foreground" title="Clear all filters" onClick={onClearFilters}>
