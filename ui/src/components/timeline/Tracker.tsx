@@ -83,7 +83,14 @@ export function Tracker({ runId }: { runId: string }) {
   const playhead = isStep ? timeline.step : timeline.time
   const playheadPct = playhead != null && range > 0 ? axis.toPercent(playhead) : null
 
-  const onReset = useCallback(() => { axis.reset(); if (isStep) setStep(null); else setTime(null) }, [axis, isStep, setStep, setTime])
+  const onResetZoom = useCallback(() => axis.reset(), [axis])
+  const onClearFilters = useCallback(() => {
+    setStep(null)
+    setTime(null)
+    setSelectedStream(null)
+    setQuery('')
+    setActiveModalities(new Set(MODALITIES))
+  }, [setStep, setTime, setSelectedStream])
   const toggleModality = useCallback((m: StreamModality) => setActiveModalities(prev => {
     const next = new Set(prev); if (next.has(m)) next.delete(m); else next.add(m); return next
   }), [])
@@ -155,7 +162,8 @@ export function Tracker({ runId }: { runId: string }) {
       {/* Controls row is always visible so the collapse toggle stays reachable. */}
       <TrackerControls
         minStep={minStep} maxStep={maxStep} hasSteps={hasSteps}
-        activeModalities={activeModalities} onToggleModality={toggleModality} onReset={onReset}
+        activeModalities={activeModalities} onToggleModality={toggleModality}
+        onResetZoom={onResetZoom} onClearFilters={onClearFilters}
         collapsed={collapsed} onToggleCollapse={() => setCollapsed(c => !c)}
       />
       {/* items-start so columns size to their CONTENT height (not stretched to

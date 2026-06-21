@@ -3,7 +3,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { ChevronLeft, ChevronRight, RotateCcw, ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Maximize2, ChevronDown, ChevronUp } from 'lucide-react'
 import type { StreamModality } from '@/lib/streams'
 
 const MODALITY_COLORS: Record<StreamModality, string> = {
@@ -20,12 +20,13 @@ interface Props {
   hasSteps: boolean
   activeModalities: Set<StreamModality>
   onToggleModality: (m: StreamModality) => void
-  onReset: () => void
+  onResetZoom: () => void
+  onClearFilters: () => void
   collapsed: boolean
   onToggleCollapse: () => void
 }
 
-export function TrackerControls({ minStep, maxStep, hasSteps, activeModalities, onToggleModality, onReset, collapsed, onToggleCollapse }: Props) {
+export function TrackerControls({ minStep, maxStep, hasSteps, activeModalities, onToggleModality, onResetZoom, onClearFilters, collapsed, onToggleCollapse }: Props) {
   const timeline = useStore(s => s.timeline)
   const setMode = useStore(s => s.setTimelineMode)
   const setStep = useStore(s => s.setTimelineStep)
@@ -90,8 +91,12 @@ export function TrackerControls({ minStep, maxStep, hasSteps, activeModalities, 
         />
       )}
 
-      <Button variant="ghost" className="h-7 w-7 p-0" title="Reset zoom & playhead" onClick={onReset}>
-        <RotateCcw size={14} />
+      <Button variant="ghost" className="h-7 w-7 p-0" title="Reset zoom" onClick={onResetZoom}>
+        <Maximize2 size={14} />
+      </Button>
+
+      <Button variant="ghost" className="h-7 px-2 text-xs text-muted-foreground" title="Clear all filters" onClick={onClearFilters}>
+        Clear all filters
       </Button>
 
       <Button variant="ghost" className="ml-auto h-7 w-7 p-0" onClick={onToggleCollapse} title={collapsed ? 'Expand tracker' : 'Collapse tracker'}>
