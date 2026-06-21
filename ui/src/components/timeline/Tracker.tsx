@@ -158,10 +158,15 @@ export function Tracker({ runId }: { runId: string }) {
         activeModalities={activeModalities} onToggleModality={toggleModality} onReset={onReset}
         collapsed={collapsed} onToggleCollapse={() => setCollapsed(c => !c)}
       />
+      {/* items-start so columns size to their CONTENT height (not stretched to
+          the visible height); otherwise their content overflows the box — the
+          tree border-r stops short and the sticky ruler unsticks once you
+          scroll past one viewport. min-h-full keeps them filling the panel when
+          there are few streams. */}
       {!collapsed && (
-        <div className="flex flex-1 overflow-x-hidden overflow-y-auto">
+        <div className="flex flex-1 items-start overflow-x-hidden overflow-y-auto">
           {/* Tree column — sticky search header + rows. */}
-          <div className="shrink-0 border-r border-border" style={{ width: TREE_W }}>
+          <div className="min-h-full shrink-0 border-r border-border" style={{ width: TREE_W }}>
             <div className="sticky top-0 z-10 border-b border-border bg-background p-1" style={{ height: HEADER_H }}>
               <Input placeholder="Search streams…" value={query} onChange={e => setQuery(e.target.value)} className="h-[18px] text-[11px]" />
             </div>
@@ -178,7 +183,7 @@ export function Tracker({ runId }: { runId: string }) {
               scrolls both columns together. */}
           <div
             ref={setGrid}
-            className="relative flex-1 cursor-crosshair select-none overflow-x-clip"
+            className="relative min-h-full flex-1 cursor-crosshair select-none overflow-x-clip"
             onPointerDown={onCanvasDown} onPointerMove={onCanvasMove} onPointerUp={onCanvasUp} onPointerLeave={onCanvasUp}
           >
             {range <= 0 ? (
