@@ -1,3 +1,4 @@
+import { useCallback, useEffect } from 'react'
 import { useStore } from '@/store'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
@@ -32,11 +33,26 @@ export function TrackerControls({ minStep, maxStep, hasSteps, activeModalities, 
   const setStep = useStore(s => s.setTimelineStep)
   const isStep = timeline.mode === 'step'
 
-  const stepBy = (d: number) => {
+  const stepBy = useCallback((d: number) => {
     if (!hasSteps) return
     const cur = timeline.step ?? minStep
     setStep(Math.max(minStep, Math.min(maxStep, cur + d)))
-  }
+  }, [hasSteps, timeline.step, minStep, maxStep, setStep])
+
+  // Ctrl/⌘ + Left/Right steps the playhead (skips when typing in a field).
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if (!hasSteps) return
+      e.preventDefault()
+      stepBy(e.key === 'ArrowRight' ? 1 : -1)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [hasSteps, stepBy])
 
   return (
     <div className="flex items-center gap-2 px-2 py-1.5 border-b border-border bg-background flex-wrap shrink-0">
