@@ -49,7 +49,7 @@ export function TimelineRuler({ ticks, axis, isStep, minTime, height, pad, playh
 // and the playhead — all inside the same `left:pad right:pad` plot box as the
 // ruler. SVG layers are pointer-transparent so the parent handles
 // scrub/pan/zoom.
-export function TimelineRows({ rows, rowHeight, isStep, axis, ticks, pad, playheadPct }: {
+export function TimelineRows({ rows, rowHeight, isStep, axis, ticks, pad, playheadPct, showLabels = false, labelsDimmed = false }: {
   rows: FlatRow[]
   rowHeight: number
   isStep: boolean
@@ -57,6 +57,11 @@ export function TimelineRows({ rows, rowHeight, isStep, axis, ticks, pad, playhe
   ticks: number[]
   pad: number
   playheadPct: number | null
+  // Mobile: no tree column, so each leaf's full path is shown left-aligned on
+  // its own row, layered over the datapoints (and dimmed while the user is
+  // touching the canvas so the data underneath stays visible).
+  showLabels?: boolean
+  labelsDimmed?: boolean
 }) {
   const totalH = rows.length * rowHeight
   return (
@@ -84,6 +89,21 @@ export function TimelineRows({ rows, rowHeight, isStep, axis, ticks, pad, playhe
           )}
         </div>
       </div>
+      {/* Flat stream-name labels (mobile) — left-aligned, NOT transformed, so
+          they stay put while the canvas pans/zooms. */}
+      {showLabels && (
+        <div className="pointer-events-none absolute inset-0 transition-opacity duration-150" style={{ opacity: labelsDimmed ? 0.3 : 0.9 }}>
+          {rows.map((row, i) => row.leaf ? (
+            <div
+              key={row.key}
+              className="absolute whitespace-nowrap text-[11px] text-foreground"
+              style={{ top: i * rowHeight, left: pad + 2, height: rowHeight, lineHeight: `${rowHeight}px`, textShadow: '0 0 4px var(--background), 0 0 4px var(--background)' }}
+            >
+              {row.path}
+            </div>
+          ) : null)}
+        </div>
+      )}
     </div>
   )
 }

@@ -2,12 +2,13 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { useStore } from '@/store'
 import { useStreams } from '@/hooks/useStreams'
 import { useAxisTransform } from '@/hooks/useAxisTransform'
+import { useIsDesktop } from '@/hooks/useMediaQuery'
 import { StreamTree } from './StreamTree'
 import { TrackerControls } from './TrackerControls'
 import { TimelineRuler, TimelineRows } from './TimelineGrid'
 import { generateTicks } from './ticks'
 import { Input } from '@/components/ui/input'
-import { flattenRows, type StreamModality } from '@/lib/streams'
+import { flattenRows, type FlatRow, type StreamModality } from '@/lib/streams'
 
 const HEIGHT_KEY = 'nebo_tracker_height'
 const ROW_H = 22
@@ -28,10 +29,12 @@ export function Tracker({ runId }: { runId: string }) {
   const setStep = useStore(s => s.setTimelineStep)
   const setTime = useStore(s => s.setTimelineTime)
   const isStep = timeline.mode === 'step'
+  const isDesktop = useIsDesktop()
 
   const [height, setHeight] = useState(loadHeight)
   const heightRef = useRef(height)
   const [collapsed, setCollapsed] = useState(false)
+  const [touching, setTouching] = useState(false)
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(() => new Set())
   const [query, setQuery] = useState('')
   const [activeModalities, setActiveModalities] = useState<Set<StreamModality>>(() => new Set(MODALITIES))
@@ -63,12 +66,22 @@ export function Tracker({ runId }: { runId: string }) {
 
   const axis = useAxisTransform(min, max, PAD)
 
-  // One flattened row list drives BOTH the tree column and the canvas, so
-  // they render identical rows at identical heights in one shared scroll.
-  const rows = useMemo(
+  // Desktop: one flattened row list (branches + leaves) drives BOTH the tree
+  // column and the canvas, so they render identical rows in one shared scroll.
+  const treeRows = useMemo(
     () => flattenRows(model.tree, collapsedNodes, query, activeModalities),
     [model.tree, collapsedNodes, query, activeModalities],
   )
+  // Mobile: no tree column — a flat list of leaf streams (full path shown on
+  // the canvas), filtered by modality + search, sorted by path.
+  const mobileRows = useMemo<FlatRow[]>(() => {
+    const q = query.trim().toLowerCase()
+    return model.leaves
+      .filter(l => activeModalities.has(l.modality) && (!q || l.path.toLowerCase().includes(q)))
+      .sort((a, b) => a.path.localeCompare(b.path))
+      .map(l => ({ key: l.path, label: l.path, path: l.path, depth: 0, isLeaf: true, leaf: l }))
+  }, [model.leaves, activeModalities, query])
+  const rows = isDesktop ? treeRows : mobileRows
 
   const range = max - min
   const ticks = useMemo(() => {
@@ -138,13 +151,14 @@ export function Tracker({ runId }: { runId: string }) {
   }, [fromPixel, isStep, setStep, setTime])
   const onCanvasDown = (e: React.PointerEvent<HTMLDivElement>) => {
     try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* capture is best-effort */ }
+    setTouching(true)
     if (e.button === 1) axis.beginPan(e.clientX)
     else { scrubbing.current = true; scrub(e.clientX) }
   }
   const onCanvasMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (scrubbing.current) scrub(e.clientX); else axis.onPanMove(e.clientX)
   }
-  const onCanvasUp = () => { scrubbing.current = false; axis.endPan() }
+  const onCanvasUp = () => { scrubbing.current = false; setTouching(false); axis.endPan() }
 
   const minStep = isStep ? min : 0
   const maxStep = isStep ? max : 0
@@ -164,6 +178,7 @@ export function Tracker({ runId }: { runId: string }) {
         minStep={minStep} maxStep={maxStep} hasSteps={hasSteps}
         activeModalities={activeModalities} onToggleModality={toggleModality}
         onResetZoom={onResetZoom} onClearFilters={onClearFilters}
+        query={query} onQueryChange={setQuery}
         collapsed={collapsed} onToggleCollapse={() => setCollapsed(c => !c)}
       />
       {/* items-start so columns size to their CONTENT height (not stretched to
@@ -173,17 +188,20 @@ export function Tracker({ runId }: { runId: string }) {
           there are few streams. */}
       {!collapsed && (
         <div className="flex flex-1 items-start overflow-x-hidden overflow-y-auto">
-          {/* Tree column — sticky search header + rows. Capped at 15% of the
-              tracker width so it never dominates on narrow viewports. */}
-          <div className="min-h-full shrink-0 border-r border-border" style={{ width: TREE_W, maxWidth: '15%' }}>
-            <div className="sticky top-0 z-10 border-b border-border bg-background p-1" style={{ height: HEADER_H }}>
-              <Input placeholder="Search streams…" value={query} onChange={e => setQuery(e.target.value)} className="h-[18px] text-[11px]" />
+          {/* Tree column (desktop only) — sticky search header + rows. Capped at
+              15% of the tracker width so it never dominates. On mobile the tree
+              is hidden and stream names are shown flat on the canvas instead. */}
+          {isDesktop && (
+            <div className="min-h-full shrink-0 border-r border-border" style={{ width: TREE_W, maxWidth: '15%' }}>
+              <div className="sticky top-0 z-10 border-b border-border bg-background p-1" style={{ height: HEADER_H }}>
+                <Input placeholder="Search streams…" value={query} onChange={e => setQuery(e.target.value)} className="h-[18px] text-[11px]" />
+              </div>
+              <StreamTree
+                rows={treeRows} rowHeight={ROW_H} collapsed={collapsedNodes}
+                selectedPath={timeline.selectedStream} onSelect={onSelect} onToggle={onToggleNode}
+              />
             </div>
-            <StreamTree
-              rows={rows} rowHeight={ROW_H} collapsed={collapsedNodes}
-              selectedPath={timeline.selectedStream} onSelect={onSelect} onToggle={onToggleNode}
-            />
-          </div>
+          )}
           {/* Canvas column — sticky ruler + rows. Uses overflow-x:clip (NOT
               hidden) to clip the zoom transform: `hidden` on one axis forces
               the other to `auto`, which would make this column its own
@@ -202,7 +220,7 @@ export function Tracker({ runId }: { runId: string }) {
             ) : (
               <>
                 <TimelineRuler ticks={ticks} axis={axis} isStep={isStep} minTime={minTime} height={HEADER_H} pad={PAD} playheadPct={playheadPct} />
-                <TimelineRows rows={rows} rowHeight={ROW_H} isStep={isStep} axis={axis} ticks={ticks} pad={PAD} playheadPct={playheadPct} />
+                <TimelineRows rows={rows} rowHeight={ROW_H} isStep={isStep} axis={axis} ticks={ticks} pad={PAD} playheadPct={playheadPct} showLabels={!isDesktop} labelsDimmed={touching} />
               </>
             )}
           </div>

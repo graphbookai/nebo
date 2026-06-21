@@ -25,11 +25,13 @@ interface Props {
   onToggleModality: (m: StreamModality) => void
   onResetZoom: () => void
   onClearFilters: () => void
+  query: string
+  onQueryChange: (q: string) => void
   collapsed: boolean
   onToggleCollapse: () => void
 }
 
-export function TrackerControls({ minStep, maxStep, hasSteps, activeModalities, onToggleModality, onResetZoom, onClearFilters, collapsed, onToggleCollapse }: Props) {
+export function TrackerControls({ minStep, maxStep, hasSteps, activeModalities, onToggleModality, onResetZoom, onClearFilters, query, onQueryChange, collapsed, onToggleCollapse }: Props) {
   const timeline = useStore(s => s.timeline)
   const setMode = useStore(s => s.setTimelineMode)
   const setStep = useStore(s => s.setTimelineStep)
@@ -104,6 +106,10 @@ export function TrackerControls({ minStep, maxStep, hasSteps, activeModalities, 
             </Button>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-60 space-y-3">
+            <div className="space-y-1.5">
+              <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Search</div>
+              <Input placeholder="Search streams…" value={query} onChange={e => onQueryChange(e.target.value)} className="h-7 text-xs" />
+            </div>
             <div className="space-y-1.5">
               <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Modalities</div>
               {chips}
