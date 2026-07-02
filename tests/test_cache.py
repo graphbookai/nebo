@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import time
 
+import pytest
+
 from nebo.server.cache import (
     SCHEMA_VERSION,
     RunCache,
@@ -409,6 +411,118 @@ class TestIncrementalReader:
             rest = list(r.read_entries_incremental())
         assert len(rest) == 1
         assert rest[0][0]["payload"]["message"] == "m2"
+
+
+def _mk_state(tmp_path):
+    from nebo.server.daemon import DaemonState
+
+    c = RunCache(tmp_path / "cache.db", logdir=tmp_path / "logs")
+    c.start()
+    return DaemonState(cache=c), c
+
+
+def _events_small_run():
+    import base64
+
+    png = b"\x89PNG\r\n\x1a\n" + b"y" * 32
+    return png, [
+        {"type": "run_start", "data": {"script_path": "train.py", "run_name": "exp"}},
+        {"type": "loggable_register", "loggable_id": "a",
+         "data": {"loggable_id": "a", "kind": "node", "func_name": "a"}},
+        {"type": "metric", "loggable_id": "a", "name": "loss", "metric_type": "line",
+         "value": 0.5, "step": 0, "tags": ["train"], "timestamp": 1.0},
+        {"type": "metric", "loggable_id": "a", "name": "loss", "metric_type": "line",
+         "value": 0.4, "step": 1, "tags": [], "timestamp": 2.0},
+        {"type": "metric", "loggable_id": "a", "name": "dist", "metric_type": "bar",
+         "value": {"x": 1}, "step": None, "tags": [], "timestamp": 3.0},
+        {"type": "log", "loggable_id": "a", "name": "text", "message": "hi",
+         "step": None, "timestamp": 4.0},
+        {"type": "image", "loggable_id": "a", "name": "frame",
+         "data": base64.b64encode(png).decode("ascii"), "step": 1, "timestamp": 5.0},
+    ]
+
+
+class TestDaemonCacheIngest:
+    @pytest.mark.asyncio
+    async def test_write_through(self, tmp_path):
+        from nebo.server.cache import media_id_for
+
+        state, c = _mk_state(tmp_path)
+        png, events = _events_small_run()
+        try:
+            await state.ingest_events(events, run_id="r1")
+            assert c.flush()
+            m = c.get_metrics("r1")
+            assert [e["value"] for e in m["a"]["loss"]["entries"]] == [0.5, 0.4]
+            assert m["a"]["dist"]["entries"][0]["value"] == {"x": 1}
+            assert c.get_logs("r1")[0]["message"] == "hi"
+            s = c.get_summary("r1")
+            assert s["script_path"] == "train.py"
+            assert s["run_name"] == "exp"
+            listing = c.list_media("r1", "image")
+            mid = listing["a"][0]["media_id"]
+            assert mid == media_id_for(png)
+            assert c.get_media(mid) == png
+            # Broadcast event carries media_id, not the payload.
+            assert events[-1]["media_id"] == mid
+            assert "data" not in events[-1]
+        finally:
+            c.close()
+
+    @pytest.mark.asyncio
+    async def test_counters_maintained(self, tmp_path):
+        state, c = _mk_state(tmp_path)
+        _, events = _events_small_run()
+        try:
+            await state.ingest_events(events, run_id="r1")
+            run = state.runs["r1"]
+            assert run.ram_complete is True
+            assert run.latest_step == 1
+            assert run.resident_points == 4  # 3 metric entries + 1 log
+            assert run.last_event_at > 0
+            assert run.get_summary()["latest_step"] == 1
+        finally:
+            c.close()
+
+    @pytest.mark.asyncio
+    async def test_rehydration_after_eviction(self, tmp_path):
+        state, c = _mk_state(tmp_path)
+        _, events = _events_small_run()
+        try:
+            await state.ingest_events(events, run_id="r1")
+            assert c.flush()
+            del state.runs["r1"]
+            state.active_run_id = None
+
+            await state.ingest_events([
+                {"type": "metric", "loggable_id": "a", "name": "loss",
+                 "metric_type": "line", "value": 0.3, "step": 2,
+                 "tags": [], "timestamp": 6.0},
+            ], run_id="r1")
+            assert list(state.runs) == ["r1"]
+            run = state.runs["r1"]
+            assert run.ram_complete is False
+            assert run.script_path == "train.py"
+            # Series type lock survived rehydration.
+            assert run.loggables["a"].metrics["loss"]["type"] == "line"
+            assert run.loggables["a"].exec_count == 0
+            assert c.flush()
+            entries = c.get_metrics("r1")["a"]["loss"]["entries"]
+            assert [e["step"] for e in entries] == [0, 1, 2]
+            # SQL sees exactly one run.
+            assert [s["id"] for s in c.list_summaries()] == ["r1"]
+        finally:
+            c.close()
+
+    @pytest.mark.asyncio
+    async def test_no_cache_fallback_media(self, tmp_path):
+        from nebo.server.daemon import DaemonState
+
+        state = DaemonState()
+        png, events = _events_small_run()
+        await state.ingest_events(events, run_id="r1")
+        mid = events[-1]["media_id"]
+        assert state.media_bytes("r1", mid) == png
 
 
 class TestCachePathAndSweep:

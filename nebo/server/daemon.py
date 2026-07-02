@@ -7,7 +7,9 @@ state across crashes and restarts. AI agents connect via MCP to the same server.
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
+import json
 import os
 import time
 import uuid
@@ -17,6 +19,12 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import Request, WebSocket, WebSocketDisconnect
+from nebo.server.cache import (
+    DEFAULT_MEDIA_LRU_MB,
+    MediaLRU,
+    RunCache,
+    media_id_for,
+)
 from nebo.server.protocol import MessageType, decode_batch
 
 
@@ -100,6 +108,14 @@ class Run:
     alerts: list[dict] = field(default_factory=list)
     run_name: Optional[str] = None
     run_config: dict = field(default_factory=dict)
+    # Cache-era bookkeeping. `ram_complete` is the read-routing flag: True
+    # means every entry of this run is in RAM (serve reads from RAM); False
+    # means only ingest-state is resident (serve reads from the SQL cache).
+    last_event_at: float = 0.0
+    resident_points: int = 0
+    ram_complete: bool = True
+    source: str = "network"
+    latest_step: Optional[int] = None
 
     def get_graph(self) -> dict:
         """Return the DAG as a serializable dict.
@@ -148,21 +164,12 @@ class Run:
             for lid, loggable in self.loggables.items()
             if loggable.metrics
         }
-        # Accumulating series append in order, so each series' max step is
-        # its final entry — no full scan needed.
-        latest_step: Optional[int] = None
-        metric_series_count = 0
-        for loggable in self.loggables.values():
-            metric_series_count += len(loggable.metrics)
-            for series in loggable.metrics.values():
-                if series.get("type") not in ("line", "scatter"):
-                    continue
-                entries = series.get("entries") or []
-                if not entries:
-                    continue
-                step = entries[-1].get("step")
-                if step is not None and (latest_step is None or step > latest_step):
-                    latest_step = step
+        # `latest_step` is maintained as a counter at ingest time (see
+        # _process_event) so it stays correct even for runs whose entry
+        # lists were demoted out of RAM.
+        metric_series_count = sum(
+            len(loggable.metrics) for loggable in self.loggables.values()
+        )
         return {
             "id": self.id,
             "script_path": self.script_path,
@@ -177,7 +184,7 @@ class Run:
             "run_config": self.run_config,
             "metrics_index": metrics_index,
             "metric_series_count": metric_series_count,
-            "latest_step": latest_step,
+            "latest_step": self.latest_step,
         }
 
 
@@ -225,7 +232,7 @@ class DaemonState:
     Manages all runs, retaining state across pipeline lifecycles.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, cache: Optional[RunCache] = None) -> None:
         self.runs: dict[str, Run] = {}
         # Alert rules created over the API (CLI / MCP). In-memory, like
         # every other piece of daemon state. Keyed by rule id.
@@ -234,9 +241,33 @@ class DaemonState:
         self._ws_clients: list[Any] = []
         self._lock = asyncio.Lock()
         self._event_notify: asyncio.Condition = asyncio.Condition()
-        self._media_store: dict[str, str] = {}  # media_id -> base64 data
+        # Write-behind SQLite cache. None (direct construction, tests,
+        # --no-cache) preserves the pure-RAM behavior: media falls back to
+        # a plain dict and the eviction janitor is disabled.
+        self.cache = cache
+        self.media_lru = (
+            cache.media_lru if cache is not None
+            else MediaLRU(DEFAULT_MEDIA_LRU_MB * 1024 * 1024)
+        )
+        self._media_fallback: dict[str, bytes] = {}
         self._save_files_path: Optional[Path] = None
         self._logdir: Optional[Path] = None
+
+    def _cache_put(self, op: tuple) -> None:
+        if self.cache is not None:
+            self.cache.enqueue(op)
+
+    def media_bytes(self, run_id: str, media_id: str) -> Optional[bytes]:
+        """Resolve media bytes: LRU -> no-cache fallback dict -> SQL cache."""
+        data = self.media_lru.get(media_id)
+        if data is not None:
+            return data
+        data = self._media_fallback.get(media_id)
+        if data is not None:
+            return data
+        if self.cache is not None:
+            return self.cache.get_media(media_id)
+        return None
 
     def create_run(
         self,
@@ -259,7 +290,14 @@ class DaemonState:
             args=args or [],
             started_at=datetime.now(),
             source_hash=source_hash,
+            last_event_at=time.time(),
         )
+        self._cache_put(("run_upsert", run_id, {
+            "script_path": script_path,
+            "args_json": json.dumps(args or []),
+            "started_at": run.started_at.timestamp(),
+            "source": run.source,
+        }))
         # Seed implicit loggables so events that arrive without a node
         # context have a home: __global__ for user code outside an @nb.fn,
         # __agent__ for entries authored by an MCP client (agent).
@@ -343,8 +381,16 @@ class DaemonState:
         async with self._lock:
             rid = run_id or self.active_run_id
             if not rid or rid not in self.runs:
-                # Create run if it doesn't exist yet (script_path updated by run_start event).
-                run = self.create_run("direct", run_id=rid)
+                # An evicted (or pre-restart) run that lives in the cache is
+                # rehydrated instead of recreated — its ingest-state (series
+                # type locks, loggable registry, counters) comes back, but
+                # not its point history: reads stay on the SQL path.
+                if rid and self.cache is not None and self.cache.has_run(rid):
+                    run = self._rehydrate_run(rid)
+                else:
+                    # Create run if it doesn't exist yet (script_path updated
+                    # by run_start event).
+                    run = self.create_run("direct", run_id=rid)
                 rid = run.id
 
             run = self.runs[rid]
@@ -363,6 +409,90 @@ class DaemonState:
         async with self._event_notify:
             self._event_notify.notify_all()
 
+    def _store_media(
+        self, run: Run, event: dict, media_src: Optional[tuple],
+    ) -> str:
+        """Decode a media event's payload once, stash the bytes, and return
+        the content-addressed media_id. The event is mutated in place:
+        `data` is popped (so broadcasts stay light) and `media_id` is set.
+
+        Bytes land in the LRU always; durably in the blob table only when
+        there is no `.nebo` file to reference (media_src is None).
+        """
+        raw = event.pop("data", b"")
+        if isinstance(raw, str):
+            raw = base64.b64decode(raw) if raw else b""
+        media_id = media_id_for(raw)
+        event["media_id"] = media_id
+        self.media_lru.put(media_id, raw)
+        if self.cache is None:
+            self._media_fallback[media_id] = raw
+        elif media_src is None:
+            self._cache_put(("media_blob", media_id, raw))
+        return media_id
+
+    def _rehydrate_run(self, run_id: str) -> Run:
+        """Rebuild a Run's ingest-state (no point history) from the cache.
+
+        The returned run has `ram_complete=False`: ingest appends work
+        (type locks, counters, edge dedup are restored) but reads route
+        to SQL, where the full history lives.
+        """
+        st = self.cache.get_run_ingest_state(run_id)
+        row = st["run_row"]
+
+        def _dt(epoch):
+            return datetime.fromtimestamp(epoch) if epoch else None
+
+        run = Run(
+            id=run_id,
+            script_path=row.get("script_path") or "direct",
+            args=json.loads(row["args_json"]) if row.get("args_json") else [],
+            started_at=_dt(row.get("started_at")),
+            ended_at=_dt(row.get("ended_at")),
+            run_name=row.get("run_name"),
+            workflow_description=row.get("workflow_description"),
+            source=row.get("source") or "network",
+            last_event_at=time.time(),
+            ram_complete=False,
+            latest_step=st["latest_step"],
+        )
+        for key, attr in (
+            ("config_json", "config"),
+            ("run_config_json", "run_config"),
+        ):
+            if row.get(key):
+                setattr(run, attr, json.loads(row[key]))
+        if row.get("ui_config_json"):
+            run.ui_config = json.loads(row["ui_config_json"])
+        for lid, meta in st["loggables"].items():
+            run.loggables[lid] = LoggableState(
+                loggable_id=lid,
+                kind=meta["kind"],
+                func_name=meta["func_name"],
+                docstring=meta["docstring"],
+                group=meta["group"],
+                ui_hints=meta["ui_hints"],
+                params=meta["params"],
+                exec_count=meta["exec_count"],
+                is_source=meta["is_source"],
+            )
+        # Seed series type locks with empty entry lists — appends and
+        # first-writer-wins keep working; history stays in SQL.
+        for lid, types in st["series_types"].items():
+            lg = run.loggables.get(lid)
+            if lg is None:
+                lg = LoggableState(loggable_id=lid, kind="node", auto_seeded=True)
+                run.loggables[lid] = lg
+            for name, mtype in types.items():
+                lg.metrics[name] = {"type": mtype, "entries": []}
+        run.edges = list(st["edges"])
+        run._edge_set = {
+            (e.get("source", ""), e.get("target", "")) for e in run.edges
+        }
+        self.runs[run_id] = run
+        return run
+
     def _ensure_loggable(self, run: Run, lid: str) -> LoggableState:
         """Return ``run.loggables[lid]``, creating a placeholder if absent.
 
@@ -378,10 +508,14 @@ class DaemonState:
         if lg is None:
             lg = LoggableState(loggable_id=lid, kind="node", auto_seeded=True)
             run.loggables[lid] = lg
+            self._cache_put(("loggable_upsert", run.id, lid, {"kind": "node"}))
         return lg
 
     def _process_event(self, run: Run, event: dict) -> None:
         """Process a single event into run state."""
+        # Watcher-annotated media source ref (path, offset, length). Internal —
+        # popped before the save-files writer or the WS broadcast can see it.
+        media_src = event.pop("_media_src", None)
         # Write to .nebo file if storage is enabled
         writer = getattr(run, "_file_writer", None)
         if writer is not None:
@@ -390,6 +524,7 @@ class DaemonState:
 
         etype = event.get("type", "")
         loggable_id = event.get("loggable_id")
+        run.last_event_at = time.time()
 
         if etype == "log":
             entry = LogEntry(
@@ -403,6 +538,10 @@ class DaemonState:
             run.logs.append(entry)
             if loggable_id and loggable_id in run.loggables:
                 run.loggables[loggable_id].logs.append(event)
+            run.resident_points += 1
+            self._cache_put(("log_row", run.id, loggable_id, entry.name,
+                             entry.timestamp, entry.step, entry.level,
+                             entry.message))
 
         elif etype == "metric":
             lid = event.get("loggable_id", "")
@@ -426,15 +565,30 @@ class DaemonState:
             # Line and scatter accumulate over time; bar/pie/histogram
             # are snapshots — re-emitting the same name overwrites the
             # prior value rather than stacking another entry.
+            op = "metric_row" if mtype in ("line", "scatter") else "metric_snapshot"
             if mtype in ("line", "scatter"):
                 series["entries"].append(new_entry)
+                step = new_entry.get("step")
+                if step is not None and (
+                    run.latest_step is None or step > run.latest_step
+                ):
+                    run.latest_step = step
             else:
                 series["entries"] = [new_entry]
+            run.resident_points += 1
+            self._cache_put((op, run.id, lid, mname, mtype,
+                             new_entry.get("step"), new_entry.get("timestamp"),
+                             json.dumps(new_entry.get("value")),
+                             json.dumps(new_entry.get("tags") or []),
+                             new_entry.get("colors")))
             self._evaluate_alert_rules(run, lid, mname, new_entry)
 
         elif etype == "progress":
             if loggable_id and loggable_id in run.loggables:
                 run.loggables[loggable_id].progress = event.get("data", {})
+                self._cache_put(("loggable_upsert", run.id, loggable_id, {
+                    "progress_json": json.dumps(event.get("data", {})),
+                }))
 
         elif etype == "error":
             data = event.get("data", event)
@@ -453,12 +607,27 @@ class DaemonState:
             run.errors.append(error)
             if node:
                 node.errors.append(data)
-            run.significant_events.append({
+            sig = {
                 "type": "error",
                 "timestamp": error.timestamp,
                 "loggable_id": error.node_name,
                 "message": error.exception_message,
-            })
+            }
+            run.significant_events.append(sig)
+            run.resident_points += 1
+            self._cache_put(("error_row", run.id, error.timestamp, json.dumps({
+                "timestamp": error.timestamp,
+                "node_name": error.node_name,
+                "node_docstring": error.node_docstring,
+                "exception_type": error.exception_type,
+                "exception_message": error.exception_message,
+                "traceback": error.traceback,
+                "execution_count": error.execution_count,
+                "params": error.params,
+                "last_logs": error.last_logs,
+            })))
+            self._cache_put(("sig_event", run.id, error.timestamp, "error",
+                             json.dumps(sig)))
 
         elif etype == "alert":
             data = event.get("data", event)
@@ -472,18 +641,24 @@ class DaemonState:
                 "timestamp": data.get("timestamp", time.time()),
             }
             run.alerts.append(alert)
-            run.significant_events.append({
+            sig = {
                 "type": "alert",
                 "timestamp": alert["timestamp"],
                 "loggable_id": alert["loggable_id"],
                 "message": alert["title"],
-            })
+            }
+            run.significant_events.append(sig)
+            self._cache_put(("alert_row", run.id, alert["timestamp"],
+                             json.dumps(alert)))
+            self._cache_put(("sig_event", run.id, alert["timestamp"], "alert",
+                             json.dumps(sig)))
 
         elif etype == "loggable_register":
             data = event.get("data", {})
             lid = data.get("loggable_id", loggable_id or "")
             kind = data.get("kind", "node")
             existing = run.loggables.get(lid) if lid else None
+            registered = False
             if lid and existing is None:
                 run.loggables[lid] = LoggableState(
                     loggable_id=lid,
@@ -493,6 +668,7 @@ class DaemonState:
                     group=data.get("group"),
                     ui_hints=data.get("ui_hints"),
                 )
+                registered = True
             elif existing is not None and existing.auto_seeded:
                 # A real register arrived after a metric/media event seeded a
                 # placeholder — fill in the metadata and clear the flag.
@@ -502,6 +678,18 @@ class DaemonState:
                 existing.group = data.get("group")
                 existing.ui_hints = data.get("ui_hints")
                 existing.auto_seeded = False
+                registered = True
+            if registered:
+                self._cache_put(("loggable_upsert", run.id, lid, {
+                    "kind": kind,
+                    "func_name": data.get("func_name") or "",
+                    "docstring": data.get("docstring"),
+                    "grp": data.get("group"),
+                    "ui_hints_json": (
+                        json.dumps(data["ui_hints"])
+                        if data.get("ui_hints") else None
+                    ),
+                }))
 
         elif etype == "node_executed":
             data = event.get("data", {})
@@ -509,6 +697,9 @@ class DaemonState:
             caller = data.get("caller")
             if lid and lid in run.loggables:
                 run.loggables[lid].exec_count += 1
+                self._cache_put(("loggable_upsert", run.id, lid, {
+                    "exec_count": run.loggables[lid].exec_count,
+                }))
             if caller and lid:
                 key = (caller, lid)
                 if key not in run._edge_set:
@@ -516,6 +707,11 @@ class DaemonState:
                     run.edges.append({"source": caller, "target": lid})
                     if lid in run.loggables:
                         run.loggables[lid].is_source = False
+                        self._cache_put(("loggable_upsert", run.id, lid,
+                                         {"is_source": 0}))
+                    self._cache_put(("run_upsert", run.id, {
+                        "edges_json": json.dumps(run.edges),
+                    }))
 
         elif etype == "edge":
             data = event.get("data", {})
@@ -527,13 +723,16 @@ class DaemonState:
                 run.edges.append({"source": src, "target": tgt})
                 if tgt in run.loggables:
                     run.loggables[tgt].is_source = False
+                    self._cache_put(("loggable_upsert", run.id, tgt,
+                                     {"is_source": 0}))
+                self._cache_put(("run_upsert", run.id, {
+                    "edges_json": json.dumps(run.edges),
+                }))
 
         elif etype == "image":
             if loggable_id:
                 lg = self._ensure_loggable(run, loggable_id)
-                media_id = uuid.uuid4().hex[:16]
-                self._media_store[media_id] = event.pop("data", "")
-                event["media_id"] = media_id
+                media_id = self._store_media(run, event, media_src)
                 lg.images.append({
                     "media_id": media_id,
                     "name": event.get("name", ""),
@@ -541,13 +740,20 @@ class DaemonState:
                     "timestamp": event.get("timestamp", time.time()),
                     "labels": event.get("labels"),
                 })
+                self._cache_put((
+                    "media_occurrence", run.id, loggable_id, media_id,
+                    "image", event.get("name", ""), event.get("step"),
+                    event.get("timestamp", time.time()), None,
+                    json.dumps(event["labels"]) if event.get("labels") else None,
+                    media_src[0] if media_src else None,
+                    media_src[1] if media_src else None,
+                    media_src[2] if media_src else None,
+                ))
 
         elif etype == "audio":
             if loggable_id:
                 lg = self._ensure_loggable(run, loggable_id)
-                media_id = uuid.uuid4().hex[:16]
-                self._media_store[media_id] = event.pop("data", "")
-                event["media_id"] = media_id
+                media_id = self._store_media(run, event, media_src)
                 lg.audio.append({
                     "media_id": media_id,
                     "name": event.get("name", ""),
@@ -555,6 +761,15 @@ class DaemonState:
                     "step": event.get("step"),
                     "timestamp": event.get("timestamp", time.time()),
                 })
+                self._cache_put((
+                    "media_occurrence", run.id, loggable_id, media_id,
+                    "audio", event.get("name", ""), event.get("step"),
+                    event.get("timestamp", time.time()),
+                    event.get("sr", 16000), None,
+                    media_src[0] if media_src else None,
+                    media_src[1] if media_src else None,
+                    media_src[2] if media_src else None,
+                ))
 
         elif etype == "description":
             desc = event.get("data", {}).get("description", "")
@@ -562,18 +777,33 @@ class DaemonState:
                 run.workflow_description += "\n\n" + desc
             else:
                 run.workflow_description = desc
+            self._cache_put(("run_upsert", run.id, {
+                "workflow_description": run.workflow_description,
+            }))
 
         elif etype == "config":
             cfg = event.get("data", {})
             run.config = cfg
+            self._cache_put(("run_upsert", run.id, {
+                "config_json": json.dumps(cfg),
+            }))
             if loggable_id and loggable_id in run.loggables:
                 run.loggables[loggable_id].params.update(cfg)
+                self._cache_put(("loggable_upsert", run.id, loggable_id, {
+                    "params_json": json.dumps(run.loggables[loggable_id].params),
+                }))
 
         elif etype == "ui_config":
             run.ui_config = event.get("data", {})
+            self._cache_put(("run_upsert", run.id, {
+                "ui_config_json": json.dumps(run.ui_config),
+            }))
 
         elif etype == "run_config":
             run.run_config = event.get("data", {})
+            self._cache_put(("run_upsert", run.id, {
+                "run_config_json": json.dumps(run.run_config),
+            }))
 
         elif etype == "run_start":
             data = event.get("data", {})
@@ -584,6 +814,14 @@ class DaemonState:
             run_name = data.get("run_name")
             if run_name is not None:
                 run.run_name = run_name
+            self._cache_put(("run_upsert", run.id, {
+                "script_path": run.script_path,
+                "run_name": run.run_name,
+                "started_at": (
+                    run.started_at.timestamp() if run.started_at else None
+                ),
+                "source": run.source,
+            }))
             if self.active_run_id is None:
                 self.active_run_id = run.id
             # Seed implicit loggables — __global__ for user logs outside an
@@ -611,10 +849,16 @@ class DaemonState:
             run.ended_at = datetime.now()
             if self.active_run_id == run.id:
                 self.active_run_id = None
-            run.significant_events.append({
+            sig = {
                 "type": "run_completed",
                 "timestamp": time.time(),
-            })
+            }
+            run.significant_events.append(sig)
+            self._cache_put(("run_upsert", run.id, {
+                "ended_at": run.ended_at.timestamp(),
+            }))
+            self._cache_put(("sig_event", run.id, sig["timestamp"],
+                             "run_completed", json.dumps(sig)))
             self.finalize_run(run.id)
 
     def _evaluate_alert_rules(
@@ -919,11 +1163,10 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
 
     @app.get("/runs/{run_id}/media/{media_id}")
     async def get_media(run_id: str, media_id: str):
-        if run_id not in state.runs:
-            return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
-        if media_id not in state._media_store:
+        raw = state.media_bytes(run_id, media_id)
+        if raw is None:
             return JSONResponse(status_code=404, content={"error": f"Media '{media_id}' not found"})
-        return {"data": state._media_store[media_id]}
+        return {"data": base64.b64encode(raw).decode("ascii")}
 
     @app.get("/runs/{run_id}/loggables/{loggable_id}")
     async def get_run_loggable(
