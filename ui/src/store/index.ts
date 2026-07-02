@@ -794,6 +794,45 @@ export const useStore = create<NeboStore>((set, get) => ({
             break
           }
 
+          case 'metric_batch': {
+            // Columnar batch of accumulating-metric points (format v4):
+            // parallel steps/timestamps/values arrays with whole-batch
+            // tags/colors. All N points append in ONE array spread, so a
+            // 1000-point batch costs O(n + 1000), not 1000 × O(n).
+            const lid = event.loggable_id as string | undefined
+            if (!lid) break
+            const mname = (event.name as string) ?? ''
+            const mtype = (event.metric_type as MetricType) ?? 'line'
+            const steps = (event.steps as (number | null)[]) ?? []
+            const timestamps = (event.timestamps as number[]) ?? []
+            const values = (event.values as unknown[]) ?? []
+            const tags = (event.tags as string[]) ?? []
+            const colorsFlag = event.colors as boolean | undefined
+            const batchEntries: MetricEntry[] = steps.map((step, i) => {
+              const entry: MetricEntry = {
+                step: step ?? null,
+                value: values[i],
+                tags,
+                timestamp: timestamps[i],
+              }
+              if (colorsFlag !== undefined) entry.colors = colorsFlag
+              return entry
+            })
+            if (batchEntries.length === 0) break
+            const existing = run.loggableMetrics[lid]?.[mname]
+            const nextEntries = existing
+              ? [...existing.entries, ...batchEntries]
+              : batchEntries
+            const nextSeries: LoggableMetricSeries = existing
+              ? { ...existing, entries: nextEntries }
+              : { type: mtype, entries: nextEntries }
+            run.loggableMetrics = {
+              ...run.loggableMetrics,
+              [lid]: { ...(run.loggableMetrics[lid] ?? {}), [mname]: nextSeries },
+            }
+            break
+          }
+
           case 'progress':
             if (loggableId && run.graph?.nodes[loggableId]) {
               // New node object so primitive selectors detect the change; graph ref stays stable
