@@ -1,4 +1,4 @@
-import { authHeaders, setUnauthorized } from './auth'
+import { authHeaders, getAuthToken, setUnauthorized } from './auth'
 
 const BASE = ''
 
@@ -179,5 +179,13 @@ export const api = {
   getRunMetrics: (id: string) => get<{ metrics: Record<string, Record<string, LoggableMetricSeries>> }>(`/runs/${id}/metrics`),
   getRunImages: (id: string) => get<{ images: Record<string, Array<{ node: string; media_id: string; name: string; step: number | null; timestamp: number; labels?: LabelsPayload | null }>> }>(`/runs/${id}/images`),
   getRunAudio: (id: string) => get<{ audio: Record<string, Array<{ node: string; media_id: string; name: string; sr: number; step: number | null; timestamp: number }>> }>(`/runs/${id}/audio`),
-  getMedia: (runId: string, mediaId: string) => get<{ data: string }>(`/runs/${runId}/media/${mediaId}`),
+  // Media is served as raw immutable bytes (ETag = content-addressed
+  // media_id), so <img>/<audio> reference the URL directly and the browser
+  // cache does the rest. Tokens ride as a query param — media elements
+  // can't send custom headers.
+  mediaUrl: (runId: string, mediaId: string) => {
+    const token = getAuthToken()
+    const qs = token ? `?token=${encodeURIComponent(token)}` : ''
+    return `${BASE}/runs/${runId}/media/${mediaId}${qs}`
+  },
 }

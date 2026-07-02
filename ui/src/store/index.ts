@@ -254,10 +254,6 @@ interface NeboStore {
   addEdge: (runId: string, source: string, target: string) => void
   setWorkflowDescription: (runId: string, description: string) => void
 
-  // Media cache (mediaId -> base64 data)
-  mediaCache: Map<string, string>
-  cacheMedia: (mediaId: string, data: string) => void
-
   selectRun: (runId: string | null) => void
   requestLayout: () => void
 
@@ -679,14 +675,6 @@ export const useStore = create<NeboStore>((set, get) => ({
       run.graph = { ...run.graph, workflow_description: description }
     }
     return { runs }
-  }),
-
-  // Media cache
-  mediaCache: new Map(),
-  cacheMedia: (mediaId, data) => set(state => {
-    const next = new Map(state.mediaCache)
-    next.set(mediaId, data)
-    return { mediaCache: next }
   }),
 
   selectRun: (runId) => set({ selectedRunId: runId }),

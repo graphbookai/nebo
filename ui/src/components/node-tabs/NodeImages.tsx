@@ -34,7 +34,7 @@ export function NodeImages({ runId, loggableId, comparisonRunIds, fillParent }: 
 }
 
 export function ImageItem({ runId, loggableId, img, showTimestamp }: { runId: string; loggableId: string; img: ImageEntry; showTimestamp?: boolean }) {
-  const { data, loading } = useMedia(runId, img.mediaId)
+  const src = useMedia(runId, img.mediaId)
   const [modalOpen, setModalOpen] = useState(false)
   const imgWrapperRef = useRef<HTMLDivElement>(null)
 
@@ -61,26 +61,18 @@ export function ImageItem({ runId, loggableId, img, showTimestamp }: { runId: st
         />
       </div>
       <div ref={imgWrapperRef}>
-        {loading ? (
-          <div className="rounded border border-border bg-muted/50 animate-pulse h-32 w-full" />
-        ) : data ? (
-          <ImageWithLabels
-            src={`data:image/png;base64,${data}`}
-            labels={img.labels}
-            loggableName={loggableId}
-            imageName={img.name ?? ''}
-            alt={img.name}
-          />
-        ) : (
-          <div className="rounded border border-border bg-muted/30 h-32 w-full flex items-center justify-center">
-            <span className="text-xs text-muted-foreground">Failed to load</span>
-          </div>
-        )}
+        <ImageWithLabels
+          src={src}
+          labels={img.labels}
+          loggableName={loggableId}
+          imageName={img.name ?? ''}
+          alt={img.name}
+        />
       </div>
-      {modalOpen && data && (
+      {modalOpen && (
         <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={img.name} widthClass="max-w-6xl">
           <ImageWithLabels
-            src={`data:image/png;base64,${data}`}
+            src={src}
             labels={img.labels}
             loggableName={loggableId}
             imageName={img.name ?? ''}
@@ -95,7 +87,7 @@ export function ImageItem({ runId, loggableId, img, showTimestamp }: { runId: st
 // Only the items inside the viewport (plus overscan) are mounted, so a tab with
 // thousands of images stays cheap to switch into and to scroll through. Without
 // virtualization, mounting every ImageItem creates one useMedia subscription per
-// image (which re-fires on every mediaCache update) plus a real <img>+SVG tree.
+// image plus a real <img>+SVG tree.
 export function VirtualizedImageList({
   runId,
   loggableId,

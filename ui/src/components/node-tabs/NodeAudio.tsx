@@ -30,7 +30,7 @@ export function NodeAudio({ runId, loggableId, comparisonRunIds, fillParent }: N
 }
 
 export function AudioItem({ runId, entry, showTimestamp }: { runId: string; entry: AudioEntry; showTimestamp?: boolean }) {
-  const { data, loading } = useMedia(runId, entry.mediaId)
+  const src = useMedia(runId, entry.mediaId)
 
   return (
     <div data-export-atom="audio" className="space-y-1">
@@ -41,19 +41,11 @@ export function AudioItem({ runId, entry, showTimestamp }: { runId: string; entr
           {showTimestamp && ` · ${formatTimestamp(entry.timestamp)}`}
         </span>
       </div>
-      {loading ? (
-        <div className="rounded border border-border bg-muted/50 animate-pulse h-8 w-full" />
-      ) : data ? (
-        <audio
-          controls
-          src={`data:audio/wav;base64,${data}`}
-          className="w-full h-8"
-        />
-      ) : (
-        <div className="rounded border border-border bg-muted/30 h-8 w-full flex items-center justify-center">
-          <span className="text-[10px] text-muted-foreground">Failed to load</span>
-        </div>
-      )}
+      <audio
+        controls
+        src={src}
+        className="w-full h-8"
+      />
     </div>
   )
 }

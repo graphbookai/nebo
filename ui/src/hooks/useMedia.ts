@@ -1,26 +1,11 @@
-import { useState, useEffect } from 'react'
-import { useStore } from '@/store'
 import { api } from '@/lib/api'
 
 /**
- * Lazy-load media blob (base64) by mediaId.
- * Returns cached data immediately if available, otherwise fetches on-demand.
+ * Resolve the URL for a media blob. The daemon serves raw bytes with an
+ * immutable content-addressed ETag, so <img>/<audio> can point straight at
+ * the endpoint and the browser handles loading, caching and eviction —
+ * no in-store base64 cache.
  */
-export function useMedia(runId: string, mediaId: string): { data: string | null; loading: boolean } {
-  const cached = useStore(s => s.mediaCache.get(mediaId))
-  const cacheMedia = useStore(s => s.cacheMedia)
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    if (cached || !mediaId) return
-    setLoading(true)
-    api.getMedia(runId, mediaId)
-      .then(res => {
-        cacheMedia(mediaId, res.data)
-      })
-      .catch(() => { /* media not available */ })
-      .finally(() => setLoading(false))
-  }, [runId, mediaId, cached, cacheMedia])
-
-  return { data: cached ?? null, loading: !cached && loading }
+export function useMedia(runId: string, mediaId: string): string {
+  return api.mediaUrl(runId, mediaId)
 }
