@@ -119,6 +119,34 @@ tests) suppress side-effects:
 
 Edges are inferred at runtime, not declared. `nebo/core/decorators.py` wraps every `@nb.fn()` call; `nebo/core/dag.py` and `nebo/core/state.py` track which node produced each return value (`return_origins`) and which node is currently on the call stack. When a wrapped callee receives an argument that was produced by another node, a data-flow edge is added; otherwise the edge falls back to the calling parent. `depends_on=[...]` declares edges that can't be inferred (shared state, globals, class attrs). `dag_strategy` switches between `object` (data-flow, default), `stack` (caller→callee only), `both`, `linear` (chain nodes in first-execution order), or `none`.
 
+### .nebo format v4 + transport coalescing
+
+`fileformat.py`'s module docstring is the format spec of record. v4 adds:
+
+- **`metric_batch` (entry code 20)** — a columnar batch of accumulating
+  (line/scatter) points: parallel `steps`/`timestamps`/`values` arrays with
+  whole-batch `tags`/`colors`. **Equivalence rule:** a batch of length N ≡ N
+  consecutive `metric` events with the shared fields copied onto each
+  (`nebo/core/coalesce.py:expand_metric_batch` is the inverse). Plain
+  `metric` events stay legal; snapshot types are never batched.
+- **Media as raw bytes.** `log_image`/`log_audio` put PNG/WAV bytes in
+  `event["data"]` (msgpack bin on disk, ~25% smaller). Base64 exists only at
+  the JSON wire boundary (`NetworkTransport._jsonable`); the daemon accepts
+  both str and bytes.
+
+Batching happens in the **transports**, not the logger: both flush loops
+drain their queue per tick and run `coalesce()` (`nebo/core/coalesce.py`) —
+same-series points group per `(loggable_id, name)`, cut on any
+`(metric_type, tags, colors)` change or at `MAX_BATCH_POINTS=5000`;
+singletons pass through as plain `metric`. Per-series order is preserved;
+cross-type order within a flush window is best-effort (timestamps are
+authoritative). Coalescing is an optimization, never required — every
+consumer (daemon `_process_event`, UI `processWsEvents`, readers) accepts
+both shapes, so degraded paths may skip it. FileTransport also flushes the
+stream once per drain tick (not per entry) and its `flush()` is a barrier
+event, not a queue-empty poll. Measured: ~21 B/point on disk (was 116),
+~156k scalar events/s end-to-end in file mode (was ~91k).
+
 ### Metrics model (line + scatter accumulate, bar/pie/histogram snapshot)
 
 Two chart types accumulate — `log_line` and `log_scatter`. The other three (`log_bar`, `log_pie`, `log_histogram`) are snapshots: the SDK still sends an event over the wire on each call, but the daemon (`nebo/server/daemon.py` metric handler) and the UI store (`ui/src/store/index.ts:appendMetric`) **overwrite** the prior entry instead of appending. The chart type locks on first emission per `(loggable, name)` pair via `SessionState._metric_cursors[loggable][name]` (a `MetricCursor(type, next_step)` — that's the only metric metadata the SDK keeps in process, by design).
