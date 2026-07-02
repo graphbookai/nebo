@@ -424,8 +424,6 @@ def log_image(
     _ensure_initialized()
     from nebo.logging.serializers import serialize_image, _serialize_labels
 
-    import base64
-
     state = get_state()
     node_id = _current_node.get() or GLOBAL_LOGGABLE_ID
     timestamp = time.time()
@@ -438,11 +436,13 @@ def log_image(
         polygons=polygons, bitmasks=bitmasks,
     )
 
+    # Raw bytes end-to-end: msgpack bin on disk (format v4); the network
+    # transport base64-encodes at its JSON boundary.
     entry: dict = {
         "type": "image",
         "loggable_id": node_id,
         "name": name,
-        "data": base64.b64encode(image_bytes).decode("ascii"),
+        "data": image_bytes,
         "step": step,
         "timestamp": timestamp,
     }
@@ -463,8 +463,6 @@ def log_audio(audio: Any, sr: int = 16000, *, name: Optional[str] = None, step: 
     _ensure_initialized()
     from nebo.logging.serializers import serialize_audio
 
-    import base64
-
     state = get_state()
     node_id = _current_node.get() or GLOBAL_LOGGABLE_ID
     timestamp = time.time()
@@ -477,7 +475,7 @@ def log_audio(audio: Any, sr: int = 16000, *, name: Optional[str] = None, step: 
         "type": "audio",
         "loggable_id": node_id,
         "name": name,
-        "data": base64.b64encode(audio_bytes).decode("ascii"),
+        "data": audio_bytes,
         "sr": sr,
         "step": step,
         "timestamp": timestamp,
