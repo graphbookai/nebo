@@ -465,6 +465,14 @@ class RunCache:
         ).fetchone()
         return row is not None
 
+    def run_ids(self) -> list[str]:
+        return [
+            r["run_id"]
+            for r in self._read_conn().execute(
+                "SELECT run_id FROM runs ORDER BY started_at"
+            ).fetchall()
+        ]
+
     def _run_row(self, run_id: str) -> Optional[sqlite3.Row]:
         return self._read_conn().execute(
             "SELECT * FROM runs WHERE run_id=?", (run_id,)

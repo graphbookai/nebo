@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import Request, WebSocket, WebSocketDisconnect
+from fastapi import Request, Response, WebSocket, WebSocketDisconnect
 from nebo.server.cache import (
     DEFAULT_MEDIA_LRU_MB,
     MediaLRU,
@@ -201,6 +201,22 @@ ALERT_CONDITION_OPS = {
 _ALERT_LEVEL_NAMES = {10: "DEBUG", 20: "INFO", 30: "WARN", 40: "ERROR"}
 
 
+def _sniff_mime(data: bytes) -> str:
+    """Content-type from magic bytes — nebo media is PNG or WAV, but agents
+    can push arbitrary files via the MCP write tools."""
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"GIF8"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WAVE":
+        return "audio/wav"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return "application/octet-stream"
+
+
 def validate_alert_condition(condition: Any) -> Optional[str]:
     """Return an error message for a malformed rule condition, else None."""
     if not isinstance(condition, dict):
@@ -268,6 +284,202 @@ class DaemonState:
         if self.cache is not None:
             return self.cache.get_media(media_id)
         return None
+
+    # -- read accessors -------------------------------------------------
+    #
+    # Routing rule: a run serves reads from RAM only while it is resident
+    # with ram_complete=True (never evicted or demoted). Everything else —
+    # evicted runs, demoted live runs — reads from the SQL cache, where
+    # the full history lives. Endpoint handlers call these and never touch
+    # `state.runs` directly for reads.
+
+    def _resident(self, run_id: str) -> Optional[Run]:
+        run = self.runs.get(run_id)
+        if run is not None and run.ram_complete:
+            return run
+        return None
+
+    def run_summary(self, run_id: str) -> Optional[dict]:
+        run = self._resident(run_id)
+        if run is not None:
+            return run.get_summary()
+        if self.cache is not None:
+            return self.cache.get_summary(run_id)
+        run = self.runs.get(run_id)
+        return run.get_summary() if run is not None else None
+
+    def all_summaries(self) -> list[dict]:
+        out: dict[str, dict] = {}
+        if self.cache is not None:
+            for s in self.cache.list_summaries():
+                out[s["id"]] = s
+        for rid, run in self.runs.items():
+            if run.ram_complete or rid not in out:
+                out[rid] = run.get_summary()
+        return list(out.values())
+
+    def run_graph(self, run_id: str) -> Optional[dict]:
+        run = self._resident(run_id)
+        if run is not None:
+            return run.get_graph()
+        if self.cache is not None:
+            return self.cache.get_graph(run_id)
+        run = self.runs.get(run_id)
+        return run.get_graph() if run is not None else None
+
+    def run_logs(
+        self, run_id: str, loggable_id: Optional[str] = None, limit: int = 100,
+    ) -> Optional[list[dict]]:
+        run = self._resident(run_id)
+        if run is not None:
+            logs = run.logs
+            if loggable_id:
+                logs = [l for l in logs if l.node == loggable_id]
+            return [
+                {
+                    "timestamp": l.timestamp,
+                    "loggable_id": l.node,
+                    "name": l.name,
+                    "message": l.message,
+                    "level": l.level,
+                    "step": l.step,
+                }
+                for l in logs[-limit:]
+            ]
+        if self.cache is not None and self.cache.has_run(run_id):
+            return self.cache.get_logs(run_id, loggable_id=loggable_id, limit=limit)
+        return None
+
+    def run_errors(self, run_id: str) -> Optional[list[dict]]:
+        run = self._resident(run_id)
+        if run is not None:
+            return [
+                {
+                    "timestamp": e.timestamp,
+                    "node_name": e.node_name,
+                    "node_docstring": e.node_docstring,
+                    "exception_type": e.exception_type,
+                    "exception_message": e.exception_message,
+                    "traceback": e.traceback,
+                    "execution_count": e.execution_count,
+                    "params": e.params,
+                    "last_logs": e.last_logs,
+                }
+                for e in run.errors
+            ]
+        if self.cache is not None and self.cache.has_run(run_id):
+            return self.cache.get_errors(run_id)
+        return None
+
+    def run_metrics(self, run_id: str) -> Optional[dict]:
+        run = self._resident(run_id)
+        if run is not None:
+            return {
+                lid: l.metrics for lid, l in run.loggables.items() if l.metrics
+            }
+        if self.cache is not None and self.cache.has_run(run_id):
+            return self.cache.get_metrics(run_id)
+        return None
+
+    def run_loggable(self, run_id: str, loggable_id: str) -> Optional[dict]:
+        run = self._resident(run_id)
+        if run is not None:
+            if loggable_id not in run.loggables:
+                return None
+            lg = run.loggables[loggable_id]
+            return {
+                "loggable_id": lg.loggable_id,
+                "kind": lg.kind,
+                "func_name": lg.func_name,
+                "docstring": lg.docstring,
+                "exec_count": lg.exec_count,
+                "is_source": lg.is_source,
+                "params": lg.params,
+                # Normalized to the /logs entry shape (raw wire events also
+                # carry "type"); keeps RAM and SQL reads byte-identical.
+                "recent_logs": [
+                    {
+                        "timestamp": e.get("timestamp"),
+                        "loggable_id": loggable_id,
+                        "name": e.get("name") or "text",
+                        "message": e.get("message", ""),
+                        "level": e.get("level", "info"),
+                        "step": e.get("step"),
+                    }
+                    for e in lg.logs[-20:]
+                ],
+                "errors": lg.errors,
+                "metrics": lg.metrics,
+                "progress": lg.progress,
+            }
+        if self.cache is not None and self.cache.has_run(run_id):
+            return self.cache.get_loggable(run_id, loggable_id)
+        return None
+
+    def run_media_listing(self, run_id: str, kind: str) -> Optional[dict]:
+        run = self._resident(run_id)
+        if run is not None:
+            out: dict[str, list] = {}
+            for lid, l in run.loggables.items():
+                items = l.images if kind == "image" else l.audio
+                if not items:
+                    continue
+                if kind == "image":
+                    out[lid] = [
+                        {
+                            "loggable_id": lid,
+                            "media_id": m.get("media_id", ""),
+                            "name": m.get("name", ""),
+                            "step": m.get("step"),
+                            "timestamp": m.get("timestamp", 0),
+                            "labels": m.get("labels"),
+                        }
+                        for m in items
+                    ]
+                else:
+                    out[lid] = [
+                        {
+                            "loggable_id": lid,
+                            "media_id": m.get("media_id", ""),
+                            "name": m.get("name", ""),
+                            "sr": m.get("sr", 16000),
+                            "step": m.get("step"),
+                            "timestamp": m.get("timestamp", 0),
+                        }
+                        for m in items
+                    ]
+            return out
+        if self.cache is not None and self.cache.has_run(run_id):
+            return self.cache.list_media(run_id, kind)
+        return None
+
+    def run_alerts(self, run_id: str) -> Optional[list[dict]]:
+        run = self._resident(run_id)
+        if run is not None:
+            return run.alerts
+        if self.cache is not None and self.cache.has_run(run_id):
+            return self.cache.get_alerts(run_id)
+        return None
+
+    def run_significant_events(self, run_id: str) -> Optional[list[dict]]:
+        run = self._resident(run_id)
+        if run is not None:
+            return run.significant_events
+        if self.cache is not None and self.cache.has_run(run_id):
+            return self.cache.get_significant_events(run_id)
+        return None
+
+    def known_run_ids(self) -> list[str]:
+        ids = list(self.runs)
+        if self.cache is not None:
+            seen = set(ids)
+            ids.extend(r for r in self.cache.run_ids() if r not in seen)
+        return ids
+
+    def has_run_anywhere(self, run_id: str) -> bool:
+        if run_id in self.runs:
+            return True
+        return self.cache is not None and self.cache.has_run(run_id)
 
     def create_run(
         self,
@@ -1060,113 +1272,75 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
     @app.get("/runs")
     async def list_runs():
         return {
-            "runs": [r.get_summary() for r in state.runs.values()],
+            "runs": state.all_summaries(),
             "active_run": state.active_run_id,
         }
 
     @app.get("/runs/{run_id}")
     async def get_run(run_id: str):
-        if run_id not in state.runs:
+        summary = state.run_summary(run_id)
+        if summary is None:
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
-        return state.runs[run_id].get_summary()
+        return summary
 
     @app.get("/runs/{run_id}/graph")
     async def get_run_graph(run_id: str):
-        if run_id not in state.runs:
+        graph = state.run_graph(run_id)
+        if graph is None:
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
-        return state.runs[run_id].get_graph()
+        return graph
 
     @app.get("/runs/{run_id}/logs")
     async def get_run_logs(run_id: str, loggable_id: str | None = None, limit: int = 100):
-        if run_id not in state.runs:
+        logs = state.run_logs(run_id, loggable_id=loggable_id, limit=limit)
+        if logs is None:
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
-        run = state.runs[run_id]
-        logs = run.logs
-        if loggable_id:
-            logs = [l for l in logs if l.node == loggable_id]
-        return {"logs": [{"timestamp": l.timestamp, "loggable_id": l.node, "name": l.name, "message": l.message, "level": l.level, "step": l.step} for l in logs[-limit:]]}
+        return {"logs": logs}
 
     @app.get("/runs/{run_id}/errors")
     async def get_run_errors(run_id: str):
-        if run_id not in state.runs:
+        errors = state.run_errors(run_id)
+        if errors is None:
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
-        run = state.runs[run_id]
-        return {
-            "errors": [
-                {
-                    "timestamp": e.timestamp,
-                    "node_name": e.node_name,
-                    "node_docstring": e.node_docstring,
-                    "exception_type": e.exception_type,
-                    "exception_message": e.exception_message,
-                    "traceback": e.traceback,
-                    "execution_count": e.execution_count,
-                    "params": e.params,
-                    "last_logs": e.last_logs,
-                }
-                for e in run.errors
-            ]
-        }
+        return {"errors": errors}
 
     @app.get("/runs/{run_id}/metrics")
     async def get_run_metrics(run_id: str):
-        if run_id not in state.runs:
+        metrics = state.run_metrics(run_id)
+        if metrics is None:
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
-        run = state.runs[run_id]
-        metrics: dict[str, dict[str, dict]] = {}
-        for lid, l in run.loggables.items():
-            if l.metrics:
-                metrics[lid] = l.metrics
         return {"metrics": metrics}
 
     @app.get("/runs/{run_id}/images")
     async def get_run_images(run_id: str):
-        if run_id not in state.runs:
+        images = state.run_media_listing(run_id, "image")
+        if images is None:
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
-        run = state.runs[run_id]
-        images: dict[str, list] = {}
-        for lid, l in run.loggables.items():
-            if l.images:
-                images[lid] = [
-                    {
-                        "loggable_id": lid,
-                        "media_id": img.get("media_id", ""),
-                        "name": img.get("name", ""),
-                        "step": img.get("step"),
-                        "timestamp": img.get("timestamp", 0),
-                        "labels": img.get("labels"),
-                    }
-                    for img in l.images
-                ]
         return {"images": images}
 
     @app.get("/runs/{run_id}/audio")
     async def get_run_audio(run_id: str):
-        if run_id not in state.runs:
+        audio = state.run_media_listing(run_id, "audio")
+        if audio is None:
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
-        run = state.runs[run_id]
-        audio: dict[str, list] = {}
-        for lid, l in run.loggables.items():
-            if l.audio:
-                audio[lid] = [
-                    {
-                        "loggable_id": lid,
-                        "media_id": a.get("media_id", ""),
-                        "name": a.get("name", ""),
-                        "sr": a.get("sr", 16000),
-                        "step": a.get("step"),
-                        "timestamp": a.get("timestamp", 0),
-                    }
-                    for a in l.audio
-                ]
         return {"audio": audio}
 
     @app.get("/runs/{run_id}/media/{media_id}")
-    async def get_media(run_id: str, media_id: str):
+    async def get_media(run_id: str, media_id: str, request: Request):
         raw = state.media_bytes(run_id, media_id)
         if raw is None:
             return JSONResponse(status_code=404, content={"error": f"Media '{media_id}' not found"})
-        return {"data": base64.b64encode(raw).decode("ascii")}
+        # media_id is content-addressed, so it doubles as a permanent ETag.
+        if request.headers.get("if-none-match") == media_id:
+            return Response(status_code=304)
+        return Response(
+            content=raw,
+            media_type=_sniff_mime(raw),
+            headers={
+                "ETag": media_id,
+                "Cache-Control": "public, max-age=31536000, immutable",
+            },
+        )
 
     @app.get("/runs/{run_id}/loggables/{loggable_id}")
     async def get_run_loggable(
@@ -1176,19 +1350,18 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         tag: Optional[str] = None,
         step: Optional[int] = None,
     ):
-        if run_id not in state.runs:
+        if not state.has_run_anywhere(run_id):
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
-        run = state.runs[run_id]
-        if loggable_id not in run.loggables:
+        payload = state.run_loggable(run_id, loggable_id)
+        if payload is None:
             return JSONResponse(status_code=404, content={"error": f"Loggable '{loggable_id}' not found"})
-        lg = run.loggables[loggable_id]
 
         # Apply optional query-string filters to metrics. FastAPI does the
         # type coercion (and a 422 on bad input) via the parameter types.
         # ?name=X   — return only the named series (others are omitted entirely)
         # ?tag=X    — keep only entries whose tags list contains X (line/scatter)
         # ?step=N   — keep only entries whose step equals N (exact match)
-        metrics = dict(lg.metrics)
+        metrics = dict(payload["metrics"])
         if name is not None:
             metrics = {k: v for k, v in metrics.items() if k == name}
         if tag is not None or step is not None:
@@ -1205,14 +1378,8 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
                 series_out["entries"] = filtered_entries
                 filtered_metrics[mname] = series_out
             metrics = filtered_metrics
-
-        return {
-            "loggable_id": lg.loggable_id, "kind": lg.kind, "func_name": lg.func_name, "docstring": lg.docstring,
-            "exec_count": lg.exec_count,
-            "is_source": lg.is_source, "params": lg.params,
-            "recent_logs": lg.logs[-20:], "errors": lg.errors,
-            "metrics": metrics, "progress": lg.progress,
-        }
+        payload["metrics"] = metrics
+        return payload
 
     # --- Event wait endpoint ---
 
@@ -1223,15 +1390,14 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         timeout: float = 300,
         since: float = 0,
     ):
-        if run_id not in state.runs:
+        if not state.has_run_anywhere(run_id):
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
 
         wanted = set(t.strip() for t in types.split(","))
         deadline = asyncio.get_event_loop().time() + timeout
 
         def _find_match() -> Optional[dict]:
-            run = state.runs[run_id]
-            for evt in run.significant_events:
+            for evt in state.run_significant_events(run_id) or []:
                 if evt["type"] in wanted and evt.get("timestamp", 0) > since:
                     return evt
             return None
@@ -1267,14 +1433,14 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         timeout: float = 300.0,
         min_level: int = 20,
     ) -> dict:
-        if run_id not in state.runs:
+        if not state.has_run_anywhere(run_id):
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
 
-        run = state.runs[run_id]
         deadline = asyncio.get_event_loop().time() + max(0.0, float(timeout))
 
         def _find_qualifying_alert(start: int) -> Optional[dict]:
-            for alert in run.alerts[start:]:
+            alerts = state.run_alerts(run_id) or []
+            for alert in alerts[start:]:
                 if alert.get("level", 20) >= min_level:
                     return alert
             return None
@@ -1284,7 +1450,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         match = _find_qualifying_alert(seen)
         if match:
             return {"status": "alert", "alert": match}
-        seen = len(run.alerts)
+        seen = len(state.run_alerts(run_id) or [])
 
         async with state._event_notify:
             while True:
@@ -1300,7 +1466,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
                 match = _find_qualifying_alert(seen)
                 if match:
                     return {"status": "alert", "alert": match}
-                seen = len(run.alerts)
+                seen = len(state.run_alerts(run_id) or [])
 
         return {"status": "timeout"}
 
@@ -1314,18 +1480,18 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         structured condition; alerts fired by `nb.alert(...)` in pipeline
         code appear with `triggered_by: "code"` and the run they fired in.
         """
-        if run_id is not None and run_id not in state.runs:
+        if run_id is not None and not state.has_run_anywhere(run_id):
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
         items: list[dict] = []
         for rule in state.alert_rules.values():
             if run_id and rule.get("run_id") and rule["run_id"] != run_id:
                 continue
             items.append({**rule, "condition_str": format_alert_condition(rule["condition"])})
-        runs = [state.runs[run_id]] if run_id else list(state.runs.values())
-        for run in runs:
-            for alert in run.alerts:
+        run_ids = [run_id] if run_id else state.known_run_ids()
+        for rid in run_ids:
+            for alert in state.run_alerts(rid) or []:
                 if alert.get("triggered_by", "code") == "code":
-                    items.append({**alert, "run_id": run.id})
+                    items.append({**alert, "run_id": rid})
         return {"alerts": items}
 
     @app.post("/alerts")
@@ -1382,17 +1548,25 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         run = state.get_latest_run()
         if not run:
             return {"nodes": {}, "edges": [], "workflow_description": None}
-        return run.get_graph()
+        return state.run_graph(run.id) or {
+            "nodes": {}, "edges": [], "workflow_description": None,
+        }
 
     @app.get("/logs")
     async def get_logs(loggable_id: str | None = None, limit: int = 100):
         run = state.get_latest_run()
         if not run:
             return {"logs": []}
-        logs = run.logs
-        if loggable_id:
-            logs = [l for l in logs if l.node == loggable_id]
-        return {"logs": [{"timestamp": l.timestamp, "loggable_id": l.node, "name": l.name, "message": l.message} for l in logs[-limit:]]}
+        logs = state.run_logs(run.id, loggable_id=loggable_id, limit=limit) or []
+        return {"logs": [
+            {
+                "timestamp": l["timestamp"],
+                "loggable_id": l["loggable_id"],
+                "name": l["name"],
+                "message": l["message"],
+            }
+            for l in logs
+        ]}
 
     @app.get("/errors")
     async def get_errors():
@@ -1402,13 +1576,13 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         return {
             "errors": [
                 {
-                    "timestamp": e.timestamp,
-                    "node_name": e.node_name,
-                    "exception_type": e.exception_type,
-                    "exception_message": e.exception_message,
-                    "traceback": e.traceback,
+                    "timestamp": e["timestamp"],
+                    "node_name": e["node_name"],
+                    "exception_type": e["exception_type"],
+                    "exception_message": e["exception_message"],
+                    "traceback": e["traceback"],
                 }
-                for e in run.errors
+                for e in state.run_errors(run.id) or []
             ]
         }
 
@@ -1417,15 +1591,10 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         run = state.get_latest_run()
         if not run:
             return JSONResponse(status_code=404, content={"error": "No runs"})
-        if loggable_id not in run.loggables:
+        payload = state.run_loggable(run.id, loggable_id)
+        if payload is None:
             return JSONResponse(status_code=404, content={"error": f"Loggable '{loggable_id}' not found"})
-        lg = run.loggables[loggable_id]
-        return {
-            "loggable_id": lg.loggable_id, "kind": lg.kind, "func_name": lg.func_name, "docstring": lg.docstring,
-            "exec_count": lg.exec_count, "is_source": lg.is_source, "params": lg.params,
-            "recent_logs": lg.logs[-20:], "errors": lg.errors,
-            "metrics": lg.metrics, "progress": lg.progress,
-        }
+        return payload
 
     @app.post("/load")
     async def load_file(body: dict[str, Any]):

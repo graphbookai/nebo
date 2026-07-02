@@ -525,6 +525,110 @@ class TestDaemonCacheIngest:
         assert state.media_bytes("r1", mid) == png
 
 
+def _norm_summary(s: dict) -> dict:
+    """Timestamps roundtrip through epoch floats; compare them coarsely."""
+    from datetime import datetime
+
+    out = dict(s)
+    for key in ("started_at", "ended_at"):
+        v = out.pop(key, None)
+        out[f"_{key}_s"] = (
+            round(datetime.fromisoformat(v).timestamp(), 2) if v else None
+        )
+    return out
+
+
+class TestSqlReadParity:
+    ENDPOINTS = [
+        "/runs/r1",
+        "/runs/r1/graph",
+        "/runs/r1/logs",
+        "/runs/r1/errors",
+        "/runs/r1/metrics",
+        "/runs/r1/images",
+        "/runs/r1/audio",
+        "/runs/r1/loggables/a",
+    ]
+
+    def _client(self, tmp_path):
+        from fastapi.testclient import TestClient
+
+        from nebo.server.daemon import create_daemon_app
+
+        state, c = _mk_state(tmp_path)
+        app = create_daemon_app(state)
+        return state, c, TestClient(app)
+
+    def test_parity_after_eviction(self, tmp_path):
+        state, c, client = self._client(tmp_path)
+        _, events = _events_small_run()
+        events.append({"type": "edge", "data": {"source": "a", "target": "a"}})
+        events.append({"type": "error", "data": {
+            "timestamp": 9.0, "loggable_id": "zz", "type": "ValueError",
+            "error": "boom", "traceback": "tb",
+        }})
+        try:
+            resp = client.post("/events?run_id=r1", json=events)
+            assert resp.status_code == 200
+            before = {ep: client.get(ep).json() for ep in self.ENDPOINTS}
+            before_runs = client.get("/runs").json()
+
+            assert c.flush()
+            del state.runs["r1"]
+
+            after = {ep: client.get(ep).json() for ep in self.ENDPOINTS}
+            after_runs = client.get("/runs").json()
+
+            for ep in self.ENDPOINTS:
+                b, a = before[ep], after[ep]
+                if ep == "/runs/r1":
+                    assert _norm_summary(a) == _norm_summary(b), ep
+                else:
+                    assert a == b, ep
+            assert [_norm_summary(r) for r in after_runs["runs"]] == [
+                _norm_summary(r) for r in before_runs["runs"]
+            ]
+        finally:
+            c.close()
+
+    def test_media_raw_bytes_with_etag(self, tmp_path):
+        state, c, client = self._client(tmp_path)
+        png, events = _events_small_run()
+        try:
+            client.post("/events?run_id=r1", json=events)
+            mid = client.get("/runs/r1/images").json()["images"]["a"][0]["media_id"]
+            resp = client.get(f"/runs/r1/media/{mid}")
+            assert resp.status_code == 200
+            assert resp.content == png
+            assert resp.headers["content-type"].startswith("image/png")
+            assert resp.headers["etag"] == mid
+            assert "immutable" in resp.headers["cache-control"]
+
+            resp304 = client.get(
+                f"/runs/r1/media/{mid}", headers={"If-None-Match": mid}
+            )
+            assert resp304.status_code == 304
+
+            assert client.get("/runs/r1/media/nope").status_code == 404
+        finally:
+            c.close()
+
+    def test_media_survives_eviction(self, tmp_path):
+        state, c, client = self._client(tmp_path)
+        png, events = _events_small_run()
+        try:
+            client.post("/events?run_id=r1", json=events)
+            mid = client.get("/runs/r1/images").json()["images"]["a"][0]["media_id"]
+            assert c.flush()
+            del state.runs["r1"]
+            state.media_lru.__init__(budget_bytes=1)  # wipe the LRU too
+            resp = client.get(f"/runs/r1/media/{mid}")
+            assert resp.status_code == 200
+            assert resp.content == png
+        finally:
+            c.close()
+
+
 class TestCachePathAndSweep:
     def test_resolve_cache_path_stable(self, tmp_path):
         a = resolve_cache_path(tmp_path / "x")
