@@ -71,6 +71,123 @@ async def test_watcher_tails_appended_entries(tmp_path):
     assert msgs == ["first", "second"]
 
 
+def _cache_state(tmp_path):
+    from nebo.server.cache import RunCache
+
+    cache = RunCache(tmp_path / "cache.db", logdir=tmp_path / "logs")
+    cache.start()
+    return DaemonState(cache=cache), cache
+
+
+@pytest.mark.asyncio
+async def test_offsets_persist_across_restart(tmp_path):
+    logdir = tmp_path / "logs"
+    logdir.mkdir()
+    state, cache = _cache_state(tmp_path)
+    try:
+        _write_run_file(
+            logdir, "persistrun01",
+            [{"type": "log", "loggable_id": "__global__", "message": "one"}],
+        )
+        watcher = DirectoryWatcher(state, logdir=logdir, poll_interval=0.05)
+        await watcher._tick()
+        assert cache.flush()
+        assert state.runs["persistrun01"].source == "watcher"
+        n_before = cache._read_conn().execute(
+            "SELECT COUNT(*) FROM logs"
+        ).fetchone()[0]
+        cache.close()
+
+        # "Restart": fresh cache handle + state + watcher over the same db.
+        from nebo.server.cache import RunCache
+
+        cache2 = RunCache(tmp_path / "cache.db", logdir=tmp_path / "logs")
+        cache2.start()
+        state2 = DaemonState(cache=cache2)
+        watcher2 = DirectoryWatcher(state2, logdir=logdir, poll_interval=0.05)
+        await watcher2._tick()
+        assert cache2.flush()
+        # Nothing re-ingested: no RAM run materialized, row count unchanged.
+        assert "persistrun01" not in state2.runs
+        n_after = cache2._read_conn().execute(
+            "SELECT COUNT(*) FROM logs"
+        ).fetchone()[0]
+        assert n_after == n_before
+        # And the run is still fully queryable from SQL.
+        assert state2.run_summary("persistrun01")["log_count"] == 1
+        cache2.close()
+    finally:
+        if cache._running:
+            cache.close()
+
+
+@pytest.mark.asyncio
+async def test_torn_tail_parks_and_resumes(tmp_path):
+    logdir = tmp_path / "logs"
+    logdir.mkdir()
+    state, cache = _cache_state(tmp_path)
+    try:
+        filepath = _write_run_file(
+            logdir, "tornrun00001",
+            [{"type": "log", "loggable_id": "__global__", "message": f"m{i}"}
+             for i in range(3)],
+        )
+        whole = filepath.read_bytes()
+        # Cut the file mid-way through the last frame.
+        filepath.write_bytes(whole[:-7])
+
+        watcher = DirectoryWatcher(state, logdir=logdir, poll_interval=0.05)
+        await watcher._tick()
+        msgs = [l.message for l in state.runs["tornrun00001"].logs]
+        assert msgs == ["m0", "m1"]
+
+        # Complete the write; only the missing entry arrives.
+        filepath.write_bytes(whole)
+        await watcher._tick()
+        msgs = [l.message for l in state.runs["tornrun00001"].logs]
+        assert msgs == ["m0", "m1", "m2"]
+    finally:
+        cache.close()
+
+
+@pytest.mark.asyncio
+async def test_watcher_media_by_reference(tmp_path):
+    import base64
+
+    logdir = tmp_path / "logs"
+    logdir.mkdir()
+    state, cache = _cache_state(tmp_path)
+    try:
+        png = b"\x89PNG\r\n\x1a\n" + b"z" * 40
+        _write_run_file(
+            logdir, "mediarun0001",
+            [{"type": "image", "loggable_id": "__global__", "name": "f",
+              "data": base64.b64encode(png).decode("ascii"), "timestamp": 1.0}],
+        )
+        watcher = DirectoryWatcher(state, logdir=logdir, poll_interval=0.05)
+        await watcher._tick()
+        assert cache.flush()
+
+        row = cache._read_conn().execute(
+            "SELECT src_path, src_offset, src_length FROM media"
+        ).fetchone()
+        assert row["src_path"] is not None
+        assert row["src_offset"] > 0 and row["src_length"] > len(png)
+        n_blobs = cache._read_conn().execute(
+            "SELECT COUNT(*) FROM media_blobs"
+        ).fetchone()[0]
+        assert n_blobs == 0  # by reference, not by copy
+
+        mid = cache._read_conn().execute(
+            "SELECT media_id FROM media"
+        ).fetchone()["media_id"]
+        # Wipe the LRU so the read exercises the file reference.
+        state.media_lru.__init__(budget_bytes=1)
+        assert state.media_bytes("mediarun0001", mid) == png
+    finally:
+        cache.close()
+
+
 @pytest.mark.asyncio
 async def test_watcher_ignores_non_nebo_files(tmp_path):
     state = DaemonState()

@@ -572,6 +572,7 @@ class DaemonState:
         script_path: str,
         args: list[str] | None = None,
         run_id: str | None = None,
+        source: str = "network",
     ) -> Run:
         """Create a new run entry."""
         if run_id is None:
@@ -589,6 +590,7 @@ class DaemonState:
             started_at=datetime.now(),
             source_hash=source_hash,
             last_event_at=time.time(),
+            source=source,
         )
         self._cache_put(("run_upsert", run_id, {
             "script_path": script_path,
@@ -674,7 +676,12 @@ class DaemonState:
             return list(self.runs.values())[-1]
         return None
 
-    async def ingest_events(self, events: list[dict], run_id: str | None = None) -> None:
+    async def ingest_events(
+        self,
+        events: list[dict],
+        run_id: str | None = None,
+        source: str = "network",
+    ) -> None:
         """Ingest a batch of events into the appropriate run."""
         async with self._lock:
             rid = run_id or self.active_run_id
@@ -688,7 +695,7 @@ class DaemonState:
                 else:
                     # Create run if it doesn't exist yet (script_path updated
                     # by run_start event).
-                    run = self.create_run("direct", run_id=rid)
+                    run = self.create_run("direct", run_id=rid, source=source)
                 rid = run.id
 
             run = self.runs[rid]
