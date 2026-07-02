@@ -123,6 +123,42 @@ def sweep_cache_dir(
     return deleted
 
 
+def media_id_for(data: bytes) -> str:
+    """Content-addressed media id: stable across daemon restarts and cache
+    rebuilds (enables dedup and immutable HTTP caching)."""
+    return hashlib.sha256(data).hexdigest()[:16]
+
+
+class MediaLRU:
+    """Byte-budgeted LRU for decoded media blobs."""
+
+    def __init__(self, budget_bytes: int) -> None:
+        from collections import OrderedDict
+
+        self._budget = budget_bytes
+        self._size = 0
+        self._items: "OrderedDict[str, bytes]" = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get(self, media_id: str) -> Optional[bytes]:
+        with self._lock:
+            data = self._items.get(media_id)
+            if data is not None:
+                self._items.move_to_end(media_id)
+            return data
+
+    def put(self, media_id: str, data: bytes) -> None:
+        with self._lock:
+            old = self._items.pop(media_id, None)
+            if old is not None:
+                self._size -= len(old)
+            self._items[media_id] = data
+            self._size += len(data)
+            while self._size > self._budget and len(self._items) > 1:
+                _, evicted = self._items.popitem(last=False)
+                self._size -= len(evicted)
+
+
 def _connect(path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -146,6 +182,7 @@ class RunCache:
         self._thread: Optional[threading.Thread] = None
         self._running = False
         self._local = threading.local()
+        self.media_lru = MediaLRU(media_lru_mb * 1024 * 1024)
 
     # -- lifecycle -----------------------------------------------------
 
@@ -711,6 +748,85 @@ class RunCache:
             "counts": counts,
             "run_row": dict(row),
         }
+
+    def list_media(self, run_id: str, kind: str) -> dict[str, list[dict]]:
+        """Occurrence listing per loggable, in insertion order."""
+        import json
+
+        rows = self._read_conn().execute(
+            "SELECT * FROM media WHERE run_id=? AND kind=? ORDER BY id",
+            (run_id, kind),
+        ).fetchall()
+        out: dict[str, list[dict]] = {}
+        for r in rows:
+            item = {
+                "loggable_id": r["loggable_id"],
+                "media_id": r["media_id"],
+                "name": r["name"] or "",
+                "step": r["step"],
+                "timestamp": r["ts"] or 0,
+            }
+            if kind == "image":
+                item["labels"] = (
+                    json.loads(r["labels_json"]) if r["labels_json"] else None
+                )
+            else:
+                item["sr"] = r["sr"] if r["sr"] is not None else 16000
+            out.setdefault(r["loggable_id"], []).append(item)
+        return out
+
+    def get_media(self, media_id: str) -> Optional[bytes]:
+        """Resolve media bytes: LRU -> blob table -> .nebo file reference."""
+        data = self.media_lru.get(media_id)
+        if data is not None:
+            return data
+        conn = self._read_conn()
+        row = conn.execute(
+            "SELECT blob FROM media_blobs WHERE media_id=?", (media_id,)
+        ).fetchone()
+        if row is not None:
+            data = bytes(row["blob"])
+            self.media_lru.put(media_id, data)
+            return data
+        ref = conn.execute(
+            "SELECT src_path, src_offset, src_length FROM media"
+            " WHERE media_id=? AND src_path IS NOT NULL LIMIT 1",
+            (media_id,),
+        ).fetchone()
+        if ref is None:
+            return None
+        data = self._read_media_ref(
+            ref["src_path"], ref["src_offset"], ref["src_length"]
+        )
+        if data is not None:
+            self.media_lru.put(media_id, data)
+        return data
+
+    @staticmethod
+    def _read_media_ref(path: str, offset: int, length: int) -> Optional[bytes]:
+        """Read one frame [type][u32 size][msgpack payload] from a .nebo file
+        and extract its media bytes (base64 str in v3 files, bin in v4)."""
+        import base64
+        import struct as _struct
+
+        import msgpack
+
+        try:
+            with open(path, "rb") as f:
+                f.seek(offset)
+                frame = f.read(length)
+            if len(frame) < 5:
+                return None
+            size = _struct.unpack(">I", frame[1:5])[0]
+            payload = msgpack.unpackb(frame[5:5 + size], raw=False)
+            data = payload.get("data") if isinstance(payload, dict) else None
+            if isinstance(data, bytes):
+                return data
+            if isinstance(data, str):
+                return base64.b64decode(data)
+        except Exception:
+            logger.warning("cache: failed to read media ref %s@%d", path, offset)
+        return None
 
     def get_watch_files(self) -> dict[str, dict]:
         rows = self._read_conn().execute("SELECT * FROM watch_files").fetchall()

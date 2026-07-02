@@ -206,8 +206,8 @@ class NeboFileReader:
         entry_type = ENTRY_TYPES_REVERSE.get(type_byte, f"unknown_{type_byte}")
         return {"type": entry_type, "payload": payload}
 
-    def read_next_entry(self) -> Optional[dict[str, Any]]:
-        """Read the next entry and translate it to the in-memory shape.
+    def _translate(self, entry: dict[str, Any]) -> dict[str, Any]:
+        """Translate a raw on-disk entry to the in-memory shape.
 
         For v3 files the entry passes through unchanged. For v1 files the
         legacy on-disk spellings (``node`` / ``node_register`` /
@@ -215,11 +215,8 @@ class NeboFileReader:
         (``loggable_id`` / ``loggable_register`` / ``data.loggable_id``).
         For v2 (and older) metric entries, ``metric_type`` and ``tags`` are
         synthesized onto the payload (``"line"`` / ``[]``) since they did
-        not exist on-disk prior to v3. Returns None at EOF.
+        not exist on-disk prior to v3.
         """
-        entry = self.read_next_entry_raw()
-        if entry is None:
-            return None
         if self._version == 1:
             entry = {
                 "type": _v1_entry_type_to_in_memory(entry["type"]),
@@ -234,6 +231,54 @@ class NeboFileReader:
                 payload.setdefault("tags", [])
                 entry = {"type": entry["type"], "payload": payload}
         return entry
+
+    def read_next_entry(self) -> Optional[dict[str, Any]]:
+        """Read the next entry and translate it to the in-memory shape.
+
+        See :meth:`_translate` for the per-version rules. Returns None at EOF.
+        """
+        entry = self.read_next_entry_raw()
+        if entry is None:
+            return None
+        return self._translate(entry)
+
+    def read_entries_incremental(self) -> Iterator[tuple[dict[str, Any], int, int]]:
+        """Yield ``(translated_entry, frame_start, frame_end)`` triples.
+
+        Unlike :meth:`read_entries`, a truncated tail frame (a writer caught
+        mid-append, or a crash) does NOT raise: iteration stops cleanly and
+        the stream is seeked back to the start of the torn frame, so callers
+        that persist offsets (the daemon's directory watcher) can resume from
+        exactly there once more bytes arrive.
+        """
+        while True:
+            start = self._stream.tell()
+            type_data = self._stream.read(1)
+            if len(type_data) < 1:
+                self._stream.seek(start)
+                return
+            size_data = self._stream.read(4)
+            if len(size_data) < 4:
+                self._stream.seek(start)
+                return
+            size = struct.unpack(">I", size_data)[0]
+            payload_bytes = self._stream.read(size)
+            if len(payload_bytes) < size:
+                self._stream.seek(start)
+                return
+            try:
+                payload = msgpack.unpackb(payload_bytes, raw=False)
+            except Exception:
+                # A complete-length but undecodable frame: either mid-file
+                # corruption or a torn write that happens to have plausible
+                # length bytes. Park here — retrying later is the only safe
+                # option, and matches the watcher's existing behavior.
+                self._stream.seek(start)
+                return
+            type_byte = struct.unpack(">B", type_data)[0]
+            entry_type = ENTRY_TYPES_REVERSE.get(type_byte, f"unknown_{type_byte}")
+            entry = self._translate({"type": entry_type, "payload": payload})
+            yield entry, start, self._stream.tell()
 
     def skip_next_entry(self) -> bool:
         """Skip the next entry without parsing payload. Returns False at EOF."""

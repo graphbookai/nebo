@@ -263,6 +263,154 @@ class TestOpsAndAccessors:
             c.close()
 
 
+class TestMediaStore:
+    def test_media_id_deterministic(self):
+        from nebo.server.cache import media_id_for
+
+        a = media_id_for(b"hello")
+        assert a == media_id_for(b"hello")
+        assert a != media_id_for(b"world")
+        assert len(a) == 16
+
+    def test_lru_evicts_by_bytes(self):
+        from nebo.server.cache import MediaLRU
+
+        lru = MediaLRU(budget_bytes=10)
+        lru.put("a", b"12345")
+        lru.put("b", b"12345")
+        assert lru.get("a") == b"12345"
+        lru.put("c", b"12345")  # over budget: least-recently-used ("b") goes
+        assert lru.get("b") is None
+        assert lru.get("a") == b"12345"
+        assert lru.get("c") == b"12345"
+
+    def test_blob_roundtrip(self, tmp_path):
+        from nebo.server.cache import media_id_for
+
+        c = _mk(tmp_path)
+        try:
+            data = b"\x89PNG fake bytes"
+            mid = media_id_for(data)
+            c.enqueue(("media_blob", mid, data))
+            c.enqueue(("media_occurrence", "r1", "a", mid, "image",
+                       "frame", 0, 1.0, None, None, None, None, None))
+            assert c.flush()
+            # Cold read (LRU empty): comes from the blob table.
+            assert c.get_media(mid) == data
+            listing = c.list_media("r1", "image")
+            assert listing["a"][0]["media_id"] == mid
+            assert listing["a"][0]["name"] == "frame"
+        finally:
+            c.close()
+
+    def test_ref_roundtrip_via_nebo_file(self, tmp_path):
+        import base64
+
+        from nebo.core.fileformat import NeboFileReader, NeboFileWriter
+        from nebo.server.cache import media_id_for
+
+        png = b"\x89PNG\r\n\x1a\n" + b"x" * 64
+        path = tmp_path / "run.nebo"
+        with path.open("wb") as f:
+            w = NeboFileWriter(f, run_id="r1", script_path="s.py")
+            w.write_header()
+            w.write_entry("log", {"type": "log", "message": "before"})
+            w.write_entry("image", {
+                "type": "image", "loggable_id": "a", "name": "frame",
+                "data": base64.b64encode(png).decode("ascii"),
+                "step": None, "timestamp": 1.0,
+            })
+
+        with path.open("rb") as f:
+            reader = NeboFileReader(f)
+            reader.read_header()
+            frames = list(reader.read_entries_incremental())
+        image_frames = [x for x in frames if x[0]["type"] == "image"]
+        assert len(image_frames) == 1
+        _, start, end = image_frames[0]
+
+        c = _mk(tmp_path)
+        try:
+            mid = media_id_for(png)
+            c.enqueue(("media_occurrence", "r1", "a", mid, "image",
+                       "frame", None, 1.0, None, None,
+                       str(path), start, end - start))
+            assert c.flush()
+            assert c.get_media(mid) == png
+            # Second read is served from the LRU (delete the file to prove it).
+            path.unlink()
+            assert c.get_media(mid) == png
+        finally:
+            c.close()
+
+    def test_get_media_unknown(self, tmp_path):
+        c = _mk(tmp_path)
+        try:
+            assert c.get_media("nope") is None
+        finally:
+            c.close()
+
+
+class TestIncrementalReader:
+    def _write_file(self, path, n_entries=3):
+        from nebo.core.fileformat import NeboFileWriter
+
+        with path.open("wb") as f:
+            w = NeboFileWriter(f, run_id="r1", script_path="s.py")
+            w.write_header()
+            for i in range(n_entries):
+                w.write_entry("log", {"type": "log", "message": f"m{i}"})
+        return path
+
+    def test_yields_entries_with_offsets(self, tmp_path):
+        from nebo.core.fileformat import NeboFileReader
+
+        path = self._write_file(tmp_path / "a.nebo")
+        with path.open("rb") as f:
+            r = NeboFileReader(f)
+            r.read_header()
+            header_end = f.tell()
+            items = list(r.read_entries_incremental())
+        assert len(items) == 3
+        assert items[0][1] == header_end
+        # Frames tile the file exactly.
+        for (_, s, e), (_, s2, _e2) in zip(items, items[1:]):
+            assert e == s2
+        assert items[-1][2] == path.stat().st_size
+
+    def test_truncated_tail_stops_cleanly(self, tmp_path):
+        from nebo.core.fileformat import NeboFileReader
+
+        path = self._write_file(tmp_path / "a.nebo")
+        whole = path.read_bytes()
+        # Chop the last frame in half.
+        with path.open("rb") as f:
+            r = NeboFileReader(f)
+            r.read_header()
+            items = list(r.read_entries_incremental())
+        last_start = items[-1][1]
+        cut = last_start + (items[-1][2] - last_start) // 2
+        path.write_bytes(whole[:cut])
+
+        with path.open("rb") as f:
+            r = NeboFileReader(f)
+            r.read_header()
+            partial = list(r.read_entries_incremental())
+            resume_at = f.tell()
+        assert len(partial) == 2
+        assert resume_at == last_start  # parked at the torn frame
+
+        # Complete the file again: resuming from the parked offset yields
+        # exactly the missing entry.
+        path.write_bytes(whole)
+        with path.open("rb") as f:
+            f.seek(resume_at)
+            r = NeboFileReader(f)
+            rest = list(r.read_entries_incremental())
+        assert len(rest) == 1
+        assert rest[0][0]["payload"]["message"] == "m2"
+
+
 class TestCachePathAndSweep:
     def test_resolve_cache_path_stable(self, tmp_path):
         a = resolve_cache_path(tmp_path / "x")
