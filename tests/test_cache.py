@@ -629,6 +629,153 @@ class TestSqlReadParity:
             c.close()
 
 
+class TestJanitor:
+    @pytest.mark.asyncio
+    async def _seed(self, tmp_path, run_id="r1", completed=False):
+        state, c = _mk_state(tmp_path)
+        _, events = _events_small_run()
+        await state.ingest_events(events, run_id=run_id)
+        if completed:
+            await state.ingest_events(
+                [{"type": "run_completed", "data": {}}], run_id=run_id
+            )
+        return state, c
+
+    @pytest.mark.asyncio
+    async def test_rule1_completed_idle_evicts(self, tmp_path):
+        state, c = await self._seed(tmp_path, completed=True)
+        try:
+            now = state.runs["r1"].last_event_at
+            result = state.janitor_pass(now=now + 601)
+            assert result["evicted"] == ["r1"]
+            assert "r1" not in state.runs
+            # Reads still served from SQL.
+            assert state.run_summary("r1")["script_path"] == "train.py"
+        finally:
+            c.close()
+
+    @pytest.mark.asyncio
+    async def test_rule1_not_before_window(self, tmp_path):
+        state, c = await self._seed(tmp_path, completed=True)
+        try:
+            now = state.runs["r1"].last_event_at
+            result = state.janitor_pass(now=now + 599)
+            assert result["evicted"] == []
+            assert "r1" in state.runs
+        finally:
+            c.close()
+
+    @pytest.mark.asyncio
+    async def test_rule2_crashed_idle_evicts_and_clears_active(self, tmp_path):
+        state, c = await self._seed(tmp_path, completed=False)
+        try:
+            assert state.active_run_id == "r1"
+            now = state.runs["r1"].last_event_at
+            assert state.janitor_pass(now=now + 3599)["evicted"] == []
+            result = state.janitor_pass(now=now + 3601)
+            assert result["evicted"] == ["r1"]
+            assert state.active_run_id is None
+        finally:
+            c.close()
+
+    @pytest.mark.asyncio
+    async def test_rule3_budget_evicts_completed_lru_first(self, tmp_path):
+        state, c = _mk_state(tmp_path)
+        try:
+            for rid in ("r1", "r2", "r3"):
+                _, events = _events_small_run()
+                await state.ingest_events(events, run_id=rid)
+            # r1, r2 completed; r3 live.
+            for rid in ("r1", "r2"):
+                await state.ingest_events(
+                    [{"type": "run_completed", "data": {}}], run_id=rid
+                )
+            state.runs["r1"].last_event_at = 100.0
+            state.runs["r2"].last_event_at = 200.0
+            state.runs["r3"].last_event_at = 300.0
+            state.ram_budget_points = 10
+            state.runs["r1"].resident_points = 6
+            state.runs["r2"].resident_points = 6
+            state.runs["r3"].resident_points = 6
+            result = state.janitor_pass(now=400.0)
+            # Oldest completed (r1) evicted brings total 18 -> 12; still
+            # over, so r2 goes too; r3 is live and stays resident.
+            assert result["evicted"] == ["r1", "r2"]
+            assert "r3" in state.runs
+        finally:
+            c.close()
+
+    @pytest.mark.asyncio
+    async def test_rule4_oversized_live_run_demoted(self, tmp_path):
+        state, c = await self._seed(tmp_path, completed=False)
+        try:
+            state.ram_budget_points = 3
+            result = state.janitor_pass(now=state.runs["r1"].last_event_at + 1)
+            assert result["demoted"] == ["r1"]
+            run = state.runs["r1"]
+            assert run.ram_complete is False
+            assert run.resident_points == 0
+            assert run.loggables["a"].metrics["loss"]["entries"] == []
+            # Type lock survives demotion; ingest keeps working.
+            await state.ingest_events([
+                {"type": "metric", "loggable_id": "a", "name": "loss",
+                 "metric_type": "line", "value": 0.2, "step": 5,
+                 "tags": [], "timestamp": 7.0},
+            ], run_id="r1")
+            assert c.flush()
+            steps = [e["step"] for e in c.get_metrics("r1")["a"]["loss"]["entries"]]
+            assert steps == [0, 1, 5]
+            # Reads route to SQL for demoted runs.
+            m = state.run_metrics("r1")
+            assert [e["step"] for e in m["a"]["loss"]["entries"]] == [0, 1, 5]
+        finally:
+            c.close()
+
+    @pytest.mark.asyncio
+    async def test_no_cache_janitor_noop(self, tmp_path):
+        from nebo.server.daemon import DaemonState
+
+        state = DaemonState()
+        _, events = _events_small_run()
+        await state.ingest_events(events, run_id="r1")
+        result = state.janitor_pass(now=time.time() + 10**6)
+        assert result == {"evicted": [], "demoted": []}
+        assert "r1" in state.runs
+
+
+class TestAppCacheWiring:
+    def test_env_builds_cache(self, tmp_path, monkeypatch):
+        from nebo.server.daemon import DaemonState, create_daemon_app
+
+        monkeypatch.setenv("NEBO_CACHE_PATH", str(tmp_path / "c.db"))
+        monkeypatch.setenv("NEBO_RAM_BUDGET_MB", "1")
+        state = DaemonState()
+        create_daemon_app(state)
+        try:
+            assert state.cache is not None
+            assert state.media_lru is state.cache.media_lru
+            assert state.ram_budget_points == (1024 * 1024) // 372
+        finally:
+            state.cache.close()
+
+    def test_no_env_no_cache(self, tmp_path, monkeypatch):
+        from nebo.server.daemon import DaemonState, create_daemon_app
+
+        monkeypatch.delenv("NEBO_CACHE_PATH", raising=False)
+        state = DaemonState()
+        create_daemon_app(state)
+        assert state.cache is None
+
+    def test_no_cache_env_wins(self, tmp_path, monkeypatch):
+        from nebo.server.daemon import DaemonState, create_daemon_app
+
+        monkeypatch.setenv("NEBO_CACHE_PATH", str(tmp_path / "c.db"))
+        monkeypatch.setenv("NEBO_NO_CACHE", "1")
+        state = DaemonState()
+        create_daemon_app(state)
+        assert state.cache is None
+
+
 class TestCachePathAndSweep:
     def test_resolve_cache_path_stable(self, tmp_path):
         a = resolve_cache_path(tmp_path / "x")

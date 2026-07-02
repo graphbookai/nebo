@@ -268,6 +268,12 @@ class DaemonState:
         self._media_fallback: dict[str, bytes] = {}
         self._save_files_path: Optional[Path] = None
         self._logdir: Optional[Path] = None
+        # RAM budget for resident point entries (metric points + log lines),
+        # enforced by the janitor. Converted from MB at BYTES_PER_POINT.
+        from nebo.server.cache import BYTES_PER_POINT, DEFAULT_RAM_BUDGET_MB
+        self.ram_budget_points = (
+            DEFAULT_RAM_BUDGET_MB * 1024 * 1024
+        ) // BYTES_PER_POINT
 
     def _cache_put(self, op: tuple) -> None:
         if self.cache is not None:
@@ -284,6 +290,86 @@ class DaemonState:
         if self.cache is not None:
             return self.cache.get_media(media_id)
         return None
+
+    # -- eviction janitor ------------------------------------------------
+    #
+    # RAM is a bounded working set; the SQL cache holds everything. Rules
+    # (in order, whichever fires first):
+    #   1. completed (ended_at set) and idle > 10 min  -> evict
+    #   2. no ended_at but idle > 60 min (crashed)     -> evict
+    #   3. resident points over budget                 -> evict completed,
+    #      oldest last_event_at first
+    #   4. a single LIVE run alone over budget         -> demote (drop
+    #      read-state, keep ingest-state; reads switch to SQL)
+    # A no-op without a cache — eviction would otherwise lose data.
+
+    COMPLETED_IDLE_S = 600.0
+    CRASHED_IDLE_S = 3600.0
+
+    def janitor_pass(self, *, now: Optional[float] = None) -> dict:
+        result: dict[str, list[str]] = {"evicted": [], "demoted": []}
+        if self.cache is None:
+            return result
+        if now is None:
+            now = time.time()
+
+        for rid, run in list(self.runs.items()):
+            idle = now - (run.last_event_at or 0.0)
+            if run.ended_at is not None and idle > self.COMPLETED_IDLE_S:
+                self._evict_run(rid)
+                result["evicted"].append(rid)
+            elif run.ended_at is None and idle > self.CRASHED_IDLE_S:
+                self._evict_run(rid)
+                result["evicted"].append(rid)
+
+        total = sum(r.resident_points for r in self.runs.values())
+        if total > self.ram_budget_points:
+            completed = sorted(
+                (r for r in self.runs.values() if r.ended_at is not None),
+                key=lambda r: r.last_event_at,
+            )
+            for run in completed:
+                if total <= self.ram_budget_points:
+                    break
+                total -= run.resident_points
+                self._evict_run(run.id)
+                result["evicted"].append(run.id)
+
+        for rid, run in list(self.runs.items()):
+            if (
+                run.ended_at is None
+                and run.ram_complete
+                and run.resident_points > self.ram_budget_points
+            ):
+                self._demote_run(rid)
+                result["demoted"].append(rid)
+
+        return result
+
+    def _evict_run(self, run_id: str) -> None:
+        """Drop a run from RAM entirely; its state lives in the cache."""
+        self.cache.flush()  # barrier: SQL must be complete before the drop
+        self.runs.pop(run_id, None)
+        if self.active_run_id == run_id:
+            self.active_run_id = None
+
+    def _demote_run(self, run_id: str) -> None:
+        """Drop a live run's read-state; keep ingest-state. One-way."""
+        run = self.runs.get(run_id)
+        if run is None:
+            return
+        self.cache.flush()
+        for lg in run.loggables.values():
+            for series in lg.metrics.values():
+                series["entries"] = []
+            lg.logs = []
+            lg.errors = []
+            lg.images = []
+            lg.audio = []
+        run.logs = []
+        run.errors = []
+        run.resident_points = 0
+        run.ram_complete = False
 
     # -- read accessors -------------------------------------------------
     #
@@ -1158,6 +1244,42 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
     if state._logdir is None and logdir and not no_local:
         state._logdir = Path(logdir)
 
+    # SQLite cache: opt-in via NEBO_CACHE_PATH (set by `nebo serve` unless
+    # --no-cache). Directly-constructed DaemonStates (tests, embedders)
+    # stay pure-RAM unless they pass a cache themselves.
+    cache_path = os.environ.get("NEBO_CACHE_PATH")
+    if (
+        state.cache is None
+        and cache_path
+        and not os.environ.get("NEBO_NO_CACHE")
+    ):
+        from nebo.server.cache import (
+            DEFAULT_MEDIA_LRU_MB,
+            DEFAULT_RETENTION_DAYS,
+            sweep_cache_dir,
+        )
+
+        retention = int(
+            os.environ.get("NEBO_CACHE_RETENTION_DAYS") or DEFAULT_RETENTION_DAYS
+        )
+        media_mb = int(
+            os.environ.get("NEBO_MEDIA_LRU_MB") or DEFAULT_MEDIA_LRU_MB
+        )
+        sweep_cache_dir(Path(cache_path).parent, retention)
+        run_cache = RunCache(
+            cache_path, logdir=state._logdir, media_lru_mb=media_mb
+        )
+        run_cache.start()
+        state.cache = run_cache
+        state.media_lru = run_cache.media_lru
+    ram_budget_mb = os.environ.get("NEBO_RAM_BUDGET_MB")
+    if ram_budget_mb:
+        from nebo.server.cache import BYTES_PER_POINT
+
+        state.ram_budget_points = (
+            int(ram_budget_mb) * 1024 * 1024
+        ) // BYTES_PER_POINT
+
     @asynccontextmanager
     async def lifespan(app):
         watcher = None
@@ -1165,13 +1287,38 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         if state._logdir is not None:
             watcher = DirectoryWatcher(state, logdir=state._logdir)
             watcher_task = asyncio.create_task(watcher.run())
+        janitor_task = None
+        if state.cache is not None:
+            async def _janitor_loop():
+                while True:
+                    await asyncio.sleep(60)
+                    try:
+                        # Hold the ingest lock so eviction never races a
+                        # batch mid-processing; the flush barrier inside
+                        # janitor_pass runs in a worker thread.
+                        async with state._lock:
+                            await asyncio.to_thread(state.janitor_pass)
+                        state.cache.incremental_vacuum()
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        pass  # the janitor must never die
+            janitor_task = asyncio.create_task(_janitor_loop())
         try:
             yield
         finally:
+            if janitor_task is not None:
+                janitor_task.cancel()
+                try:
+                    await janitor_task
+                except asyncio.CancelledError:
+                    pass
             if watcher is not None:
                 watcher.stop()
             if watcher_task is not None:
                 await watcher_task
+            if state.cache is not None:
+                state.cache.close()
 
     app = FastAPI(title="Nebo Daemon Server", lifespan=lifespan)
     app.state.daemon = state

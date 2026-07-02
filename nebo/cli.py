@@ -106,6 +106,25 @@ def cmd_serve(args: argparse.Namespace) -> None:
     if getattr(args, "write", None):
         os.environ["NEBO_WRITE_MODE"] = args.write
 
+    # SQLite cache config (see nebo/server/cache.py). The daemon only
+    # builds a cache when NEBO_CACHE_PATH is set, so the default path is
+    # resolved here rather than server-side.
+    if getattr(args, "no_cache", False):
+        os.environ["NEBO_NO_CACHE"] = "1"
+    else:
+        if getattr(args, "cache_path", None):
+            cache_path = Path(args.cache_path).resolve()
+        else:
+            from nebo.server.cache import resolve_cache_path
+            cache_path = resolve_cache_path(logdir_abs)
+        os.environ["NEBO_CACHE_PATH"] = str(cache_path)
+    if getattr(args, "ram_budget", None):
+        os.environ["NEBO_RAM_BUDGET_MB"] = str(args.ram_budget)
+    if getattr(args, "media_lru", None):
+        os.environ["NEBO_MEDIA_LRU_MB"] = str(args.media_lru)
+    if getattr(args, "cache_retention_days", None):
+        os.environ["NEBO_CACHE_RETENTION_DAYS"] = str(args.cache_retention_days)
+
     if args.daemon:
         # Background mode
         cmd = [
@@ -842,6 +861,27 @@ def main() -> None:
     p_serve.add_argument("--api-token", help="Require this token on API requests via X-Nebo-Token / ?token=. Sets NEBO_API_TOKEN.")
     p_serve.add_argument("--read", choices=["public", "private"], help="Read access mode (default: public). Only matters when --api-token is set.")
     p_serve.add_argument("--write", choices=["public", "private"], help="Write access mode (default: private). Only matters when --api-token is set.")
+    p_serve.add_argument(
+        "--cache-path",
+        help="SQLite cache db path (default: ~/.nebo/cache/<logdir-hash>.db).",
+    )
+    p_serve.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Disable the SQLite cache: pure-RAM daemon, no eviction.",
+    )
+    p_serve.add_argument(
+        "--ram-budget", type=int,
+        help="RAM budget for resident run data, in MB (default: 384).",
+    )
+    p_serve.add_argument(
+        "--media-lru", type=int,
+        help="In-RAM media byte-cache budget, in MB (default: 256).",
+    )
+    p_serve.add_argument(
+        "--cache-retention-days", type=int,
+        help="At startup, delete cache dbs untouched for this many days (default: 30).",
+    )
 
     # status
     p_status = subparsers.add_parser(
