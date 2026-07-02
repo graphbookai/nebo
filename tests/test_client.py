@@ -759,3 +759,69 @@ class TestUiConfigEmission:
         assert data == {"minimap": False}
 
 
+
+
+class TestCoalescedNetworkFlush:
+    """v4: _do_flush and _drain_with_retry coalesce accumulating metrics
+    and base64-encode raw media bytes at the JSON boundary."""
+
+    @staticmethod
+    def _pt(name, value, step):
+        return {
+            "type": "metric", "loggable_id": "a", "name": name,
+            "metric_type": "line", "value": value, "step": step,
+            "tags": [], "timestamp": 100.0 + step,
+        }
+
+    def _capture(self, client):
+        sent: list[dict] = []
+
+        def fake_post(batch):
+            json.dumps(batch)  # must be wire-safe
+            sent.extend(batch)
+            return True, None
+
+        client._post_batch = fake_post  # type: ignore[method-assign]
+        return sent
+
+    def test_do_flush_coalesces(self) -> None:
+        client = DaemonClient()
+        sent = self._capture(client)
+        client._buffer = [
+            self._pt("loss", 0.5, 0), self._pt("acc", 0.1, 0),
+            self._pt("loss", 0.4, 1), self._pt("acc", 0.2, 1),
+        ]
+        assert client._do_flush() is True
+        assert [e["type"] for e in sent] == ["metric_batch", "metric_batch"]
+        assert sent[0]["steps"] == [0, 1]
+
+    def test_do_flush_jsonifies_media_bytes(self) -> None:
+        import base64
+
+        raw = b"\x89PNG\r\n\x1a\n123"
+        client = DaemonClient()
+        sent = self._capture(client)
+        client._buffer = [{
+            "type": "image", "loggable_id": "a", "name": "f",
+            "data": raw, "step": None, "timestamp": 1.0,
+        }]
+        assert client._do_flush() is True
+        assert sent[0]["data"] == base64.b64encode(raw).decode("ascii")
+
+    def test_drain_with_retry_coalesces(self) -> None:
+        client = DaemonClient()
+        sent = self._capture(client)
+        client._buffer = [self._pt("loss", 0.5, 0), self._pt("loss", 0.4, 1)]
+        assert client.flush(timeout=1.0) is True
+        assert [e["type"] for e in sent] == ["metric_batch"]
+
+    def test_drain_with_retry_jsonifies_media_bytes(self) -> None:
+        raw = b"RIFFxxxxWAVE"
+        client = DaemonClient()
+        sent = self._capture(client)
+        client._buffer = [{
+            "type": "audio", "loggable_id": "a", "name": "s",
+            "data": raw, "sr": 16000, "step": None, "timestamp": 1.0,
+        }]
+        assert client.flush(timeout=1.0) is True
+        assert isinstance(sent[0]["data"], str)

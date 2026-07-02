@@ -248,6 +248,29 @@ class NetworkTransport:
             chunks.append(current)
         return chunks
 
+    @staticmethod
+    def _jsonable(event: dict[str, Any]) -> dict[str, Any]:
+        """Make a media event JSON-safe: raw `data` bytes -> base64 str.
+
+        v4 media events carry raw bytes end-to-end in-process; the JSON
+        wire is the only boundary that needs base64.
+        """
+        data = event.get("data")
+        if isinstance(data, (bytes, bytearray)):
+            import base64
+
+            event = dict(event)
+            event["data"] = base64.b64encode(data).decode("ascii")
+        return event
+
+    def _prepare_batch(
+        self, batch: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Coalesce accumulating metrics and JSON-encode media bytes."""
+        from nebo.core.coalesce import coalesce
+
+        return [self._jsonable(e) for e in coalesce(batch)]
+
     def _partition_serializable(
         self, batch: list[dict[str, Any]]
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -304,7 +327,7 @@ class NetworkTransport:
                     sent=sent, dropped=0, dropped_bytes=0, last_error=None
                 )
 
-            pending = self._buffer[:]
+            pending = self._prepare_batch(self._buffer[:])
             self._buffer.clear()
 
             # Partition before chunking — `_chunk_buffer` itself runs
@@ -383,7 +406,7 @@ class NetworkTransport:
         if not self._buffer:
             return True
 
-        batch = self._buffer[:]
+        batch = self._prepare_batch(self._buffer[:])
         self._buffer.clear()
 
         # Drop un-serializable events before posting. Re-buffering them
