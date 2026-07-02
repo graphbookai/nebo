@@ -21,7 +21,7 @@ def test_write_header():
     assert magic == b"nebo"
 
     version = struct.unpack(">H", buf.read(2))[0]
-    assert version == 3
+    assert version == 4
 
     meta_size = struct.unpack(">I", buf.read(4))[0]
     meta = msgpack.unpackb(buf.read(meta_size), raw=False)
@@ -368,3 +368,65 @@ def test_fileformat_v2_metric_upgrades_to_line_with_empty_tags():
     # Existing v2 fields survive the upgrade.
     assert events[0]["payload"]["value"] == 0.5
     assert events[0]["payload"]["loggable_id"] == "n"
+
+
+class TestFormatV4:
+    def test_format_version_is_4(self):
+        from nebo.core.fileformat import ENTRY_TYPES, FORMAT_VERSION
+
+        assert FORMAT_VERSION == 4
+        assert ENTRY_TYPES["metric_batch"] == 20
+
+    def test_metric_batch_roundtrip(self, tmp_path):
+        from nebo.core.fileformat import NeboFileReader, NeboFileWriter
+
+        payload = {
+            "type": "metric_batch",
+            "loggable_id": "a",
+            "name": "loss",
+            "metric_type": "line",
+            "steps": [0, 1, 2],
+            "timestamps": [1.0, 2.0, 3.0],
+            "values": [0.5, 0.4, 0.3],
+            "tags": ["train"],
+        }
+        path = tmp_path / "v4.nebo"
+        with path.open("wb") as f:
+            w = NeboFileWriter(f, run_id="r", script_path="s.py")
+            w.write_header()
+            w.write_entry("metric_batch", payload)
+        with path.open("rb") as f:
+            r = NeboFileReader(f)
+            meta = r.read_header()
+            entries = list(r.read_entries())
+        assert meta["run_id"] == "r"
+        assert entries == [{"type": "metric_batch", "payload": payload}]
+
+    def test_media_bytes_roundtrip(self, tmp_path):
+        from nebo.core.fileformat import NeboFileReader, NeboFileWriter
+
+        raw = b"\x89PNG\r\n\x1a\n" + bytes(range(256))
+        path = tmp_path / "bin.nebo"
+        with path.open("wb") as f:
+            w = NeboFileWriter(f, run_id="r", script_path="s.py")
+            w.write_header()
+            w.write_entry("image", {
+                "type": "image", "loggable_id": "a", "name": "f",
+                "data": raw, "step": None, "timestamp": 1.0,
+            })
+        with path.open("rb") as f:
+            r = NeboFileReader(f)
+            r.read_header()
+            (entry,) = list(r.read_entries())
+        assert entry["payload"]["data"] == raw
+        assert isinstance(entry["payload"]["data"], bytes)
+
+    def test_expand_reexported(self):
+        from nebo.core.fileformat import expand_metric_batch
+
+        out = expand_metric_batch({
+            "type": "metric_batch", "loggable_id": "a", "name": "n",
+            "metric_type": "line", "steps": [0], "timestamps": [1.0],
+            "values": [2.0], "tags": [],
+        })
+        assert out[0]["value"] == 2.0

@@ -26,6 +26,28 @@ Format versions:
         payload. On read, v2 metric entries are upgraded on the fly:
         ``metric_type`` defaults to ``"line"`` and ``tags`` defaults to ``[]``.
         The on-disk format is otherwise identical to v2.
+    v4: two changes, both producer-side (the reader is pure passthrough):
+
+        * New entry type ``metric_batch`` (code 20) — a columnar batch of
+          accumulating-metric points produced by the transport coalescer
+          (``nebo/core/coalesce.py``). Payload::
+
+              {type: "metric_batch", loggable_id, name,
+               metric_type: "line" | "scatter",
+               steps: [int, ...], timestamps: [float, ...],
+               values: [...],          # parallel arrays, length N
+               tags: [str, ...],       # whole-batch
+               colors: bool}           # optional, whole-batch
+
+          Equivalence rule: a batch of length N is semantically identical
+          to N consecutive v3 ``metric`` entries with the shared fields
+          copied onto each (``expand_metric_batch`` is the inverse).
+          Plain ``metric`` entries remain legal in v4 for all types;
+          snapshot types (bar/pie/histogram) are never batched.
+
+        * Image/audio ``data`` is raw bytes (msgpack bin) instead of a
+          base64 ASCII string. Consumers accept both; base64 encoding now
+          only happens at the JSON wire boundary (network transport).
 """
 
 from __future__ import annotations
@@ -36,7 +58,19 @@ from typing import Any, BinaryIO, Iterator, Optional
 
 import msgpack
 
-FORMAT_VERSION = 3
+from nebo.core.coalesce import expand_metric_batch
+
+__all__ = [
+    "FORMAT_VERSION",
+    "MAGIC",
+    "ENTRY_TYPES",
+    "ENTRY_TYPES_REVERSE",
+    "NeboFileWriter",
+    "NeboFileReader",
+    "expand_metric_batch",
+]
+
+FORMAT_VERSION = 4
 MAGIC = b"nebo"
 
 # Entry-type string -> on-disk integer code.
@@ -68,6 +102,7 @@ ENTRY_TYPES = {
     # 17 was "pause_state" (removed)
     "run_config": 18,
     "loggable_register": 19,  # v2: replaces node_register
+    "metric_batch": 20,  # v4: columnar batch of line/scatter points
 }
 
 ENTRY_TYPES_REVERSE = {v: k for k, v in ENTRY_TYPES.items()}
