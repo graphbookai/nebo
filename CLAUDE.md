@@ -62,6 +62,48 @@ network-received runs are also persisted to disk. The watcher and the
 writer can't share a directory — the daemon refuses to start when
 `--logdir` and `--save-files` resolve to the same path.
 
+### Daemon SQLite cache & RAM eviction
+
+`.nebo` files remain the sole source of truth; the daemon keeps a
+**disposable, rebuildable** SQLite cache (`nebo/server/cache.py:RunCache`,
+default `~/.nebo/cache/<sha1(logdir)[:16]>.db`, WAL) written *behind* the
+RAM ingest path by a single writer thread (typed ops, one transaction per
+~0.25 s batch, `flush()` barrier). Ingest hot path is unchanged — RAM
+writes stay synchronous; the cache interaction is a `queue.put`.
+
+- **Read routing**: every endpoint goes through `DaemonState.run_*`
+  accessors. RAM serves a run only while it is resident with
+  `Run.ram_complete=True`; evicted/demoted runs read from SQL. Never read
+  `state.runs` directly in an endpoint.
+- **Eviction janitor** (60 s lifespan task, no-op without a cache):
+  completed+idle 10 min or no-`ended_at`+idle 60 min → evict from RAM;
+  resident points over budget (`--ram-budget`, default 384 MB at 372
+  B/point) → evict completed runs oldest-`last_event_at` first; a single
+  oversized **live** run is *demoted* — read-state dropped, ingest-state
+  (type locks, counters, edge dedup) kept, `ram_complete=False`, one-way.
+- **Rehydration**: ingest for a run_id absent from RAM but present in the
+  cache rebuilds ingest-state only (`_rehydrate_run`) — no duplicate runs
+  after restarts, reads stay on SQL.
+- **Media**: decoded once at ingest to bytes; `media_id =
+  sha256(bytes)[:16]` (content-addressed, stable across restarts). Bytes
+  live in a byte-budgeted LRU (`--media-lru`, default 256 MB) and durably
+  either as `(src_path, offset, length)` refs into the `.nebo` file
+  (watcher runs) or blob rows (network runs without `--save-files`).
+  `GET /runs/{id}/media/{media_id}` returns **raw bytes** with sniffed
+  Content-Type, `ETag: media_id`, `Cache-Control: immutable` (304 on
+  If-None-Match); the UI points `<img>/<audio>` straight at it.
+- **Watcher offsets persist** in the cache (`watch_files` table): daemon
+  restarts resume tailing instead of replaying. Reads use
+  `NeboFileReader.read_entries_incremental`, which parks at a torn tail
+  frame — offsets only advance past complete entries.
+- **Escape hatches**: `--no-cache` (pure-RAM daemon, janitor disabled) and
+  `--cache-path`. A `DaemonState()` constructed directly (tests) has
+  `cache=None` and behaves exactly like the pre-cache daemon. Stale cache
+  dbs are swept at startup after `--cache-retention-days` (default 30).
+  `nebo cache ls|clear` manages the cache dir from the CLI.
+- Env mirrors of the flags: `NEBO_CACHE_PATH`, `NEBO_NO_CACHE`,
+  `NEBO_RAM_BUDGET_MB`, `NEBO_MEDIA_LRU_MB`, `NEBO_CACHE_RETENTION_DAYS`.
+
 Env vars: `NEBO_URI` overrides the constructor arg.
 `NEBO_RUN_ID`, `NEBO_FLUSH_INTERVAL`, `NEBO_API_TOKEN` are unchanged.
 `NEBO_QUIET=1` suppresses the startup banner.
@@ -156,12 +198,12 @@ Smoothed values are rendered, not persisted: raw entries in the store remain unt
 - `nebo/core/` — decorators, DAG builder, session state, `DaemonClient`, config, tracker, `.nebo` file format.
 - `nebo/logging/` — user-facing `log`/`log_line`/`log_bar`/`log_pie`/`log_scatter`/`log_histogram`/`log_image`/`log_audio`/`md`, plus the serializer/queue that batches events to the daemon.
 - `nebo/labels.py` — public dataclasses (`Points`, `Boxes`, `Circles`, `Polygons`, `Bitmasks`) for `nb.log_image` overlays. Re-exported as `nb.labels`.
-- `nebo/server/` — `daemon.py` (FastAPI app, created via `create_daemon_app` factory), `runner.py` (vestigial subprocess manager; the agent surface no longer launches pipelines, but the daemon's `POST /run` route still uses it), `protocol.py` (`MessageType` enum + `decode_batch`).
+- `nebo/server/` — `daemon.py` (FastAPI app, created via `create_daemon_app` factory), `cache.py` (`RunCache` write-behind SQLite cache, `MediaLRU`, `media_id_for`, cache-path/sweep helpers), `watcher.py` (directory watcher with persisted offsets), `runner.py` (vestigial subprocess manager; the agent surface no longer launches pipelines, but the daemon's `POST /run` route still uses it), `protocol.py` (`MessageType` enum + `decode_batch`).
 - `nebo/mcp/` — MCP tools (`tools.py`) and stdio/server entry points. Split into observation (graph, logs, metrics, errors, description, run summary/history), alerts (`wait_for_alert`, `list_alerts`, `set_alert`, `delete_alert`), utility (`load_file`), and write (`log_metric/text/image/audio`). Run lifecycle is NOT exposed — pipelines start/stop via the user's shell.
 - `nebo/client.py` — single HTTP client shared by `nebo/mcp/tools.py` and `nebo/cli.py`. Owns all daemon-bound `urllib` traffic; resolves `--url`/`--port`/`--api-token` from kwargs → `NEBO_URL`/`NEBO_PORT`/`NEBO_API_TOKEN` → defaults.
 - `nebo/core/transport.py` — `Transport` Protocol shared by the two SDK transports. `FileTransport` (this module) writes append-only `.nebo` files in file mode; `NetworkTransport` (in `nebo/core/client.py`) POSTs events to a daemon in network mode.
 - `nebo/cli.py` — subcommands split into two groups:
-  - **Server/admin:** `serve`, `status`, `stop`, `mcp`, `mcp-stdio`, `skill`, `deploy`. PID file at `~/.nebo/server.pid`.
+  - **Server/admin:** `serve`, `cache ls|clear`, `status`, `stop`, `mcp`, `mcp-stdio`, `skill`, `deploy`. PID file at `~/.nebo/server.pid`.
   - **Agent-callable Q&A:** `runs list|show|wait`, `graph show`, `loggables show`, `describe`, `logs`, `errors`, `metrics list|get|log`, `alerts ls|get|set|rm`, `text|images|audio log`, `load`. Each takes `--url`/`--port`/`--api-token`/`--json` via the shared `_common_conn_parser()` and routes through `nebo/client.py`. `metrics get` supports `--values-only` (emit just the entries array; requires `--name`) and `--runs R1,R2` (client-side cross-run fan-out).
 - `nebo/extras/cv/` — optional computer-vision helpers. `nebo/extensions/` — extension hook point.
 
