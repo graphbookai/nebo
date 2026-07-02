@@ -295,6 +295,18 @@ class RunCache:
             ev.set()
         return stop
 
+    # Columns accepted by the two partial-upsert ops. Guards the dynamic
+    # SQL below against arbitrary keys.
+    _RUN_COLS = frozenset({
+        "script_path", "run_name", "args_json", "started_at", "ended_at",
+        "source", "workflow_description", "config_json", "ui_config_json",
+        "run_config_json", "edges_json",
+    })
+    _LOGGABLE_COLS = frozenset({
+        "kind", "func_name", "docstring", "grp", "ui_hints_json",
+        "params_json", "exec_count", "is_source", "progress_json",
+    })
+
     def _apply_op(self, conn: sqlite3.Connection, op: tuple) -> None:
         kind = op[0]
         if kind == "log_row":
@@ -303,6 +315,99 @@ class RunCache:
                 "INSERT INTO logs (run_id, loggable_id, name, ts, step, level, message)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (run_id, lid, name, ts, step, level, message),
+            )
+        elif kind == "metric_row":
+            _, run_id, lid, name, mtype, step, ts, value_json, tags_json, colors = op
+            conn.execute(
+                "INSERT INTO metrics (run_id, loggable_id, name, metric_type,"
+                " step, ts, value_json, tags_json, colors)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (run_id, lid, name, mtype, step, ts, value_json, tags_json, colors),
+            )
+        elif kind == "metric_snapshot":
+            _, run_id, lid, name, mtype, step, ts, value_json, tags_json, colors = op
+            conn.execute(
+                "DELETE FROM metrics WHERE run_id=? AND loggable_id=? AND name=?",
+                (run_id, lid, name),
+            )
+            conn.execute(
+                "INSERT INTO metrics (run_id, loggable_id, name, metric_type,"
+                " step, ts, value_json, tags_json, colors)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (run_id, lid, name, mtype, step, ts, value_json, tags_json, colors),
+            )
+        elif kind == "run_upsert":
+            _, run_id, fields = op
+            cols = [c for c in fields if c in self._RUN_COLS]
+            conn.execute(
+                "INSERT INTO runs (run_id) VALUES (?)"
+                " ON CONFLICT(run_id) DO NOTHING",
+                (run_id,),
+            )
+            if cols:
+                sets = ", ".join(f"{c}=?" for c in cols)
+                conn.execute(
+                    f"UPDATE runs SET {sets} WHERE run_id=?",
+                    [fields[c] for c in cols] + [run_id],
+                )
+        elif kind == "loggable_upsert":
+            _, run_id, lid, fields = op
+            cols = [c for c in fields if c in self._LOGGABLE_COLS]
+            conn.execute(
+                "INSERT INTO loggables (run_id, loggable_id) VALUES (?, ?)"
+                " ON CONFLICT(run_id, loggable_id) DO NOTHING",
+                (run_id, lid),
+            )
+            if cols:
+                sets = ", ".join(f"{c}=?" for c in cols)
+                conn.execute(
+                    f"UPDATE loggables SET {sets} WHERE run_id=? AND loggable_id=?",
+                    [fields[c] for c in cols] + [run_id, lid],
+                )
+        elif kind == "error_row":
+            _, run_id, ts, json_str = op
+            conn.execute(
+                "INSERT INTO errors (run_id, ts, json) VALUES (?, ?, ?)",
+                (run_id, ts, json_str),
+            )
+        elif kind == "alert_row":
+            _, run_id, ts, json_str = op
+            conn.execute(
+                "INSERT INTO alerts (run_id, ts, json) VALUES (?, ?, ?)",
+                (run_id, ts, json_str),
+            )
+        elif kind == "sig_event":
+            _, run_id, ts, etype, json_str = op
+            conn.execute(
+                "INSERT INTO significant_events (run_id, ts, type, json)"
+                " VALUES (?, ?, ?, ?)",
+                (run_id, ts, etype, json_str),
+            )
+        elif kind == "media_occurrence":
+            (_, run_id, lid, media_id, mkind, name, step, ts, sr,
+             labels_json, src_path, src_offset, src_length) = op
+            conn.execute(
+                "INSERT INTO media (run_id, loggable_id, media_id, kind, name,"
+                " step, ts, sr, labels_json, src_path, src_offset, src_length)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (run_id, lid, media_id, mkind, name, step, ts, sr,
+                 labels_json, src_path, src_offset, src_length),
+            )
+        elif kind == "media_blob":
+            _, media_id, blob = op
+            conn.execute(
+                "INSERT OR IGNORE INTO media_blobs (media_id, blob) VALUES (?, ?)",
+                (media_id, blob),
+            )
+        elif kind == "watch_file":
+            _, path, run_id, offset, size, mtime = op
+            conn.execute(
+                "INSERT INTO watch_files (path, run_id, offset, size, mtime)"
+                " VALUES (?, ?, ?, ?, ?)"
+                " ON CONFLICT(path) DO UPDATE SET"
+                " run_id=excluded.run_id, offset=excluded.offset,"
+                " size=excluded.size, mtime=excluded.mtime",
+                (path, run_id, offset, size, mtime),
             )
         else:
             raise ValueError(f"unknown cache op kind: {kind!r}")
@@ -316,3 +421,305 @@ class RunCache:
             conn.row_factory = sqlite3.Row
             self._local.conn = conn
         return conn
+
+    def has_run(self, run_id: str) -> bool:
+        row = self._read_conn().execute(
+            "SELECT 1 FROM runs WHERE run_id=?", (run_id,)
+        ).fetchone()
+        return row is not None
+
+    def _run_row(self, run_id: str) -> Optional[sqlite3.Row]:
+        return self._read_conn().execute(
+            "SELECT * FROM runs WHERE run_id=?", (run_id,)
+        ).fetchone()
+
+    def get_summary(self, run_id: str) -> Optional[dict]:
+        """Mirror of Run.get_summary() built from SQL."""
+        import json
+        from datetime import datetime
+
+        row = self._run_row(run_id)
+        if row is None:
+            return None
+        conn = self._read_conn()
+        node_count = conn.execute(
+            "SELECT COUNT(*) FROM loggables WHERE run_id=? AND kind='node'",
+            (run_id,),
+        ).fetchone()[0]
+        log_count = conn.execute(
+            "SELECT COUNT(*) FROM logs WHERE run_id=?", (run_id,)
+        ).fetchone()[0]
+        error_count = conn.execute(
+            "SELECT COUNT(*) FROM errors WHERE run_id=?", (run_id,)
+        ).fetchone()[0]
+        series = conn.execute(
+            "SELECT DISTINCT loggable_id, name FROM metrics WHERE run_id=?"
+            " ORDER BY loggable_id, name",
+            (run_id,),
+        ).fetchall()
+        metrics_index: dict[str, list[str]] = {}
+        for s in series:
+            metrics_index.setdefault(s["loggable_id"], []).append(s["name"])
+        latest_step = conn.execute(
+            "SELECT MAX(step) FROM metrics WHERE run_id=?"
+            " AND metric_type IN ('line', 'scatter')",
+            (run_id,),
+        ).fetchone()[0]
+        edges = json.loads(row["edges_json"]) if row["edges_json"] else []
+
+        def _iso(epoch):
+            return datetime.fromtimestamp(epoch).isoformat() if epoch else None
+
+        return {
+            "id": run_id,
+            "script_path": row["script_path"],
+            "args": json.loads(row["args_json"]) if row["args_json"] else [],
+            "started_at": _iso(row["started_at"]),
+            "ended_at": _iso(row["ended_at"]),
+            "node_count": node_count,
+            "edge_count": len(edges),
+            "log_count": log_count,
+            "error_count": error_count,
+            "run_name": row["run_name"],
+            "run_config": json.loads(row["run_config_json"]) if row["run_config_json"] else {},
+            "metrics_index": metrics_index,
+            "metric_series_count": len(series),
+            "latest_step": latest_step,
+        }
+
+    def list_summaries(self) -> list[dict]:
+        run_ids = [
+            r["run_id"]
+            for r in self._read_conn().execute(
+                "SELECT run_id FROM runs ORDER BY started_at"
+            ).fetchall()
+        ]
+        out = []
+        for rid in run_ids:
+            summary = self.get_summary(rid)
+            if summary is not None:
+                out.append(summary)
+        return out
+
+    def _loggable_rows(self, run_id: str) -> list[sqlite3.Row]:
+        return self._read_conn().execute(
+            "SELECT * FROM loggables WHERE run_id=?", (run_id,)
+        ).fetchall()
+
+    @staticmethod
+    def _node_dict(row: sqlite3.Row) -> dict:
+        import json
+
+        return {
+            "name": row["loggable_id"],
+            "func_name": row["func_name"] or "",
+            "docstring": row["docstring"],
+            "exec_count": row["exec_count"] or 0,
+            "is_source": bool(row["is_source"]),
+            "params": json.loads(row["params_json"]) if row["params_json"] else {},
+            "progress": json.loads(row["progress_json"]) if row["progress_json"] else None,
+            "group": row["grp"],
+            "ui_hints": json.loads(row["ui_hints_json"]) if row["ui_hints_json"] else None,
+        }
+
+    def get_graph(self, run_id: str) -> Optional[dict]:
+        """Mirror of Run.get_graph() built from SQL."""
+        import json
+
+        row = self._run_row(run_id)
+        if row is None:
+            return None
+        nodes = {
+            lg["loggable_id"]: self._node_dict(lg)
+            for lg in self._loggable_rows(run_id)
+            if lg["kind"] == "node"
+        }
+        edges = json.loads(row["edges_json"]) if row["edges_json"] else []
+        edges = [
+            e for e in edges
+            if e.get("source") in nodes and e.get("target") in nodes
+        ]
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "workflow_description": row["workflow_description"],
+            "ui_config": json.loads(row["ui_config_json"]) if row["ui_config_json"] else None,
+            "run_config": json.loads(row["run_config_json"]) if row["run_config_json"] else {},
+        }
+
+    def get_logs(
+        self, run_id: str, loggable_id: Optional[str] = None, limit: int = 100,
+    ) -> list[dict]:
+        conn = self._read_conn()
+        if loggable_id:
+            rows = conn.execute(
+                "SELECT * FROM (SELECT rowid AS rid, * FROM logs"
+                " WHERE run_id=? AND loggable_id=?"
+                " ORDER BY rid DESC LIMIT ?) ORDER BY rid ASC",
+                (run_id, loggable_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM (SELECT rowid AS rid, * FROM logs WHERE run_id=?"
+                " ORDER BY rid DESC LIMIT ?) ORDER BY rid ASC",
+                (run_id, limit),
+            ).fetchall()
+        return [
+            {
+                "timestamp": r["ts"],
+                "loggable_id": r["loggable_id"],
+                "name": r["name"],
+                "message": r["message"],
+                "level": r["level"],
+                "step": r["step"],
+            }
+            for r in rows
+        ]
+
+    def _json_rows(self, table: str, run_id: str) -> list[dict]:
+        import json
+
+        rows = self._read_conn().execute(
+            f"SELECT json FROM {table} WHERE run_id=? ORDER BY rowid", (run_id,)
+        ).fetchall()
+        return [json.loads(r["json"]) for r in rows]
+
+    def get_errors(self, run_id: str) -> list[dict]:
+        return self._json_rows("errors", run_id)
+
+    def get_alerts(self, run_id: str) -> list[dict]:
+        return self._json_rows("alerts", run_id)
+
+    def get_significant_events(self, run_id: str) -> list[dict]:
+        import json
+
+        rows = self._read_conn().execute(
+            "SELECT json FROM significant_events WHERE run_id=? ORDER BY rowid",
+            (run_id,),
+        ).fetchall()
+        return [json.loads(r["json"]) for r in rows]
+
+    def _metrics_for(
+        self, run_id: str, loggable_id: Optional[str] = None,
+    ) -> dict[str, dict[str, dict]]:
+        import json
+
+        conn = self._read_conn()
+        if loggable_id:
+            rows = conn.execute(
+                "SELECT * FROM metrics WHERE run_id=? AND loggable_id=? ORDER BY rowid",
+                (run_id, loggable_id),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM metrics WHERE run_id=? ORDER BY rowid", (run_id,)
+            ).fetchall()
+        out: dict[str, dict[str, dict]] = {}
+        for r in rows:
+            series = out.setdefault(r["loggable_id"], {}).setdefault(
+                r["name"], {"type": r["metric_type"], "entries": []}
+            )
+            entry: dict[str, Any] = {
+                "step": r["step"],
+                "value": json.loads(r["value_json"]) if r["value_json"] else None,
+                "tags": json.loads(r["tags_json"]) if r["tags_json"] else [],
+                "timestamp": r["ts"],
+            }
+            if r["colors"] is not None:
+                entry["colors"] = bool(r["colors"])
+            series["entries"].append(entry)
+        return out
+
+    def get_metrics(self, run_id: str) -> dict[str, dict[str, dict]]:
+        return self._metrics_for(run_id)
+
+    def get_loggable(self, run_id: str, loggable_id: str) -> Optional[dict]:
+        """Mirror of the /runs/{id}/loggables/{lid} payload built from SQL."""
+        import json
+
+        row = self._read_conn().execute(
+            "SELECT * FROM loggables WHERE run_id=? AND loggable_id=?",
+            (run_id, loggable_id),
+        ).fetchone()
+        if row is None:
+            return None
+        metrics = self._metrics_for(run_id, loggable_id).get(loggable_id, {})
+        return {
+            "loggable_id": loggable_id,
+            "kind": row["kind"] or "node",
+            "func_name": row["func_name"] or "",
+            "docstring": row["docstring"],
+            "exec_count": row["exec_count"] or 0,
+            "is_source": bool(row["is_source"]),
+            "params": json.loads(row["params_json"]) if row["params_json"] else {},
+            "recent_logs": self.get_logs(run_id, loggable_id=loggable_id, limit=20),
+            "errors": [],
+            "metrics": metrics,
+            "progress": json.loads(row["progress_json"]) if row["progress_json"] else None,
+        }
+
+    def get_run_ingest_state(self, run_id: str) -> Optional[dict]:
+        """Everything needed to rehydrate a Run's ingest-state (no points)."""
+        import json
+
+        row = self._run_row(run_id)
+        if row is None:
+            return None
+        conn = self._read_conn()
+        loggables: dict[str, dict] = {}
+        for lg in self._loggable_rows(run_id):
+            loggables[lg["loggable_id"]] = {
+                "kind": lg["kind"] or "node",
+                "func_name": lg["func_name"] or "",
+                "docstring": lg["docstring"],
+                "group": lg["grp"],
+                "ui_hints": json.loads(lg["ui_hints_json"]) if lg["ui_hints_json"] else None,
+                "params": json.loads(lg["params_json"]) if lg["params_json"] else {},
+                "exec_count": lg["exec_count"] or 0,
+                "is_source": bool(lg["is_source"]),
+            }
+        series_types: dict[str, dict[str, str]] = {}
+        for r in conn.execute(
+            "SELECT DISTINCT loggable_id, name, metric_type FROM metrics"
+            " WHERE run_id=?",
+            (run_id,),
+        ).fetchall():
+            series_types.setdefault(r["loggable_id"], {})[r["name"]] = r["metric_type"]
+        latest_step = conn.execute(
+            "SELECT MAX(step) FROM metrics WHERE run_id=?"
+            " AND metric_type IN ('line', 'scatter')",
+            (run_id,),
+        ).fetchone()[0]
+        counts = {
+            "logs": conn.execute(
+                "SELECT COUNT(*) FROM logs WHERE run_id=?", (run_id,)
+            ).fetchone()[0],
+            "errors": conn.execute(
+                "SELECT COUNT(*) FROM errors WHERE run_id=?", (run_id,)
+            ).fetchone()[0],
+            "metric_series": conn.execute(
+                "SELECT COUNT(DISTINCT loggable_id || '/' || name) FROM metrics"
+                " WHERE run_id=?",
+                (run_id,),
+            ).fetchone()[0],
+        }
+        return {
+            "loggables": loggables,
+            "series_types": series_types,
+            "edges": json.loads(row["edges_json"]) if row["edges_json"] else [],
+            "latest_step": latest_step,
+            "counts": counts,
+            "run_row": dict(row),
+        }
+
+    def get_watch_files(self) -> dict[str, dict]:
+        rows = self._read_conn().execute("SELECT * FROM watch_files").fetchall()
+        return {
+            r["path"]: {
+                "run_id": r["run_id"],
+                "offset": r["offset"],
+                "size": r["size"],
+                "mtime": r["mtime"],
+            }
+            for r in rows
+        }

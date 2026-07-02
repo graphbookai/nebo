@@ -98,6 +98,171 @@ class TestRunCacheCore:
             conn.close()
 
 
+def _seed_small_run(c: RunCache, run_id: str = "r1") -> None:
+    """Enqueue a realistic little run through the op vocabulary."""
+    import json
+
+    c.enqueue(("run_upsert", run_id, {
+        "script_path": "train.py",
+        "run_name": "exp-1",
+        "args_json": json.dumps(["--fast"]),
+        "started_at": 100.0,
+        "source": "network",
+        "edges_json": json.dumps([{"source": "a", "target": "b"}]),
+        "workflow_description": "desc",
+        "run_config_json": json.dumps({"lr": 0.1}),
+    }))
+    c.enqueue(("loggable_upsert", run_id, "a", {
+        "kind": "node", "func_name": "a", "docstring": "da",
+        "exec_count": 2, "is_source": 1,
+    }))
+    c.enqueue(("loggable_upsert", run_id, "b", {
+        "kind": "node", "func_name": "b", "exec_count": 1, "is_source": 0,
+    }))
+    for i in range(3):
+        c.enqueue(("metric_row", run_id, "a", "loss", "line",
+                   i, 10.0 + i, json.dumps(0.5 - i * 0.1), json.dumps(["train"]), None))
+    # Snapshot emitted twice: only the second survives.
+    c.enqueue(("metric_snapshot", run_id, "a", "dist", "bar",
+               None, 11.0, json.dumps({"x": 1}), json.dumps([]), None))
+    c.enqueue(("metric_snapshot", run_id, "a", "dist", "bar",
+               None, 12.0, json.dumps({"x": 2}), json.dumps([]), None))
+    c.enqueue(("log_row", run_id, "a", "text", 10.5, 1, "info", "hello"))
+    c.enqueue(("log_row", run_id, "__global__", "text", 10.6, None, "info", "world"))
+    c.enqueue(("error_row", run_id, 10.7, json.dumps({
+        "timestamp": 10.7, "node_name": "a", "exception_type": "ValueError",
+        "exception_message": "boom", "traceback": "tb", "node_docstring": None,
+        "execution_count": 2, "params": {}, "last_logs": [],
+    })))
+    c.enqueue(("alert_row", run_id, 10.8, json.dumps({
+        "title": "high loss", "level": 30, "triggered_by": "code",
+        "timestamp": 10.8, "loggable_id": "a", "text": "",
+    })))
+    c.enqueue(("sig_event", run_id, 10.8, "alert", json.dumps({
+        "type": "alert", "timestamp": 10.8, "loggable_id": "a",
+        "message": "high loss",
+    })))
+    assert c.flush()
+
+
+class TestOpsAndAccessors:
+    def test_summary_shape(self, tmp_path):
+        c = _mk(tmp_path)
+        try:
+            _seed_small_run(c)
+            s = c.get_summary("r1")
+            assert s["id"] == "r1"
+            assert s["script_path"] == "train.py"
+            assert s["run_name"] == "exp-1"
+            assert s["args"] == ["--fast"]
+            assert s["started_at"] is not None
+            assert s["ended_at"] is None
+            assert s["node_count"] == 2
+            assert s["edge_count"] == 1
+            assert s["log_count"] == 2
+            assert s["error_count"] == 1
+            assert s["metrics_index"] == {"a": ["dist", "loss"]}
+            assert s["metric_series_count"] == 2
+            assert s["latest_step"] == 2
+            assert s["run_config"] == {"lr": 0.1}
+            assert c.get_summary("nope") is None
+            assert [r["id"] for r in c.list_summaries()] == ["r1"]
+            assert c.has_run("r1") and not c.has_run("nope")
+        finally:
+            c.close()
+
+    def test_graph_shape(self, tmp_path):
+        c = _mk(tmp_path)
+        try:
+            _seed_small_run(c)
+            g = c.get_graph("r1")
+            assert set(g["nodes"]) == {"a", "b"}
+            assert g["nodes"]["a"]["func_name"] == "a"
+            assert g["nodes"]["a"]["exec_count"] == 2
+            assert g["nodes"]["b"]["is_source"] is False
+            assert g["edges"] == [{"source": "a", "target": "b"}]
+            assert g["workflow_description"] == "desc"
+            assert g["run_config"] == {"lr": 0.1}
+        finally:
+            c.close()
+
+    def test_logs_errors_alerts(self, tmp_path):
+        c = _mk(tmp_path)
+        try:
+            _seed_small_run(c)
+            logs = c.get_logs("r1")
+            assert [l["message"] for l in logs] == ["hello", "world"]
+            assert logs[0]["loggable_id"] == "a"
+            assert logs[0]["step"] == 1
+            only_a = c.get_logs("r1", loggable_id="a")
+            assert len(only_a) == 1
+            assert c.get_logs("r1", limit=1)[0]["message"] == "world"
+            errs = c.get_errors("r1")
+            assert errs[0]["exception_type"] == "ValueError"
+            alerts = c.get_alerts("r1")
+            assert alerts[0]["title"] == "high loss"
+        finally:
+            c.close()
+
+    def test_metrics_shapes(self, tmp_path):
+        c = _mk(tmp_path)
+        try:
+            _seed_small_run(c)
+            m = c.get_metrics("r1")
+            loss = m["a"]["loss"]
+            assert loss["type"] == "line"
+            assert [e["step"] for e in loss["entries"]] == [0, 1, 2]
+            assert loss["entries"][0]["value"] == 0.5
+            assert loss["entries"][0]["tags"] == ["train"]
+            dist = m["a"]["dist"]
+            assert dist["type"] == "bar"
+            assert len(dist["entries"]) == 1
+            assert dist["entries"][0]["value"] == {"x": 2}
+        finally:
+            c.close()
+
+    def test_loggable_shape(self, tmp_path):
+        c = _mk(tmp_path)
+        try:
+            _seed_small_run(c)
+            lg = c.get_loggable("r1", "a")
+            assert lg["loggable_id"] == "a"
+            assert lg["kind"] == "node"
+            assert lg["exec_count"] == 2
+            assert "loss" in lg["metrics"]
+            assert [l["message"] for l in lg["recent_logs"]] == ["hello"]
+            assert c.get_loggable("r1", "zzz") is None
+        finally:
+            c.close()
+
+    def test_ingest_state(self, tmp_path):
+        c = _mk(tmp_path)
+        try:
+            _seed_small_run(c)
+            st = c.get_run_ingest_state("r1")
+            assert st["series_types"] == {"a": {"loss": "line", "dist": "bar"}}
+            assert st["loggables"]["a"]["exec_count"] == 2
+            assert st["edges"] == [{"source": "a", "target": "b"}]
+            assert st["latest_step"] == 2
+            assert st["counts"]["logs"] == 2
+            assert st["run_row"]["script_path"] == "train.py"
+            assert c.get_run_ingest_state("nope") is None
+        finally:
+            c.close()
+
+    def test_watch_files_roundtrip(self, tmp_path):
+        c = _mk(tmp_path)
+        try:
+            c.enqueue(("watch_file", "/tmp/a.nebo", "r1", 100, 120, 5.0))
+            c.enqueue(("watch_file", "/tmp/a.nebo", "r1", 200, 220, 6.0))
+            assert c.flush()
+            wf = c.get_watch_files()
+            assert wf["/tmp/a.nebo"]["offset"] == 200
+            assert wf["/tmp/a.nebo"]["run_id"] == "r1"
+        finally:
+            c.close()
+
+
 class TestCachePathAndSweep:
     def test_resolve_cache_path_stable(self, tmp_path):
         a = resolve_cache_path(tmp_path / "x")
