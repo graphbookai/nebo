@@ -572,3 +572,58 @@ def test_serve_rejects_removed_no_store():
     # argparse rejects unknown --no-store. Either exit 2 with argparse
     # error, or exit 2 with our explicit removal-error message.
     assert code == 2
+
+
+def _make_cache_db(cache_dir, logdir):
+    from nebo.server.cache import RunCache, resolve_cache_path
+
+    path = cache_dir / resolve_cache_path(logdir).name
+    c = RunCache(path, logdir=logdir)
+    c.start()
+    c.close()
+    return path
+
+
+class TestCacheCommands:
+    def test_cache_ls_json(self, tmp_path):
+        cache_dir = tmp_path / "cachedir"
+        cache_dir.mkdir()
+        _make_cache_db(cache_dir, tmp_path / "logs_a")
+        _make_cache_db(cache_dir, tmp_path / "logs_b")
+        out = _run_cli(["cache", "ls", "--json", "--cache-dir", str(cache_dir)])
+        caches = json.loads(out)["caches"]
+        assert len(caches) == 2
+        logdirs = {c["logdir"] for c in caches}
+        assert str((tmp_path / "logs_a").resolve()) in logdirs
+        assert all(c["size_bytes"] > 0 for c in caches)
+
+    def test_cache_ls_empty(self, tmp_path):
+        out = _run_cli(["cache", "ls", "--cache-dir", str(tmp_path / "none")])
+        assert "no cache databases" in out
+
+    def test_cache_clear_by_logdir(self, tmp_path):
+        cache_dir = tmp_path / "cachedir"
+        cache_dir.mkdir()
+        keep = _make_cache_db(cache_dir, tmp_path / "logs_a")
+        gone = _make_cache_db(cache_dir, tmp_path / "logs_b")
+        _run_cli([
+            "cache", "clear", str(tmp_path / "logs_b"),
+            "--cache-dir", str(cache_dir),
+        ])
+        assert keep.exists()
+        assert not gone.exists()
+
+    def test_cache_clear_all(self, tmp_path):
+        cache_dir = tmp_path / "cachedir"
+        cache_dir.mkdir()
+        a = _make_cache_db(cache_dir, tmp_path / "logs_a")
+        b = _make_cache_db(cache_dir, tmp_path / "logs_b")
+        _run_cli(["cache", "clear", "--all", "--cache-dir", str(cache_dir)])
+        assert not a.exists() and not b.exists()
+
+    def test_cache_clear_requires_target(self, tmp_path):
+        code, err = _run_cli_with_stderr(
+            ["cache", "clear", "--cache-dir", str(tmp_path)]
+        )
+        assert code == 2
+        assert "--all" in err

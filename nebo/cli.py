@@ -188,6 +188,87 @@ def cmd_serve(args: argparse.Namespace) -> None:
             print("\nNebo daemon stopped.")
 
 
+def _cache_db_info(path: Path) -> dict:
+    """Read a cache db's identity without importing the full cache module."""
+    import sqlite3
+
+    logdir = None
+    try:
+        conn = sqlite3.connect(path)
+        try:
+            row = conn.execute(
+                "SELECT value FROM meta WHERE key='logdir'"
+            ).fetchone()
+            logdir = row[0] if row else None
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        pass
+    st = path.stat()
+    return {
+        "path": str(path),
+        "logdir": logdir or None,
+        "size_bytes": st.st_size,
+        "mtime": st.st_mtime,
+    }
+
+
+def cmd_cache(args: argparse.Namespace) -> None:
+    """Inspect or delete daemon cache databases. Pure file operations —
+    no daemon required; the cache is disposable by design."""
+    cache_dir = Path(
+        getattr(args, "cache_dir", None) or Path.home() / ".nebo" / "cache"
+    )
+    dbs = sorted(cache_dir.glob("*.db")) if cache_dir.is_dir() else []
+
+    if args.cache_command == "ls":
+        infos = [_cache_db_info(p) for p in dbs]
+        if getattr(args, "json", False):
+            print(json.dumps({"caches": infos}))
+            return
+        if not infos:
+            print("no cache databases")
+            return
+        for info in infos:
+            mb = info["size_bytes"] / (1024 * 1024)
+            print(f"{info['path']}  {mb:.1f} MB  logdir={info['logdir'] or '?'}")
+        return
+
+    if args.cache_command == "clear":
+        if getattr(args, "all", False):
+            targets = dbs
+        elif getattr(args, "logdir", None):
+            from nebo.server.cache import resolve_cache_path
+
+            name = resolve_cache_path(args.logdir).name
+            resolved = str(Path(args.logdir).resolve())
+            targets = [
+                p for p in dbs
+                if p.name == name or _cache_db_info(p)["logdir"] == resolved
+            ]
+        else:
+            print("nebo cache clear: pass a LOGDIR or --all", file=sys.stderr)
+            sys.exit(2)
+        if not targets:
+            print("nothing matched")
+            return
+        for p in targets:
+            for side in (
+                p,
+                p.with_name(p.name + "-wal"),
+                p.with_name(p.name + "-shm"),
+            ):
+                try:
+                    side.unlink()
+                except FileNotFoundError:
+                    pass
+            print(f"deleted {p}")
+        return
+
+    print("usage: nebo cache {ls,clear}", file=sys.stderr)
+    sys.exit(2)
+
+
 def cmd_status(args: argparse.Namespace) -> None:
     """Show daemon status and recent runs."""
     from nebo import client
@@ -883,6 +964,22 @@ def main() -> None:
         help="At startup, delete cache dbs untouched for this many days (default: 30).",
     )
 
+    # cache
+    p_cache = subparsers.add_parser(
+        "cache", help="Inspect or delete the daemon's SQLite cache databases",
+    )
+    cache_sub = p_cache.add_subparsers(dest="cache_command")
+    p_cache_ls = cache_sub.add_parser("ls", help="List cache databases")
+    p_cache_ls.add_argument("--json", action="store_true", help="JSON output")
+    p_cache_ls.add_argument("--cache-dir", help=argparse.SUPPRESS)
+    p_cache_clear = cache_sub.add_parser("clear", help="Delete cache databases")
+    p_cache_clear.add_argument(
+        "logdir", nargs="?",
+        help="Logdir whose cache db to delete (matches by path hash or recorded logdir)",
+    )
+    p_cache_clear.add_argument("--all", action="store_true", help="Delete every cache db")
+    p_cache_clear.add_argument("--cache-dir", help=argparse.SUPPRESS)
+
     # status
     p_status = subparsers.add_parser(
         "status", parents=[_common_conn_parser()], help="Show daemon status",
@@ -1071,6 +1168,7 @@ def main() -> None:
 
     commands = {
         "serve": cmd_serve,
+        "cache": cmd_cache,
         "status": cmd_status,
         "stop": cmd_stop,
         "logs": cmd_logs,
