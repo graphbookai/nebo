@@ -198,3 +198,66 @@ async def test_watcher_ignores_non_nebo_files(tmp_path):
     watcher.stop()
     await task
     assert state.runs == {}
+
+
+@pytest.mark.asyncio
+async def test_v4_file_end_to_end(tmp_path):
+    """FileTransport (coalesced v4 file, bytes media) -> watcher -> daemon -> cache."""
+    from nebo.core.transport import FileTransport
+
+    logdir = tmp_path / "logs"
+    logdir.mkdir()
+    state, cache = _cache_state(tmp_path)
+    try:
+        png = b"\x89PNG\r\n\x1a\n" + b"e2e" * 16
+        t = FileTransport(logdir=logdir, run_id="v4endtoend01", script_path="/x/s.py")
+        try:
+            for i in range(6):
+                t.send_event({
+                    "type": "metric", "loggable_id": "__global__",
+                    "name": "loss", "metric_type": "line",
+                    "value": 1.0 - i * 0.1, "step": i, "tags": [],
+                    "timestamp": 100.0 + i,
+                })
+            t.send_event({
+                "type": "image", "loggable_id": "__global__", "name": "f",
+                "data": png, "step": None, "timestamp": 200.0,
+            })
+            assert t.flush(timeout=2.0)
+        finally:
+            t.close()
+
+        # The file must actually contain batched frames (not per-point).
+        from nebo.core.fileformat import NeboFileReader
+
+        (path,) = logdir.glob("*.nebo")
+        with path.open("rb") as f:
+            r = NeboFileReader(f)
+            r.read_header()
+            types = [e["type"] for e in r.read_entries()]
+        assert "metric_batch" in types
+        assert "metric" not in types
+
+        watcher = DirectoryWatcher(state, logdir=logdir, poll_interval=0.05)
+        await watcher._tick()
+        assert cache.flush()
+
+        run = state.runs["v4endtoend01"]
+        entries = run.loggables["__global__"].metrics["loss"]["entries"]
+        assert [e["step"] for e in entries] == list(range(6))
+        assert run.latest_step == 5
+
+        # Media by reference works even for v4 (bin) frames.
+        mid = cache._read_conn().execute(
+            "SELECT media_id FROM media"
+        ).fetchone()["media_id"]
+        state.media_lru.__init__(budget_bytes=1)
+        assert state.media_bytes("v4endtoend01", mid) == png
+
+        # And SQL rows fanned out per point.
+        n = cache._read_conn().execute(
+            "SELECT COUNT(*) FROM metrics WHERE name='loss'"
+        ).fetchone()[0]
+        assert n == 6
+    finally:
+        cache.close()

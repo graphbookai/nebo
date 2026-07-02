@@ -13,6 +13,7 @@ class MessageType(str, Enum):
     """Types of messages in the protocol."""
     LOG = "log"
     METRIC = "metric"
+    METRIC_BATCH = "metric_batch"
     IMAGE = "image"
     ALERT = "alert"
     AUDIO = "audio"

@@ -977,3 +977,73 @@ class TestOfflineTextLogsReachUI:
         # Simulate the UI step filter: clicking step 2 keeps exactly that log.
         clicked = 2
         assert [l["message"] for l in logs if l["step"] == clicked] == ["log 2"]
+
+
+class TestMetricBatchIngest:
+    """v4 metric_batch frames fan out per the equivalence rule."""
+
+    @staticmethod
+    def _batch(n=4, name="loss", lid="a"):
+        return {
+            "type": "metric_batch",
+            "loggable_id": lid,
+            "name": name,
+            "metric_type": "line",
+            "steps": list(range(n)),
+            "timestamps": [100.0 + i for i in range(n)],
+            "values": [0.5 - 0.1 * i for i in range(n)],
+            "tags": ["train"],
+        }
+
+    @pytest.mark.asyncio
+    async def test_batch_equals_per_point_ingest(self) -> None:
+        from nebo.core.coalesce import expand_metric_batch
+
+        batch = self._batch()
+        state_a = DaemonState()
+        await state_a.ingest_events([batch], run_id="r1")
+        state_b = DaemonState()
+        await state_b.ingest_events(expand_metric_batch(batch), run_id="r1")
+
+        ma = state_a.run_metrics("r1")["a"]["loss"]
+        mb = state_b.run_metrics("r1")["a"]["loss"]
+        assert ma == mb
+        assert len(ma["entries"]) == 4
+        assert state_a.runs["r1"].latest_step == 3
+        assert state_a.runs["r1"].resident_points == 4
+
+    @pytest.mark.asyncio
+    async def test_batch_respects_snapshot_type_lock(self) -> None:
+        state = DaemonState()
+        await state.ingest_events([self._batch(2)], run_id="r1")
+        series = state.runs["r1"].loggables["a"].metrics["loss"]
+        assert series["type"] == "line"
+
+    @pytest.mark.asyncio
+    async def test_mismatched_arrays_dropped(self) -> None:
+        bad = self._batch()
+        bad["values"] = bad["values"][:-1]
+        state = DaemonState()
+        await state.ingest_events([bad], run_id="r1")
+        assert "loss" not in state.runs["r1"].loggables.get(
+            "a", LoggableState(loggable_id="a")
+        ).metrics
+
+    @pytest.mark.asyncio
+    async def test_alert_rule_fires_on_in_batch_point(self) -> None:
+        state = DaemonState()
+        state.alert_rules["rule1"] = {
+            "id": "rule1", "title": "loss spiked", "text": "",
+            "level": 30, "triggered_by": "cli",
+            "condition": {"metric": "loss", "op": ">", "value": 0.42,
+                          "loggable_id": None},
+            "run_id": None, "created_at": 0.0, "fired": [],
+        }
+        await state.ingest_events([self._batch(4)], run_id="r1")
+        rule = state.alert_rules["rule1"]
+        # values are 0.5, 0.4, 0.3, 0.2 -> only the FIRST point qualifies,
+        # and the rule fires exactly once.
+        assert len(rule["fired"]) == 1
+        assert rule["fired"][0]["step"] == 0
+        assert rule["fired"][0]["value"] == 0.5
+        assert len(state.runs["r1"].alerts) == 1

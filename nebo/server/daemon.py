@@ -888,6 +888,42 @@ class DaemonState:
                              new_entry.get("colors")))
             self._evaluate_alert_rules(run, lid, mname, new_entry)
 
+        elif etype == "metric_batch":
+            # Columnar batch of accumulating-metric points (format v4).
+            # Equivalence rule: identical to N consecutive plain `metric`
+            # events with the shared fields copied onto each.
+            lid = event.get("loggable_id", "")
+            mname = event.get("name", "")
+            steps = event.get("steps") or []
+            timestamps = event.get("timestamps") or []
+            values = event.get("values") or []
+            if not lid or not (len(steps) == len(timestamps) == len(values)):
+                return  # malformed batch: drop rather than half-apply
+            lg = self._ensure_loggable(run, lid)
+            mtype = event.get("metric_type", "line")
+            series = lg.metrics.setdefault(mname, {"type": mtype, "entries": []})
+            tags = list(event.get("tags") or [])
+            colors = event.get("colors") if "colors" in event else None
+            for step, ts, value in zip(steps, timestamps, values):
+                new_entry = {
+                    "step": step,
+                    "value": value,
+                    "tags": list(tags),
+                    "timestamp": ts,
+                }
+                if colors is not None:
+                    new_entry["colors"] = bool(colors)
+                series["entries"].append(new_entry)
+                if step is not None and (
+                    run.latest_step is None or step > run.latest_step
+                ):
+                    run.latest_step = step
+                self._cache_put(("metric_row", run.id, lid, mname, mtype,
+                                 step, ts, json.dumps(value),
+                                 json.dumps(tags), colors))
+                self._evaluate_alert_rules(run, lid, mname, new_entry)
+            run.resident_points += len(steps)
+
         elif etype == "progress":
             if loggable_id and loggable_id in run.loggables:
                 run.loggables[loggable_id].progress = event.get("data", {})
