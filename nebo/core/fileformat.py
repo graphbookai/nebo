@@ -189,7 +189,8 @@ class NeboFileWriter:
         self._stream.write(struct.pack(">B", type_byte))
         self._stream.write(struct.pack(">I", len(payload_bytes)))
         self._stream.write(payload_bytes)
-        self._stream.flush()
+        # No flush here — callers own flush cadence (FileTransport flushes
+        # once per drain tick instead of once per entry).
 
     def close(self) -> None:
         """Flush the stream."""

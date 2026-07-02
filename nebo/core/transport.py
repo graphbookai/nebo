@@ -76,25 +76,46 @@ class FileTransport:
         return self._filepath
 
     def _run(self) -> None:
-        """Background thread: drain queue and write entries."""
-        while self._running:
+        """Background thread: drain the queue per tick, coalesce, write.
+
+        Each tick drains everything available, folds accumulating metric
+        events into `metric_batch` frames (see nebo/core/coalesce.py) and
+        writes with a single stream flush — instead of one write+flush
+        syscall pair per event.
+        """
+        from nebo.core.coalesce import coalesce
+
+        stop = False
+        while not stop:
             try:
-                event = self._queue.get(timeout=self._flush_interval)
+                first = self._queue.get(timeout=self._flush_interval)
             except queue.Empty:
+                if not self._running:
+                    break
                 continue
-            if event is None:
-                # Drain remaining items before exiting.
-                while True:
-                    try:
-                        item = self._queue.get_nowait()
-                    except queue.Empty:
-                        break
-                    if item is not None:
-                        with self._lock:
-                            self._writer.write_entry(item.get("type", "log"), item)
-                break
+            batch: list = [first]
+            while True:
+                try:
+                    batch.append(self._queue.get_nowait())
+                except queue.Empty:
+                    break
+
+            events: list[dict] = []
+            barriers: list[threading.Event] = []
+            for item in batch:
+                if item is None:
+                    stop = True
+                elif isinstance(item, tuple) and item[0] == "__barrier__":
+                    barriers.append(item[1])
+                else:
+                    events.append(item)
+
             with self._lock:
-                self._writer.write_entry(event.get("type", "log"), event)
+                for event in coalesce(events):
+                    self._writer.write_entry(event.get("type", "log"), event)
+                self._stream.flush()
+            for barrier in barriers:
+                barrier.set()
 
     def send_event(self, event: dict) -> None:
         if not self._running:
@@ -102,14 +123,12 @@ class FileTransport:
         self._queue.put(event)
 
     def flush(self, timeout: float = 5.0) -> bool:
-        deadline = time.time() + timeout
-        while not self._queue.empty():
-            if time.time() > deadline:
-                return False
-            time.sleep(0.01)
-        with self._lock:
-            self._stream.flush()
-        return True
+        """Barrier: block until everything queued before this call is on disk."""
+        if not self._running:
+            return True
+        barrier = threading.Event()
+        self._queue.put(("__barrier__", barrier))
+        return barrier.wait(timeout)
 
     def close(self) -> None:
         if not self._running:

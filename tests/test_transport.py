@@ -120,3 +120,79 @@ def test_file_transport_rolls_on_new_run(tmp_path, monkeypatch):
         f"expected exactly 2 files (r1 + r2) — no orphan init file; "
         f"got {[f.name for f in files]}"
     )
+
+
+def test_file_transport_coalesces_metric_events(tmp_path):
+    t = FileTransport(logdir=tmp_path, run_id="coalescerun1", script_path="/x/s.py")
+
+    def _pt(name, value, step):
+        return {
+            "type": "metric", "loggable_id": "a", "name": name,
+            "metric_type": "line", "value": value, "step": step,
+            "tags": [], "timestamp": 100.0 + step,
+        }
+
+    try:
+        for i in range(5):
+            t.send_event(_pt("loss", 0.5 - i * 0.1, i))
+            t.send_event(_pt("acc", 0.1 + i * 0.1, i))
+        assert t.flush(timeout=2.0)
+    finally:
+        t.close()
+
+    (path,) = tmp_path.glob("*.nebo")
+    with path.open("rb") as f:
+        reader = NeboFileReader(f)
+        reader.read_header()
+        entries = list(reader.read_entries())
+
+    batches = [e for e in entries if e["type"] == "metric_batch"]
+    singles = [e for e in entries if e["type"] == "metric"]
+    # 10 interleaved points -> exactly 2 columnar frames, 0 plain metrics.
+    assert len(singles) == 0
+    total_points = sum(len(b["payload"]["steps"]) for b in batches)
+    assert total_points == 10
+    by_name = {}
+    for b in batches:
+        by_name.setdefault(b["payload"]["name"], []).extend(b["payload"]["steps"])
+    assert by_name == {"loss": [0, 1, 2, 3, 4], "acc": [0, 1, 2, 3, 4]}
+
+
+def test_file_transport_writes_media_bytes(tmp_path):
+    raw = b"\x89PNG\r\n\x1a\n" + b"q" * 32
+    t = FileTransport(logdir=tmp_path, run_id="mediabytes01", script_path="/x/s.py")
+    try:
+        t.send_event({
+            "type": "image", "loggable_id": "a", "name": "f",
+            "data": raw, "step": None, "timestamp": 1.0,
+        })
+        assert t.flush(timeout=2.0)
+    finally:
+        t.close()
+
+    (path,) = tmp_path.glob("*.nebo")
+    with path.open("rb") as f:
+        reader = NeboFileReader(f)
+        reader.read_header()
+        (img,) = [e for e in reader.read_entries() if e["type"] == "image"]
+    assert img["payload"]["data"] == raw
+
+
+def test_file_transport_flush_means_on_disk(tmp_path):
+    t = FileTransport(logdir=tmp_path, run_id="flushcheck01", script_path="/x/s.py")
+    try:
+        t.send_event({"type": "log", "loggable_id": "__global__", "message": "x"})
+        assert t.flush(timeout=2.0)
+        # Without closing, another reader must already see the entry.
+        (path,) = tmp_path.glob("*.nebo")
+        with path.open("rb") as f:
+            reader = NeboFileReader(f)
+            reader.read_header()
+            msgs = [
+                e["payload"].get("message")
+                for e in reader.read_entries()
+                if e["type"] == "log"
+            ]
+        assert "x" in msgs
+    finally:
+        t.close()
