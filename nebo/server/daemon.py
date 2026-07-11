@@ -242,6 +242,42 @@ def format_alert_condition(condition: dict) -> str:
     return f"{prefix}{condition['metric']} {condition['op']} {value}"
 
 
+class _WsClient:
+    """A /stream subscriber with its own bounded outbound queue.
+
+    Ingest serializes each batch once and enqueues it per client
+    (`put_nowait`, drop-oldest at capacity); a per-client sender task
+    pumps the queue into the socket. A slow browser tab therefore skips
+    old batches instead of backpressuring the SDK's POST — ingest never
+    awaits a browser.
+    """
+
+    __slots__ = ("ws", "queue", "task", "dropped")
+
+    def __init__(self, ws: Any, maxsize: int = 256) -> None:
+        self.ws = ws
+        self.queue: asyncio.Queue[str] = asyncio.Queue(maxsize=maxsize)
+        self.task: Optional[asyncio.Task] = None
+        self.dropped = 0
+
+    def enqueue(self, message: str) -> None:
+        while True:
+            try:
+                self.queue.put_nowait(message)
+                return
+            except asyncio.QueueFull:
+                try:
+                    self.queue.get_nowait()
+                    self.dropped += 1
+                except asyncio.QueueEmpty:
+                    pass
+
+    async def sender(self) -> None:
+        while True:
+            message = await self.queue.get()
+            await self.ws.send_text(message)
+
+
 class DaemonState:
     """Central state holder for the daemon server.
 
@@ -702,13 +738,15 @@ class DaemonState:
             for event in events:
                 self._process_event(run, event)
 
-        # Broadcast to WebSocket clients
-        for ws in self._ws_clients[:]:
-            try:
-                await ws.send_json({"type": "batch", "run_id": rid, "events": events})
-            except Exception:
-                if ws in self._ws_clients:
-                    self._ws_clients.remove(ws)
+        # Broadcast to WebSocket clients: serialize ONCE, enqueue per
+        # client, never await a socket here.
+        if self._ws_clients:
+            message = json.dumps(
+                {"type": "batch", "run_id": rid, "events": events},
+                default=str,
+            )
+            for client in self._ws_clients[:]:
+                client.enqueue(message)
 
         # Notify any waiters of new significant events
         async with self._event_notify:
@@ -1829,7 +1867,9 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
                 await ws.close(code=4401)
                 return
         await ws.accept()
-        state._ws_clients.append(ws)
+        client = _WsClient(ws)
+        client.task = asyncio.create_task(client.sender())
+        state._ws_clients.append(client)
         try:
             while True:
                 data = await ws.receive_text()
@@ -1840,12 +1880,16 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
                     continue
                 events = decode_batch(data)
                 await state.ingest_events(events)
-        except WebSocketDisconnect:
-            if ws in state._ws_clients:
-                state._ws_clients.remove(ws)
-        except Exception:
-            if ws in state._ws_clients:
-                state._ws_clients.remove(ws)
+        except (WebSocketDisconnect, Exception):
+            pass
+        finally:
+            client.task.cancel()
+            try:
+                await client.task
+            except (asyncio.CancelledError, Exception):
+                pass
+            if client in state._ws_clients:
+                state._ws_clients.remove(client)
 
     # Serve the web UI static files (must be last — catches all unmatched routes)
     static_dir = Path(__file__).parent / "static"

@@ -1119,3 +1119,72 @@ class TestMsgpackIngestEndpoint:
         ])
         assert resp.status_code == 200
         assert len(state.runs["r1"].logs) == 1
+
+
+class TestWsBroadcastQueues:
+    @pytest.mark.asyncio
+    async def test_slow_client_does_not_block_ingest(self) -> None:
+        import asyncio as _asyncio
+
+        from nebo.server.daemon import _WsClient
+
+        class NeverSends:
+            async def send_text(self, message: str) -> None:
+                await _asyncio.sleep(3600)
+
+        state = DaemonState()
+        client = _WsClient(NeverSends())
+        client.task = _asyncio.get_event_loop().create_task(client.sender())
+        state._ws_clients.append(client)
+        try:
+            t0 = time.monotonic()
+            await state.ingest_events([
+                {"type": "log", "loggable_id": "__global__", "message": "hi",
+                 "timestamp": 1.0},
+            ], run_id="r1")
+            elapsed = time.monotonic() - t0
+            # Broadcast must be enqueue-only — never awaiting the browser.
+            assert elapsed < 1.0
+            assert len(state.runs["r1"].logs) == 1
+        finally:
+            client.task.cancel()
+
+    @pytest.mark.asyncio
+    async def test_drop_oldest_at_capacity(self) -> None:
+        from nebo.server.daemon import _WsClient
+
+        client = _WsClient(ws=None, maxsize=3)
+        for i in range(5):
+            client.enqueue(f"m{i}")
+        assert client.dropped == 2
+        remaining = []
+        while not client.queue.empty():
+            remaining.append(client.queue.get_nowait())
+        assert remaining == ["m2", "m3", "m4"]
+
+    def test_normal_client_receives_batches_in_order(self) -> None:
+        import json as _json
+
+        from fastapi.testclient import TestClient
+
+        from nebo.server.daemon import create_daemon_app
+
+        state = DaemonState()
+        app = create_daemon_app(state)
+        client = TestClient(app)
+        with client.websocket_connect("/stream") as ws:
+            client.post("/events?run_id=r1", json=[
+                {"type": "log", "loggable_id": "__global__", "message": "one",
+                 "timestamp": 1.0},
+            ])
+            client.post("/events?run_id=r1", json=[
+                {"type": "log", "loggable_id": "__global__", "message": "two",
+                 "timestamp": 2.0},
+            ])
+            first = _json.loads(ws.receive_text())
+            second = _json.loads(ws.receive_text())
+        assert first["type"] == "batch" and first["run_id"] == "r1"
+        assert first["events"][0]["message"] == "one"
+        assert second["events"][0]["message"] == "two"
+        # Client fully cleaned up after disconnect.
+        assert state._ws_clients == []
