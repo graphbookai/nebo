@@ -78,3 +78,19 @@ def test_session_state_reset_seeds_agent():
     state = get_state()
     assert "__agent__" in state.loggables
     assert state.loggables["__agent__"].kind == "agent"
+
+
+def test_emit_after_reset_stays_in_file_mode(monkeypatch):
+    """SessionState.reset() clears _pending_mode; the next auto-run must
+    re-resolve to file mode, not fall into the network branch and probe
+    localhost:7861 (2s stall when another process squats on the port)."""
+    monkeypatch.setenv("NEBO_NO_STORE", "1")
+    monkeypatch.delenv("NEBO_URI", raising=False)
+    import nebo as nb
+    from nebo.core.client import NetworkTransport
+
+    nb.get_state().reset()
+    nb.log("after reset")
+    state = nb.get_state()
+    assert state._mode != "network" or state._pending_mode is not None
+    assert not isinstance(state._transport, NetworkTransport)

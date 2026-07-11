@@ -216,12 +216,20 @@ def _create_run_transport(
     do (start_run via the close-old-run block, _ensure_run because
     `state._transport is None` is the precondition).
     """
-    from nebo.core.uri import Mode
+    from nebo.core.uri import Mode, resolve_uri
     from nebo.core.transport import FileTransport
 
     state = get_state()
     mode = state._pending_mode
     dest = state._pending_dest
+    if mode is None:
+        # A SessionState.reset() clears _pending_mode but leaves the
+        # module-global _auto_init_done set, so init() never re-stashes
+        # the config. Re-resolve defaults here — otherwise `None` falls
+        # into the network branch with an empty dest and the next emit
+        # probes localhost:7861 (2 s stall when something else squats on
+        # the port, silently-dropped events either way).
+        mode, dest = resolve_uri(os.environ.get("NEBO_URI"))
     no_store = bool(os.environ.get("NEBO_NO_STORE"))
     quiet = bool(os.environ.get("NEBO_QUIET"))
     script_name = os.path.abspath(sys.argv[0]) if sys.argv else "script"
