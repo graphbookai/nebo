@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '@/store'
 import { useStreams } from '@/hooks/useStreams'
 import { useAxisTransform } from '@/hooks/useAxisTransform'
@@ -146,19 +146,41 @@ export function Tracker({ runId }: { runId: string }) {
     const v = min + frac * range
     return isStep ? Math.round(v) : v
   }, [min, range, isStep, axis.panX, axis.scale])
-  const scrub = useCallback((clientX: number) => {
+  const commitScrub = useCallback((clientX: number) => {
     const v = fromPixel(clientX); if (isStep) setStep(v); else setTime(v)
   }, [fromPixel, isStep, setStep, setTime])
+  // pointermove fires faster than the display refreshes, and every commit
+  // re-renders every step-subscribed chart. Coalesce moves to one trailing
+  // commit per animation frame; pointer-down and release commit directly.
+  const scrubPendingX = useRef<number | null>(null)
+  const scrubRaf = useRef(0)
+  const scrubThrottled = useCallback((clientX: number) => {
+    scrubPendingX.current = clientX
+    if (scrubRaf.current) return
+    scrubRaf.current = requestAnimationFrame(() => {
+      scrubRaf.current = 0
+      if (scrubPendingX.current != null) commitScrub(scrubPendingX.current)
+    })
+  }, [commitScrub])
+  useEffect(() => () => cancelAnimationFrame(scrubRaf.current), [])
   const onCanvasDown = (e: React.PointerEvent<HTMLDivElement>) => {
     try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* capture is best-effort */ }
     setTouching(true)
     if (e.button === 1) axis.beginPan(e.clientX)
-    else { scrubbing.current = true; scrub(e.clientX) }
+    else { scrubbing.current = true; commitScrub(e.clientX) }
   }
   const onCanvasMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (scrubbing.current) scrub(e.clientX); else axis.onPanMove(e.clientX)
+    if (scrubbing.current) scrubThrottled(e.clientX); else axis.onPanMove(e.clientX)
   }
-  const onCanvasUp = () => { scrubbing.current = false; setTouching(false); axis.endPan() }
+  const onCanvasUp = () => {
+    if (scrubbing.current && scrubPendingX.current != null) {
+      cancelAnimationFrame(scrubRaf.current)
+      scrubRaf.current = 0
+      commitScrub(scrubPendingX.current)
+      scrubPendingX.current = null
+    }
+    scrubbing.current = false; setTouching(false); axis.endPan()
+  }
 
   const minStep = isStep ? min : 0
   const maxStep = isStep ? max : 0

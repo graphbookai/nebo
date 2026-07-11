@@ -1,7 +1,32 @@
+import { useMemo } from 'react'
 import type { AxisTransform } from '@/hooks/useAxisTransform'
 import type { FlatRow, StreamModality } from '@/lib/streams'
 
 const DOT_COLOR: Record<StreamModality, string> = { text: '#3b82f6', image: '#22c55e', audio: '#f97316' }
+
+// Dedupe a row's datapoints by quantized x so DOM node count is bounded by
+// track width (~2.5px buckets at zoom 1), not by datapoint count. Bucket
+// resolution scales with zoom, so points that collapse when zoomed out
+// reappear as you zoom in.
+function bucketRow(
+  datapoints: { step: number | null; timestamp: number }[],
+  isStep: boolean,
+  toPercent: (v: number) => number,
+  perPercent: number,
+): number[] {
+  const seen = new Set<number>()
+  const out: number[] = []
+  for (const dp of datapoints) {
+    const v = isStep ? dp.step : dp.timestamp
+    if (v == null) continue
+    const pct = toPercent(v)
+    const key = Math.round(pct * perPercent)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(pct)
+  }
+  return out
+}
 
 // Sticky ruler band: tick labels + the playhead (with a downward triangle
 // handle). Rendered inside a `left:pad right:pad` plot box so the first/last
@@ -64,6 +89,14 @@ export function TimelineRows({ rows, rowHeight, isStep, axis, ticks, pad, playhe
   labelsDimmed?: boolean
 }) {
   const totalH = rows.length * rowHeight
+  // ~4 buckets per percent ≈ one per 2.5px on a 1000px track at zoom 1.
+  const perPercent = 4 * axis.scale
+  const bucketedRows = useMemo(
+    () => rows.map(row => (
+      row.leaf ? bucketRow(row.leaf.datapoints, isStep, axis.toPercent, perPercent) : null
+    )),
+    [rows, isStep, axis.toPercent, perPercent],
+  )
   return (
     <div className="relative" style={{ height: totalH }}>
       <div className="absolute inset-y-0" style={{ left: pad, right: pad }}>
@@ -74,14 +107,10 @@ export function TimelineRows({ rows, rowHeight, isStep, axis, ticks, pad, playhe
             ))}
           </svg>
           <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" preserveAspectRatio="none">
-            {rows.map((row, i) => row.leaf
-              ? row.leaf.datapoints.map((dp, j) => {
-                  const v = isStep ? dp.step : dp.timestamp
-                  if (v == null) return null
-                  return (
-                    <circle key={j} cx={`${axis.toPercent(v)}%`} cy={i * rowHeight + rowHeight / 2} r={2.5} fill={DOT_COLOR[row.leaf!.modality]} opacity={0.85} />
-                  )
-                })
+            {bucketedRows.map((pcts, i) => pcts
+              ? pcts.map((pct, j) => (
+                  <circle key={j} cx={`${pct}%`} cy={i * rowHeight + rowHeight / 2} r={2.5} fill={DOT_COLOR[rows[i].leaf!.modality]} opacity={0.85} />
+                ))
               : null)}
           </svg>
           {playheadPct != null && (
