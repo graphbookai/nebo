@@ -109,9 +109,12 @@ class NetworkTransport:
         self._fallback_buffer: list[dict[str, Any]] = []
         self._lock = threading.Lock()
         self._run_completed: bool = False
-        # Persistent keep-alive connection for the flush thread (the only
-        # POSTer). Rebuilt lazily after any error.
-        self._conn: Optional[http.client.HTTPConnection] = None
+        # Persistent keep-alive connections, ONE PER THREAD: the background
+        # flush loop and an explicit flush()/atexit drain can post
+        # concurrently, and http.client connections are not thread-safe —
+        # sharing one interleaves request/getresponse and every collision
+        # costs a dropped connection plus a retry sleep.
+        self._conn_local = threading.local()
         parts = urllib.parse.urlsplit(self._base_url)
         self._conn_scheme = parts.scheme or "http"
         self._conn_host = parts.hostname or "localhost"
@@ -469,8 +472,9 @@ class NetworkTransport:
             # catch anything queued during the POSTs.
 
     def _connection(self) -> http.client.HTTPConnection:
-        """Persistent keep-alive connection (flush thread only)."""
-        if self._conn is None:
+        """This thread's persistent keep-alive connection."""
+        conn = getattr(self._conn_local, "conn", None)
+        if conn is None:
             # Remote daemons cross the public internet; loopback daemons
             # are fast. Use the longer timeout whenever a token is in
             # play, since that's the remote-target signal.
@@ -480,16 +484,18 @@ class NetworkTransport:
                 if self._conn_scheme == "https"
                 else http.client.HTTPConnection
             )
-            self._conn = conn_cls(self._conn_host, self._conn_port, timeout=timeout)
-        return self._conn
+            conn = conn_cls(self._conn_host, self._conn_port, timeout=timeout)
+            self._conn_local.conn = conn
+        return conn
 
     def _drop_connection(self) -> None:
-        if self._conn is not None:
+        conn = getattr(self._conn_local, "conn", None)
+        if conn is not None:
             try:
-                self._conn.close()
+                conn.close()
             except Exception:
                 pass
-            self._conn = None
+            self._conn_local.conn = None
 
     def _post_packed(
         self, events: list[dict[str, Any]], packed: list[bytes],
