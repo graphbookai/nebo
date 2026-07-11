@@ -29,6 +29,17 @@ import msgpack
 
 logger = logging.getLogger(__name__)
 
+# Event types that are never dropped by buffer backpressure: they define
+# run/graph structure, are tiny, and losing one corrupts the run's shape
+# rather than just thinning its data.
+STRUCTURAL_TYPES = frozenset({
+    "run_start", "run_completed", "loggable_register", "edge",
+    "node_executed", "config", "ui_config", "run_config", "description",
+    "alert", "error",
+})
+
+DEFAULT_BUFFER_BUDGET_MB = 128
+
 
 @dataclass
 class DrainResult:
@@ -106,6 +117,20 @@ class NetworkTransport:
         self._conn_host = parts.hostname or "localhost"
         self._conn_port = parts.port
         self._conn_prefix = parts.path.rstrip("/")
+        # Backpressure: approximate bytes across queue + buffer + fallback.
+        # Over budget, incoming non-structural events are dropped (progress
+        # first, at 90%) instead of growing RSS without bound while the
+        # daemon is slow or down. Structural events always get through.
+        budget_mb = float(
+            os.environ.get("NEBO_BUFFER_BUDGET_MB") or DEFAULT_BUFFER_BUDGET_MB
+        )
+        self._buffer_budget = int(budget_mb * 1024 * 1024)
+        self._buffered_bytes = 0
+        self._budget_lock = threading.Lock()
+        self._dropped_events = 0
+        # Reconnect pacing for the flush loop (test-overridable).
+        self._reconnect_backoff_initial = 1.0
+        self._reconnect_backoff_max = 30.0
 
         env_timeout = os.environ.get("NEBO_SHUTDOWN_TIMEOUT")
         if env_timeout is not None:
@@ -170,14 +195,69 @@ class NetworkTransport:
         self._connected = False
         return False
 
+    @staticmethod
+    def _event_nbytes(event: dict[str, Any]) -> int:
+        """Cheap size estimate for buffer accounting (media dominates)."""
+        overhead = 200
+        data = event.get("data")
+        if isinstance(data, (bytes, bytearray)):
+            return len(data) + overhead
+        nbytes = getattr(data, "nbytes", None)  # PendingMedia / ndarray
+        if isinstance(nbytes, int):
+            return nbytes + overhead
+        message = event.get("message")
+        if isinstance(message, str):
+            return len(message) + overhead
+        return overhead
+
+    def _admit(self, event: dict[str, Any]) -> bool:
+        """Charge an event against the buffer budget, or drop it."""
+        etype = event.get("type", "")
+        size = self._event_nbytes(event)
+        with self._budget_lock:
+            if etype not in STRUCTURAL_TYPES:
+                # Progress is the most expendable stream — shed it before
+                # the budget is fully exhausted so real data fits longer.
+                limit = (
+                    int(self._buffer_budget * 0.9)
+                    if etype == "progress" else self._buffer_budget
+                )
+                if self._buffered_bytes + size > limit:
+                    if self._dropped_events == 0:
+                        logger.warning(
+                            "nebo: transport buffer over budget (%d MB); "
+                            "dropping non-structural events until it "
+                            "drains. Is the daemon reachable?",
+                            self._buffer_budget // (1024 * 1024),
+                        )
+                    self._dropped_events += 1
+                    return False
+            self._buffered_bytes += size
+        return True
+
+    def _release_bytes(self, events: list[dict[str, Any]]) -> None:
+        size = sum(self._event_nbytes(e) for e in events)
+        with self._budget_lock:
+            self._buffered_bytes = max(0, self._buffered_bytes - size)
+
+    def _charge_bytes(self, events: list[dict[str, Any]]) -> None:
+        """Re-charge already-admitted events (failed-chunk re-buffering)."""
+        size = sum(self._event_nbytes(e) for e in events)
+        with self._budget_lock:
+            self._buffered_bytes += size
+
     def send_event(self, event: dict[str, Any]) -> None:
         """Queue an event to be sent to the daemon.
 
         If disconnected, events are buffered for replay on reconnect.
+        Non-structural events are dropped once the buffer budget
+        (NEBO_BUFFER_BUDGET_MB, default 128) is exhausted.
 
         Args:
             event: The event dictionary to send.
         """
+        if not self._admit(event):
+            return
         if self._connected:
             self._queue.put(event)
         else:
@@ -218,10 +298,26 @@ class NetworkTransport:
         atexit.register(self.disconnect)
 
     def _flush_loop(self) -> None:
-        """Background loop: batch events and send to daemon."""
+        """Background loop: batch + send while connected; keep retrying
+        the connection (1 s → 30 s backoff) while the daemon is away —
+        forever, not for a fixed attempt count. Fallback-buffered events
+        replay on reconnect."""
         last_flush = time.monotonic()
+        reconnect_at = 0.0
+        backoff = self._reconnect_backoff_initial
 
         while self._running:
+            if not self._connected:
+                now = time.monotonic()
+                if now >= reconnect_at:
+                    if self.try_reconnect():
+                        backoff = self._reconnect_backoff_initial
+                    else:
+                        reconnect_at = now + backoff
+                        backoff = min(backoff * 2, self._reconnect_backoff_max)
+                time.sleep(min(self._flush_interval, 0.1))
+                continue
+
             try:
                 event = self._queue.get(timeout=self._flush_interval)
                 self._buffer.append(event)
@@ -330,6 +426,7 @@ class NetworkTransport:
 
             pending = self._buffer[:]
             self._buffer.clear()
+            self._release_bytes(pending)
             events, packed, bad = self._prepare_packed(pending)
             if bad:
                 self._warn_unserializable(bad)
@@ -354,6 +451,7 @@ class NetworkTransport:
                 rest = chunks[failed_at:]
                 for chunk_events, _ in rest:
                     self._buffer.extend(chunk_events)
+                    self._charge_bytes(chunk_events)
 
                 now = time.monotonic()
                 if now >= deadline:
@@ -429,6 +527,7 @@ class NetworkTransport:
 
         batch = self._buffer[:]
         self._buffer.clear()
+        self._release_bytes(batch)
         events, packed, bad = self._prepare_packed(batch)
 
         # Drop un-serializable events before posting. Re-buffering them
@@ -445,6 +544,7 @@ class NetworkTransport:
                 # Put events back for retry by the next periodic tick.
                 restored = [e for evs, _ in chunks[i:] for e in evs]
                 self._buffer = restored + self._buffer
+                self._charge_bytes(restored)
                 return False
         return True
 
@@ -468,6 +568,13 @@ class NetworkTransport:
         """
         deadline = time.monotonic() + self._shutdown_timeout
         result = self._drain_with_retry(deadline)
+        if self._dropped_events > 0:
+            print(
+                f"nebo: WARNING — {self._dropped_events} event(s) were "
+                "dropped during the run because the transport buffer "
+                "exceeded its budget (NEBO_BUFFER_BUDGET_MB).",
+                file=sys.stderr, flush=True,
+            )
         if result.dropped > 0:
             kb = result.dropped_bytes / 1024
             msg = (
@@ -480,26 +587,16 @@ class NetworkTransport:
             print(msg, file=sys.stderr, flush=True)
 
     def _handle_disconnect(self) -> None:
-        """Handle daemon disconnection: buffer events and try to reconnect."""
-        self._connected = False
+        """Mark the daemon as away; the flush loop owns reconnection.
 
-        # Move buffer to fallback
+        Events queued while disconnected land in the fallback buffer
+        (still budget-bounded) and replay once `try_reconnect` succeeds.
+        """
+        self._connected = False
+        self._drop_connection()
         with self._lock:
             self._fallback_buffer.extend(self._buffer)
             self._buffer.clear()
-
-        # Try to reconnect periodically
-        for _ in range(5):
-            time.sleep(1.0)
-            if self.connect():
-                # Replay buffered events
-                with self._lock:
-                    replay = self._fallback_buffer[:]
-                    self._fallback_buffer.clear()
-                if replay:
-                    for event in replay:
-                        self._queue.put(event)
-                return
 
     def flush(self, timeout: float = 5.0) -> bool:
         """Force-flush queued events to the daemon, blocking until done

@@ -896,3 +896,92 @@ def test_prepare_packed_resolves_pending_media() -> None:
     assert isinstance(events[0]["data"], bytes)  # encoded off the caller path
     assert events[0]["data"].startswith(b"\x89PNG")
     assert len(packed) == 1
+
+
+class TestBufferBudget:
+    def _client(self, budget_bytes: int) -> DaemonClient:
+        client = DaemonClient()
+        client._buffer_budget = budget_bytes
+        client._connected = True  # route send_event to the queue
+        return client
+
+    @staticmethod
+    def _media(n: int) -> dict[str, Any]:
+        return {"type": "image", "loggable_id": "a", "name": "f",
+                "data": b"x" * n, "step": None, "timestamp": 1.0}
+
+    def test_over_budget_drops_data_but_not_structural(self, caplog) -> None:
+        client = self._client(budget_bytes=1000)
+        with caplog.at_level(logging.WARNING, logger="nebo.core.client"):
+            client.send_event(self._media(500))   # admitted
+            client.send_event(self._media(5000))  # over budget -> dropped
+            client.send_event({"type": "run_completed", "data": {}})  # structural
+        assert client._queue.qsize() == 2
+        assert client._dropped_events == 1
+        assert any("over budget" in r.getMessage() for r in caplog.records)
+
+    def test_progress_drops_before_other_data(self) -> None:
+        client = self._client(budget_bytes=1000)
+        client._buffered_bytes = 950  # > 90% of budget
+        client.send_event({"type": "progress", "loggable_id": "a",
+                           "data": {"current": 1}})
+        assert client._dropped_events == 1
+        assert client._queue.qsize() == 0
+
+    def test_budget_released_after_successful_flush(self) -> None:
+        client = self._client(budget_bytes=2000)
+        client._post_packed = lambda events, packed: (True, None)  # type: ignore[method-assign]
+        client.send_event(self._media(1500))
+        assert client._buffered_bytes > 1500
+        client._drain_queue_into_buffer()
+        assert client._do_flush() is True
+        # Budget freed: the next big event is admitted again.
+        client.send_event(self._media(1500))
+        assert client._queue.qsize() == 1
+        assert client._dropped_events == 0
+
+    def test_failed_flush_keeps_budget_accounted(self) -> None:
+        client = self._client(budget_bytes=2000)
+        client._post_packed = lambda events, packed: (False, RuntimeError("net"))  # type: ignore[method-assign]
+        client.send_event(self._media(1500))
+        client._drain_queue_into_buffer()
+        assert client._do_flush() is False
+        # Event re-buffered -> still counted -> next big event dropped.
+        client.send_event(self._media(1500))
+        assert client._dropped_events == 1
+
+
+class TestPersistentReconnect:
+    def test_flush_loop_retries_until_daemon_returns(self, monkeypatch) -> None:
+        client = DaemonClient()
+        client._connected = False
+        client._running = True
+        client._reconnect_backoff_max = 0.01
+        client._reconnect_backoff_initial = 0.001
+        attempts = {"n": 0}
+
+        def fake_connect():
+            attempts["n"] += 1
+            if attempts["n"] < 3:
+                return False
+            client._connected = True
+            return True
+
+        monkeypatch.setattr(client, "connect", fake_connect)
+        client._fallback_buffer = [{"type": "log", "message": "queued while down"}]
+        sent: list[dict[str, Any]] = []
+        client._post_packed = lambda events, packed: (sent.extend(events), (True, None))[1]  # type: ignore[method-assign]
+
+        import threading as _threading
+
+        t = _threading.Thread(target=client._flush_loop, daemon=True)
+        t.start()
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and not sent:
+            time.sleep(0.02)
+        client._running = False
+        t.join(timeout=2.0)
+
+        assert attempts["n"] >= 3  # kept retrying past the old 5-attempt cap
+        assert [e["message"] for e in sent] == ["queued while down"]
+        assert client._fallback_buffer == []
