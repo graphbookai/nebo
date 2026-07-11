@@ -23,7 +23,6 @@ function loadHeight(): number {
 }
 
 export function Tracker({ runId }: { runId: string }) {
-  const model = useStreams(runId)
   const timeline = useStore(s => s.timeline)
   const setSelectedStream = useStore(s => s.setSelectedStream)
   const setStep = useStore(s => s.setTimelineStep)
@@ -34,6 +33,8 @@ export function Tracker({ runId }: { runId: string }) {
   const [height, setHeight] = useState(loadHeight)
   const heightRef = useRef(height)
   const [collapsed, setCollapsed] = useState(false)
+  // No stream-model work while collapsed — the rows aren't rendered.
+  const model = useStreams(runId, !collapsed)
   const [touching, setTouching] = useState(false)
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(() => new Set())
   const [query, setQuery] = useState('')

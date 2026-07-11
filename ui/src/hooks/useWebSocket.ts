@@ -20,8 +20,10 @@ export function useWebSocket() {
       }
     })
 
-    // Poll connection status
+    // Poll connection status (skip while the tab is hidden — nothing is
+    // painted, and live updates still arrive over the WS on return).
     const statusInterval = setInterval(() => {
+      if (document.hidden) return
       setConnectionStatus(ws.connected, ws.reconnecting)
     }, 500)
 
@@ -30,12 +32,19 @@ export function useWebSocket() {
       .then(data => setRuns(data.runs, data.active_run))
       .catch(() => { /* daemon not running */ })
 
-    // Periodic refresh of run list
-    const refreshInterval = setInterval(() => {
+    // Periodic refresh of run list; paused while hidden, refreshed
+    // immediately when the tab becomes visible again.
+    const refreshRuns = () => {
       api.listRuns()
         .then(data => setRuns(data.runs, data.active_run))
         .catch(() => { /* ignore */ })
+    }
+    const refreshInterval = setInterval(() => {
+      if (document.hidden) return
+      refreshRuns()
     }, 5000)
+    const onVisible = () => { if (!document.hidden) refreshRuns() }
+    document.addEventListener('visibilitychange', onVisible)
 
     ws.connect()
 
@@ -43,6 +52,7 @@ export function useWebSocket() {
       unsub()
       clearInterval(statusInterval)
       clearInterval(refreshInterval)
+      document.removeEventListener('visibilitychange', onVisible)
       ws.disconnect()
     }
   }, [processWsEvents, setConnectionStatus, setRuns])
