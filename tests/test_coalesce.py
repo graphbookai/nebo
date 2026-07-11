@@ -174,3 +174,43 @@ class TestSnapshotCoalescing:
         assert [e["type"] for e in out] == ["metric_batch", "metric"]
         assert out[0]["steps"] == [0, 1]
         assert out[1]["value"] == {"x": 2}
+
+
+class TestNodeExecutedBatching:
+    @staticmethod
+    def _exec(lid, caller=None):
+        data = {"loggable_id": lid}
+        if caller is not None:
+            data["caller"] = caller
+        return {"type": "node_executed", "loggable_id": lid, "data": data}
+
+    def test_folds_same_node_into_count(self):
+        events = [self._exec("a") for _ in range(100)]
+        out = coalesce(events)
+        assert len(out) == 1
+        assert out[0]["data"]["count"] == 100
+        assert out[0]["data"]["loggable_id"] == "a"
+
+    def test_distinct_callers_stay_separate(self):
+        events = [
+            self._exec("a", caller="p"), self._exec("a", caller="q"),
+            self._exec("a", caller="p"),
+        ]
+        out = coalesce(events)
+        assert len(out) == 2
+        by_caller = {
+            e["data"].get("caller"): e["data"].get("count", 1) for e in out
+        }
+        assert by_caller == {"p": 2, "q": 1}
+
+    def test_singleton_has_no_count_key(self):
+        out = coalesce([self._exec("a")])
+        assert len(out) == 1
+        assert "count" not in out[0]["data"]
+
+    def test_register_order_preserved(self):
+        reg = {"type": "loggable_register", "loggable_id": "a",
+               "data": {"loggable_id": "a", "kind": "node"}}
+        out = coalesce([reg, self._exec("a"), self._exec("a")])
+        assert [e["type"] for e in out] == ["loggable_register", "node_executed"]
+        assert out[1]["data"]["count"] == 2

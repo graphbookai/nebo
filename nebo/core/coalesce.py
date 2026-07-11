@@ -86,6 +86,19 @@ def coalesce(events: list[dict]) -> list[dict]:
                 staged.append({_MARKER: slot})
             else:
                 slot["last"] = event
+        elif etype == "node_executed":
+            # Fold per-call execution ticks into one count-delta event per
+            # (loggable, caller). Consumers add `data.count` (default 1),
+            # so plain events remain legal.
+            data = event.get("data") or {}
+            key = ("exec", event.get("loggable_id"), data.get("caller"))
+            slot = snapshots.get(key)
+            if slot is None:
+                slot = {"exec": event, "count": 1}
+                snapshots[key] = slot
+                staged.append({_MARKER: slot})
+            else:
+                slot["count"] += 1
         else:
             staged.append(event)
 
@@ -97,6 +110,13 @@ def coalesce(events: list[dict]) -> list[dict]:
             continue
         if "last" in run:  # snapshot/progress slot: last-wins survivor
             out.append(run["last"])
+            continue
+        if "exec" in run:  # node_executed slot: count-delta survivor
+            event = run["exec"]
+            if run["count"] > 1:
+                event = {**event, "data": {**(event.get("data") or {}),
+                                           "count": run["count"]}}
+            out.append(event)
             continue
         items = run["items"]
         if len(items) == 1:

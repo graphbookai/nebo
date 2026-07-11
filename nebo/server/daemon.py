@@ -1036,8 +1036,10 @@ class DaemonState:
             data = event.get("data", {})
             lid = data.get("loggable_id", loggable_id or "")
             caller = data.get("caller")
+            # `count` is a delta (transport-coalesced ticks); absent = 1.
+            count = int(data.get("count") or 1)
             if lid and lid in run.loggables:
-                run.loggables[lid].exec_count += 1
+                run.loggables[lid].exec_count += count
                 self._cache_put(("loggable_upsert", run.id, lid, {
                     "exec_count": run.loggables[lid].exec_count,
                 }))

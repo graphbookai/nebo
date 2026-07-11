@@ -901,11 +901,13 @@ export const useStore = create<NeboStore>((set, get) => ({
 
           case 'node_executed': {
             const nid = (data.loggable_id as string) ?? loggableId ?? ''
+            // Transport-coalesced execution ticks carry a count delta.
+            const count = (data.count as number | undefined) ?? 1
             if (nid && run.graph?.nodes[nid]) {
               // New node object for selector detection; graph ref stays stable
               run.graph.nodes[nid] = {
                 ...run.graph.nodes[nid],
-                exec_count: run.graph.nodes[nid].exec_count + 1,
+                exec_count: run.graph.nodes[nid].exec_count + count,
               }
             }
             const caller = data.caller as string | undefined

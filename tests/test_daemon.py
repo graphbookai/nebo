@@ -1047,3 +1047,32 @@ class TestMetricBatchIngest:
         assert rule["fired"][0]["step"] == 0
         assert rule["fired"][0]["value"] == 0.5
         assert len(state.runs["r1"].alerts) == 1
+
+
+class TestNodeExecutedCount:
+    @pytest.mark.asyncio
+    async def test_count_delta_applied(self) -> None:
+        state = DaemonState()
+        await state.ingest_events([
+            {"type": "loggable_register", "loggable_id": "a",
+             "data": {"loggable_id": "a", "kind": "node", "func_name": "a"}},
+            {"type": "loggable_register", "loggable_id": "p",
+             "data": {"loggable_id": "p", "kind": "node", "func_name": "p"}},
+            {"type": "node_executed", "loggable_id": "a",
+             "data": {"loggable_id": "a", "caller": "p", "count": 42}},
+        ], run_id="r1")
+        run = state.runs["r1"]
+        assert run.loggables["a"].exec_count == 42
+        # The caller edge is still created exactly once.
+        assert run.edges == [{"source": "p", "target": "a"}]
+
+    @pytest.mark.asyncio
+    async def test_countless_event_still_increments_by_one(self) -> None:
+        state = DaemonState()
+        await state.ingest_events([
+            {"type": "loggable_register", "loggable_id": "a",
+             "data": {"loggable_id": "a", "kind": "node", "func_name": "a"}},
+            {"type": "node_executed", "loggable_id": "a",
+             "data": {"loggable_id": "a"}},
+        ], run_id="r1")
+        assert state.runs["r1"].loggables["a"].exec_count == 1
