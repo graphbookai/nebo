@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import weakref
 from collections import deque
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -14,6 +15,18 @@ from typing import Any, Deque, Literal, Optional
 # source of truth for the full log history; the SDK only mirrors a
 # small tail to render locally.
 RECENT_LOGS_MAXLEN = 200
+
+# Cap on return-origin entries that must hold STRONG references (values
+# whose type doesn't support weakrefs: list/dict/tuple/str/...). Beyond
+# this, the oldest strong entries are evicted — DAG inference only needs
+# values that flow between calls soon after being returned, so a bounded
+# recency window is semantically fine and stops the tracker from pinning
+# user data for the whole run. Weakrefable values (ndarrays, tensors,
+# custom objects — the big-memory cases) are never pinned at all.
+RETURN_ORIGINS_MAX = 4096
+
+# Sweep cadence for dead weakref entries (every N inserts).
+_ORIGIN_SWEEP_EVERY = 1024
 
 
 @dataclass
@@ -136,7 +149,10 @@ class SessionState:
         self.server_process: Any = None
         self._transport: Any = None  # Transport instance (file or network)
         self._mode: str = "file"  # "file" or "network"
-        self._return_origins: dict[int, tuple[str, Any]] = {}  # id(value) -> (producing node_id, value ref)
+        # id(value) -> (node_id, ref, is_weak, seq). See _store_origin.
+        self._return_origins: dict[int, tuple[str, Any, bool, int]] = {}
+        self._strong_origin_order: Deque[tuple[int, int]] = deque()
+        self._origin_seq: int = 0
         self._node_parents: dict[str, Optional[str]] = {}  # node_id -> parent node_id
         # For dag_strategy="linear": id of the most recent first-execution node,
         # used to chain newly-encountered nodes regardless of actual data flow.
@@ -253,27 +269,74 @@ class SessionState:
                 "data": {"source": source, "target": target},
             })
 
+    def _store_origin(self, node_id: str, value: Any) -> None:
+        """Record one value's producer without pinning it in memory.
+
+        Weakrefable values (arrays, tensors, custom objects) are stored
+        via weakref — the tracker never keeps them alive. Builtin
+        containers/scalars don't support weakrefs and keep a strong ref
+        inside a bounded recency window (RETURN_ORIGINS_MAX). Caller
+        holds _lock_state.
+        """
+        try:
+            ref: Any = weakref.ref(value)
+            is_weak = True
+        except TypeError:
+            ref = value
+            is_weak = False
+        self._origin_seq += 1
+        self._return_origins[id(value)] = (node_id, ref, is_weak, self._origin_seq)
+        if not is_weak:
+            self._strong_origin_order.append((id(value), self._origin_seq))
+            while len(self._strong_origin_order) > RETURN_ORIGINS_MAX:
+                old_id, old_seq = self._strong_origin_order.popleft()
+                entry = self._return_origins.get(old_id)
+                # Only evict if the slot still holds THIS entry (ids are
+                # reused after gc; a newer entry must survive).
+                if entry is not None and not entry[2] and entry[3] == old_seq:
+                    del self._return_origins[old_id]
+        if self._origin_seq % _ORIGIN_SWEEP_EVERY == 0:
+            dead = [
+                key for key, entry in self._return_origins.items()
+                if entry[2] and entry[1]() is None
+            ]
+            for key in dead:
+                del self._return_origins[key]
+
     def track_return(self, node_id: str, value: Any) -> None:
         """Record that a return value was produced by a given node.
 
         Tracks id(value) and, for tuples/lists/dicts, also tracks
         id(element) for each element one level deep. Skips None.
 
-        Stores (node_id, value_ref) so find_producers can verify identity
-        and avoid false matches from id() reuse after garbage collection.
+        Entries store a weakref where the type supports it (so the
+        tracker never extends user data's lifetime) or a strong ref in
+        a bounded LRU otherwise; find_producers verifies identity to
+        guard against id() reuse after garbage collection.
         """
         if value is None:
             return
         with self._lock_state:
-            self._return_origins[id(value)] = (node_id, value)
+            self._store_origin(node_id, value)
             if isinstance(value, (tuple, list)):
                 for item in value:
                     if item is not None:
-                        self._return_origins[id(item)] = (node_id, item)
+                        self._store_origin(node_id, item)
             elif isinstance(value, dict):
                 for v in value.values():
                     if v is not None:
-                        self._return_origins[id(v)] = (node_id, v)
+                        self._store_origin(node_id, v)
+
+    def _origin_for(self, arg: Any) -> Optional[str]:
+        """Producer node_id for one argument, or None. Caller holds lock."""
+        entry = self._return_origins.get(id(arg))
+        if entry is None:
+            return None
+        node_id, ref, is_weak, _seq = entry
+        target = ref() if is_weak else ref
+        if target is None or target is not arg:
+            return None
+        return node_id
 
     def find_producers(
         self, args: tuple, kwargs: dict, parent: Optional[str] = None,
@@ -282,7 +345,7 @@ class SessionState:
 
         Checks id() of each arg/kwarg against _return_origins, then verifies
         with an identity check (``is``) to guard against id() reuse after
-        garbage collection.
+        garbage collection (dead weakrefs are safe misses).
 
         Only returns producers that are **siblings** of the current node
         (share the same *parent*).  This ensures data-flow edges are short:
@@ -295,18 +358,17 @@ class SessionState:
         producers: set[str] = set()
         with self._lock_state:
             for arg in args:
-                entry = self._return_origins.get(id(arg))
-                if entry is not None and entry[1] is arg:
-                    producer_id = entry[0]
-                    # Only include if producer is a sibling (same parent)
-                    if self._node_parents.get(producer_id) == parent:
-                        producers.add(producer_id)
+                producer_id = self._origin_for(arg)
+                if producer_id is not None and (
+                    self._node_parents.get(producer_id) == parent
+                ):
+                    producers.add(producer_id)
             for v in kwargs.values():
-                entry = self._return_origins.get(id(v))
-                if entry is not None and entry[1] is v:
-                    producer_id = entry[0]
-                    if self._node_parents.get(producer_id) == parent:
-                        producers.add(producer_id)
+                producer_id = self._origin_for(v)
+                if producer_id is not None and (
+                    self._node_parents.get(producer_id) == parent
+                ):
+                    producers.add(producer_id)
         return producers
 
     def increment_count(self, node_id: str) -> None:
@@ -379,6 +441,13 @@ class SessionState:
             self.edges = list(snap.edges)
             self._edge_set = set(snap.edge_set)
             self._return_origins = dict(snap.return_origins)
+            # Rebuild strong-entry eviction order from the restored dict
+            # (insertion order == seq order).
+            self._strong_origin_order = deque(
+                (key, entry[3])
+                for key, entry in self._return_origins.items()
+                if not entry[2]
+            )
             self._node_parents = dict(snap.node_parents)
             self.workflow_description = snap.workflow_description
             self.ui_config = snap.ui_config
@@ -401,6 +470,7 @@ class SessionState:
             self.edges.clear()
             self._edge_set.clear()
             self._return_origins.clear()
+            self._strong_origin_order.clear()
             self._node_parents.clear()
             self._metric_cursors.clear()
             self.workflow_description = None
@@ -420,6 +490,7 @@ class SessionState:
             self.edges.clear()
             self._edge_set.clear()
             self._return_origins.clear()
+            self._strong_origin_order.clear()
             self._node_parents.clear()
             self._metric_cursors.clear()
             self._linear_last = None

@@ -94,3 +94,63 @@ def test_emit_after_reset_stays_in_file_mode(monkeypatch):
     state = nb.get_state()
     assert state._mode != "network" or state._pending_mode is not None
     assert not isinstance(state._transport, NetworkTransport)
+
+
+class TestReturnOriginMemory:
+    def test_weakrefable_returns_not_pinned(self):
+        import gc
+        import weakref
+
+        import numpy as np
+
+        from nebo.core.state import SessionState
+
+        SessionState.reset_singleton()
+        state = SessionState()
+        value = np.zeros(1000)
+        ref = weakref.ref(value)
+        state.track_return("producer", value)
+        del value
+        gc.collect()
+        # The tracker must not keep the array alive.
+        assert ref() is None
+        # And a dead entry is a safe miss, not a crash.
+        probe = np.ones(3)
+        assert state.find_producers((probe,), {}, parent=None) == set()
+
+    def test_weakrefable_flow_still_infers(self):
+        import numpy as np
+
+        from nebo.core.state import SessionState
+
+        SessionState.reset_singleton()
+        state = SessionState()
+        state._node_parents["producer"] = None
+        value = np.zeros(10)
+        state.track_return("producer", value)
+        assert state.find_producers((value,), {}, parent=None) == {"producer"}
+
+    def test_non_weakrefable_returns_still_work(self):
+        from nebo.core.state import SessionState
+
+        SessionState.reset_singleton()
+        state = SessionState()
+        state._node_parents["producer"] = None
+        value = [1, 2, 3]  # lists don't support weakrefs
+        state.track_return("producer", value)
+        assert state.find_producers((value,), {}, parent=None) == {"producer"}
+
+    def test_strong_fallback_is_bounded(self):
+        from nebo.core.state import RETURN_ORIGINS_MAX, SessionState
+
+        SessionState.reset_singleton()
+        state = SessionState()
+        state._node_parents["p"] = None
+        keep = []
+        for i in range(RETURN_ORIGINS_MAX + 100):
+            v = [i]
+            keep.append(v)
+            state.track_return("p", v)
+        # Oldest strong entries were evicted; newest still resolve.
+        assert state.find_producers((keep[0],), {}, parent=None) == set()
+        assert state.find_producers((keep[-1],), {}, parent=None) == {"p"}
