@@ -131,11 +131,6 @@ def _seed_small_run(c: RunCache, run_id: str = "r1") -> None:
                None, 12.0, json.dumps({"x": 2}), json.dumps([]), None))
     c.enqueue(("log_row", run_id, "a", "text", 10.5, 1, "info", "hello"))
     c.enqueue(("log_row", run_id, "__global__", "text", 10.6, None, "info", "world"))
-    c.enqueue(("error_row", run_id, 10.7, json.dumps({
-        "timestamp": 10.7, "node_name": "a", "exception_type": "ValueError",
-        "exception_message": "boom", "traceback": "tb", "node_docstring": None,
-        "execution_count": 2, "params": {}, "last_logs": [],
-    })))
     c.enqueue(("alert_row", run_id, 10.8, json.dumps({
         "title": "high loss", "level": 30, "triggered_by": "code",
         "timestamp": 10.8, "loggable_id": "a", "text": "",
@@ -162,7 +157,6 @@ class TestOpsAndAccessors:
             assert s["node_count"] == 2
             assert s["edge_count"] == 1
             assert s["log_count"] == 2
-            assert s["error_count"] == 1
             assert s["metrics_index"] == {"a": ["dist", "loss"]}
             assert s["metric_series_count"] == 2
             assert s["latest_step"] == 2
@@ -188,7 +182,7 @@ class TestOpsAndAccessors:
         finally:
             c.close()
 
-    def test_logs_errors_alerts(self, tmp_path):
+    def test_logs_and_alerts(self, tmp_path):
         c = _mk(tmp_path)
         try:
             _seed_small_run(c)
@@ -199,8 +193,6 @@ class TestOpsAndAccessors:
             only_a = c.get_logs("r1", loggable_id="a")
             assert len(only_a) == 1
             assert c.get_logs("r1", limit=1)[0]["message"] == "world"
-            errs = c.get_errors("r1")
-            assert errs[0]["exception_type"] == "ValueError"
             alerts = c.get_alerts("r1")
             assert alerts[0]["title"] == "high loss"
         finally:
@@ -543,7 +535,6 @@ class TestSqlReadParity:
         "/runs/r1",
         "/runs/r1/graph",
         "/runs/r1/logs",
-        "/runs/r1/errors",
         "/runs/r1/metrics",
         "/runs/r1/images",
         "/runs/r1/audio",
@@ -563,10 +554,6 @@ class TestSqlReadParity:
         state, c, client = self._client(tmp_path)
         _, events = _events_small_run()
         events.append({"type": "edge", "data": {"source": "a", "target": "a"}})
-        events.append({"type": "error", "data": {
-            "timestamp": 9.0, "loggable_id": "zz", "type": "ValueError",
-            "error": "boom", "traceback": "tb",
-        }})
         try:
             resp = client.post("/events?run_id=r1", json=events)
             assert resp.status_code == 200

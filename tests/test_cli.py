@@ -123,7 +123,7 @@ class TestLoadRemote:
 # ---------------------------------------------------------------------------
 
 import io
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 
@@ -406,7 +406,7 @@ def test_audio_log_passes_entries(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# nebo logs | errors | load | status  (Task 20 — --json + nebo.client routing)
+# nebo logs | load | status  (Task 20 — --json + nebo.client routing)
 # ---------------------------------------------------------------------------
 
 
@@ -442,25 +442,6 @@ def test_logs_no_logs(monkeypatch):
     assert "No logs found" in out
 
 
-def test_errors_json(monkeypatch):
-    monkeypatch.setattr(
-        "nebo.client.get_errors",
-        lambda **c: {"errors": []},
-    )
-    out = _run_cli(["errors", "--json"])
-    assert json.loads(out) == {"errors": []}
-
-
-def test_errors_human(monkeypatch):
-    monkeypatch.setattr(
-        "nebo.client.get_errors",
-        lambda **c: {
-            "errors": [{"node_name": "train", "exception_type": "ValueError", "exception_message": "bad"}]
-        },
-    )
-    out = _run_cli(["errors"])
-    assert "train" in out
-    assert "ValueError" in out
 
 
 def test_load_json(monkeypatch, tmp_path):
@@ -519,24 +500,6 @@ def test_logs_passes_run_and_node(monkeypatch):
     assert received["loggable_id"] == "train"
     assert received["limit"] == 5
 
-
-def test_errors_passes_run(monkeypatch):
-    received: dict = {}
-
-    def fake_get_errors(**c):
-        received.update(c)
-        return {"errors": []}
-
-    monkeypatch.setattr("nebo.client.get_errors", fake_get_errors)
-    _run_cli(["errors", "--run", "r2"])
-    assert received["run_id"] == "r2"
-
-
-# ---------------------------------------------------------------------------
-# nebo serve new flags
-# ---------------------------------------------------------------------------
-
-from contextlib import redirect_stderr
 
 
 def _run_cli_with_stderr(argv: list[str]) -> tuple[int, str]:

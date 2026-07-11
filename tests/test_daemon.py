@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from nebo.server.daemon import DaemonState, Run, LoggableState, LogEntry, ErrorEntry
+from nebo.server.daemon import DaemonState, Run, LoggableState, LogEntry
 
 
 class TestDaemonState:
@@ -199,22 +199,6 @@ class TestDaemonEventIngestion:
         assert len(run.edges) == 1
         assert run.loggables["a"].is_source is True
         assert run.loggables["b"].is_source is False
-
-    @pytest.mark.asyncio
-    async def test_ingest_error(self) -> None:
-        """Should capture enriched errors."""
-        self.state.create_run("s.py", run_id="r1")
-        await self.state.ingest_events([
-            {"type": "loggable_register", "data": {"loggable_id": "n1", "func_name": "n1", "docstring": "A step"}},
-            {"type": "error", "loggable_id": "n1", "data": {
-                "loggable_id": "n1", "type": "ValueError", "error": "bad value",
-                "traceback": "Traceback...", "timestamp": 1234,
-            }},
-        ], "r1")
-        run = self.state.runs["r1"]
-        assert len(run.errors) == 1
-        assert run.errors[0].exception_type == "ValueError"
-        assert run.errors[0].node_docstring == "A step"
 
     @pytest.mark.asyncio
     async def test_ingest_metric(self) -> None:

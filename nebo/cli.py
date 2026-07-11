@@ -5,7 +5,6 @@ Commands:
     nebo status  — Show daemon status and recent runs
     nebo stop    — Stop the daemon
     nebo logs    — View logs from runs
-    nebo errors  — View errors from runs
     nebo mcp     — Print MCP connection config for Claude Code
     nebo skill   — List or install nebo-shipped agent skills
 
@@ -295,7 +294,7 @@ def cmd_status(args: argparse.Namespace) -> None:
         for r in run_list[-10:]:
             print(f"  {r['id']}: {r.get('script_path', '')} | "
                   f"nodes={r.get('node_count', 0)}, metrics={r.get('metric_series_count', 0)}, "
-                  f"errors={r.get('error_count', 0)}")
+                  f"logs={r.get('log_count', 0)}")
 
 
 def cmd_stop(args: argparse.Namespace) -> None:
@@ -347,34 +346,6 @@ def cmd_logs(args: argparse.Namespace) -> None:
     for entry in logs:
         node_tag = f"[{entry.get('loggable_id', '?')}]" if entry.get("loggable_id") else ""
         print(f"  {node_tag} {entry.get('message', '')}")
-
-
-def cmd_errors(args: argparse.Namespace) -> None:
-    """View errors from runs."""
-    from nebo import client
-
-    try:
-        result = client.get_errors(run_id=args.run, **_conn_kwargs(args))
-    except Exception as e:
-        print(f"Error: {e}")
-        return
-
-    if args.json:
-        print(json.dumps(result))
-        return
-
-    errors = result.get("errors", [])
-    if not errors:
-        print("No errors found.")
-        return
-
-    for err in errors:
-        print(f"\n{'='*60}")
-        print(f"Node: {err.get('node_name', '?')}")
-        print(f"Type: {err.get('exception_type', '?')}: {err.get('exception_message', '')}")
-        tb = err.get("traceback", "")
-        if tb:
-            print(f"Traceback:\n{tb}")
 
 
 def cmd_mcp(args: argparse.Namespace) -> None:
@@ -997,12 +968,6 @@ def main() -> None:
     p_logs.add_argument("--node", help="Filter by node")
     p_logs.add_argument("--limit", type=int, default=100)
 
-    # errors
-    p_errors = subparsers.add_parser(
-        "errors", parents=[_common_conn_parser()], help="View errors",
-    )
-    p_errors.add_argument("--run", help="Run ID")
-
     # load
     p_load = subparsers.add_parser(
         "load", parents=[_common_conn_parser()], help="Load a .nebo file into the daemon",
@@ -1172,7 +1137,6 @@ def main() -> None:
         "status": cmd_status,
         "stop": cmd_stop,
         "logs": cmd_logs,
-        "errors": cmd_errors,
         "load": cmd_load,
         "mcp": cmd_mcp,
         "mcp-stdio": cmd_mcp_stdio,

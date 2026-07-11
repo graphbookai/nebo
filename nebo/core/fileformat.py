@@ -88,7 +88,7 @@ ENTRY_TYPES = {
     "audio": 3,
     "node_register": 4,  # v1-only; kept for backward read compat
     "edge": 5,
-    "error": 6,
+    # 6 was "error" (removed)
     # 7 was "ask" (removed)
     "ui_config": 8,
     "text": 9,

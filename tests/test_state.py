@@ -18,7 +18,6 @@ def test_loggable_info_has_shared_fields():
     # on disk-volume buckets after the v3 redesign.
     assert isinstance(loggable.logs, deque)
     assert len(loggable.logs) == 0
-    assert loggable.errors == []
     assert loggable.progress is None
     # Metric values, image metadata, and audio metadata are no longer
     # mirrored on the SDK — they go straight to the daemon.

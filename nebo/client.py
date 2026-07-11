@@ -166,10 +166,6 @@ def get_metrics(
     return _get(path, **conn)
 
 
-def get_errors(run_id: Optional[str] = None, **conn) -> Any:
-    return _get(f"{_run_scope(run_id)}/errors" if run_id else "/errors", **conn)
-
-
 def load_file(filepath: str, **conn) -> Any:
     return _post("/load", {"filepath": filepath}, **conn)
 

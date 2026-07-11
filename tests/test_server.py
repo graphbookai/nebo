@@ -48,7 +48,6 @@ class TestProtocol:
         assert MessageType.LOG.value == "log"
         assert MessageType.METRIC.value == "metric"
         assert MessageType.PROGRESS.value == "progress"
-        assert MessageType.ERROR.value == "error"
 
 
 class TestDaemonIngest:
@@ -93,8 +92,8 @@ class TestDaemonIngest:
         assert state.runs["r1"].loggables["b"].is_source is False
 
     @pytest.mark.asyncio
-    async def test_ingest_error(self) -> None:
-        """Daemon state should capture errors."""
+    async def test_ingest_error_event_is_ignored(self) -> None:
+        """Error reporting is removed: `error` events are silently dropped."""
         from nebo.server.daemon import DaemonState
 
         state = DaemonState()
@@ -107,4 +106,5 @@ class TestDaemonIngest:
             "loggable_id": "err_node",
             "data": {"error": "something went wrong", "type": "RuntimeError"},
         }], "r1")
-        assert len(state.runs["r1"].loggables["err_node"].errors) == 1
+        assert not hasattr(state.runs["r1"].loggables["err_node"], "errors")
+        assert state.runs["r1"].significant_events == []

@@ -34,7 +34,7 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
 DEFAULT_RAM_BUDGET_MB = 384
 BYTES_PER_POINT = 372  # measured: dict-per-point daemon entry overhead
@@ -65,7 +65,6 @@ CREATE TABLE logs (
   level TEXT, message TEXT
 );
 CREATE INDEX idx_logs ON logs(run_id, ts);
-CREATE TABLE errors (run_id TEXT, ts REAL, json TEXT);
 CREATE TABLE alerts (run_id TEXT, ts REAL, json TEXT);
 CREATE TABLE significant_events (run_id TEXT, ts REAL, type TEXT, json TEXT);
 CREATE TABLE media (
@@ -401,12 +400,6 @@ class RunCache:
                     f"UPDATE loggables SET {sets} WHERE run_id=? AND loggable_id=?",
                     [fields[c] for c in cols] + [run_id, lid],
                 )
-        elif kind == "error_row":
-            _, run_id, ts, json_str = op
-            conn.execute(
-                "INSERT INTO errors (run_id, ts, json) VALUES (?, ?, ?)",
-                (run_id, ts, json_str),
-            )
         elif kind == "alert_row":
             _, run_id, ts, json_str = op
             conn.execute(
@@ -494,9 +487,6 @@ class RunCache:
         log_count = conn.execute(
             "SELECT COUNT(*) FROM logs WHERE run_id=?", (run_id,)
         ).fetchone()[0]
-        error_count = conn.execute(
-            "SELECT COUNT(*) FROM errors WHERE run_id=?", (run_id,)
-        ).fetchone()[0]
         series = conn.execute(
             "SELECT DISTINCT loggable_id, name FROM metrics WHERE run_id=?"
             " ORDER BY loggable_id, name",
@@ -524,7 +514,6 @@ class RunCache:
             "node_count": node_count,
             "edge_count": len(edges),
             "log_count": log_count,
-            "error_count": error_count,
             "run_name": row["run_name"],
             "run_config": json.loads(row["run_config_json"]) if row["run_config_json"] else {},
             "metrics_index": metrics_index,
@@ -629,9 +618,6 @@ class RunCache:
         ).fetchall()
         return [json.loads(r["json"]) for r in rows]
 
-    def get_errors(self, run_id: str) -> list[dict]:
-        return self._json_rows("errors", run_id)
-
     def get_alerts(self, run_id: str) -> list[dict]:
         return self._json_rows("alerts", run_id)
 
@@ -698,7 +684,6 @@ class RunCache:
             "is_source": bool(row["is_source"]),
             "params": json.loads(row["params_json"]) if row["params_json"] else {},
             "recent_logs": self.get_logs(run_id, loggable_id=loggable_id, limit=20),
-            "errors": [],
             "metrics": metrics,
             "progress": json.loads(row["progress_json"]) if row["progress_json"] else None,
         }
@@ -738,9 +723,6 @@ class RunCache:
         counts = {
             "logs": conn.execute(
                 "SELECT COUNT(*) FROM logs WHERE run_id=?", (run_id,)
-            ).fetchone()[0],
-            "errors": conn.execute(
-                "SELECT COUNT(*) FROM errors WHERE run_id=?", (run_id,)
             ).fetchone()[0],
             "metric_series": conn.execute(
                 "SELECT COUNT(DISTINCT loggable_id || '/' || name) FROM metrics"

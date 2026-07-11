@@ -57,7 +57,6 @@ from nebo.client import (
     get_loggable_status,
     get_logs,
     get_metrics,
-    get_errors,
     load_file,
     _post,
 )

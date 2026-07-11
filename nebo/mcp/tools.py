@@ -85,14 +85,6 @@ async def get_metrics(
     return {"loggable_id": loggable_id, "metrics": metrics}
 
 
-async def get_errors(run_id: Optional[str] = None, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
-    """Get all exceptions/errors, with full tracebacks and node context."""
-    try:
-        return _client.get_errors(run_id=run_id, url=server_url)
-    except Exception as e:
-        return _daemon_unreachable(server_url, e)
-
-
 async def get_description(server_url: str = _DEFAULT_URL) -> dict[str, Any]:
     """Get workflow description and all node docstrings."""
     try:

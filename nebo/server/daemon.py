@@ -42,20 +42,6 @@ class LogEntry:
 
 
 @dataclass
-class ErrorEntry:
-    """An enriched error entry with full node context."""
-    timestamp: float
-    node_name: str
-    node_docstring: Optional[str]
-    exception_type: str
-    exception_message: str
-    traceback: str
-    execution_count: int
-    params: dict = field(default_factory=dict)
-    last_logs: list[str] = field(default_factory=list)
-
-
-@dataclass
 class LoggableState:
     """State for a single loggable within a run.
 
@@ -78,7 +64,6 @@ class LoggableState:
     params: dict = field(default_factory=dict)
     logs: list[dict] = field(default_factory=list)
     metrics: dict[str, list] = field(default_factory=dict)
-    errors: list[dict] = field(default_factory=list)
     images: list[dict] = field(default_factory=list)
     audio: list[dict] = field(default_factory=list)
     progress: Optional[dict] = None
@@ -98,7 +83,6 @@ class Run:
     edges: list[dict[str, str]] = field(default_factory=list)
     _edge_set: set[tuple[str, str]] = field(default_factory=set, repr=False)
     logs: list[LogEntry] = field(default_factory=list)
-    errors: list[ErrorEntry] = field(default_factory=list)
     metrics: dict[str, list] = field(default_factory=dict)
     source_hash: Optional[str] = None
     workflow_description: Optional[str] = None
@@ -179,7 +163,6 @@ class Run:
             "node_count": sum(1 for l in self.loggables.values() if l.kind == "node"),
             "edge_count": len(self.edges),
             "log_count": len(self.logs),
-            "error_count": len(self.errors),
             "run_name": self.run_name,
             "run_config": self.run_config,
             "metrics_index": metrics_index,
@@ -399,11 +382,9 @@ class DaemonState:
             for series in lg.metrics.values():
                 series["entries"] = []
             lg.logs = []
-            lg.errors = []
             lg.images = []
             lg.audio = []
         run.logs = []
-        run.errors = []
         run.resident_points = 0
         run.ram_complete = False
 
@@ -472,27 +453,6 @@ class DaemonState:
             return self.cache.get_logs(run_id, loggable_id=loggable_id, limit=limit)
         return None
 
-    def run_errors(self, run_id: str) -> Optional[list[dict]]:
-        run = self._resident(run_id)
-        if run is not None:
-            return [
-                {
-                    "timestamp": e.timestamp,
-                    "node_name": e.node_name,
-                    "node_docstring": e.node_docstring,
-                    "exception_type": e.exception_type,
-                    "exception_message": e.exception_message,
-                    "traceback": e.traceback,
-                    "execution_count": e.execution_count,
-                    "params": e.params,
-                    "last_logs": e.last_logs,
-                }
-                for e in run.errors
-            ]
-        if self.cache is not None and self.cache.has_run(run_id):
-            return self.cache.get_errors(run_id)
-        return None
-
     def run_metrics(self, run_id: str) -> Optional[dict]:
         run = self._resident(run_id)
         if run is not None:
@@ -530,7 +490,6 @@ class DaemonState:
                     }
                     for e in lg.logs[-20:]
                 ],
-                "errors": lg.errors,
                 "metrics": lg.metrics,
                 "progress": lg.progress,
             }
@@ -968,45 +927,6 @@ class DaemonState:
                 self._cache_put(("loggable_upsert", run.id, loggable_id, {
                     "progress_json": json.dumps(event.get("data", {})),
                 }))
-
-        elif etype == "error":
-            data = event.get("data", event)
-            node = run.loggables.get(loggable_id or data.get("loggable_id", ""))
-            error = ErrorEntry(
-                timestamp=data.get("timestamp", time.time()),
-                node_name=data.get("loggable_id", loggable_id or ""),
-                node_docstring=node.docstring if node else data.get("docstring"),
-                exception_type=data.get("type", ""),
-                exception_message=data.get("error", ""),
-                traceback=data.get("traceback", ""),
-                execution_count=node.exec_count if node else data.get("exec_count", 0),
-                params=node.params if node else data.get("params", {}),
-                last_logs=[l.get("message", "") for l in (node.logs[-5:] if node else [])],
-            )
-            run.errors.append(error)
-            if node:
-                node.errors.append(data)
-            sig = {
-                "type": "error",
-                "timestamp": error.timestamp,
-                "loggable_id": error.node_name,
-                "message": error.exception_message,
-            }
-            run.significant_events.append(sig)
-            run.resident_points += 1
-            self._cache_put(("error_row", run.id, error.timestamp, json.dumps({
-                "timestamp": error.timestamp,
-                "node_name": error.node_name,
-                "node_docstring": error.node_docstring,
-                "exception_type": error.exception_type,
-                "exception_message": error.exception_message,
-                "traceback": error.traceback,
-                "execution_count": error.execution_count,
-                "params": error.params,
-                "last_logs": error.last_logs,
-            })))
-            self._cache_put(("sig_event", run.id, error.timestamp, "error",
-                             json.dumps(sig)))
 
         elif etype == "alert":
             data = event.get("data", event)
@@ -1449,7 +1369,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
     _write_private = os.environ.get("NEBO_WRITE_MODE", "private").lower() == "private"
     _GATED_PREFIXES = (
         "/events", "/ingest", "/run", "/runs",
-        "/logs", "/errors", "/loggables", "/load",
+        "/logs", "/loggables", "/load",
         "/graph", "/alerts",
     )
 
@@ -1541,13 +1461,6 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
         return {"logs": logs}
 
-    @app.get("/runs/{run_id}/errors")
-    async def get_run_errors(run_id: str):
-        errors = state.run_errors(run_id)
-        if errors is None:
-            return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
-        return {"errors": errors}
-
     @app.get("/runs/{run_id}/metrics")
     async def get_run_metrics(run_id: str):
         metrics = state.run_metrics(run_id)
@@ -1630,7 +1543,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
     @app.get("/runs/{run_id}/events/wait")
     async def wait_for_event(
         run_id: str,
-        types: str = "error,run_completed",
+        types: str = "run_completed",
         timeout: float = 300,
         since: float = 0,
     ):
@@ -1811,24 +1724,6 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
             }
             for l in logs
         ]}
-
-    @app.get("/errors")
-    async def get_errors():
-        run = state.get_latest_run()
-        if not run:
-            return {"errors": []}
-        return {
-            "errors": [
-                {
-                    "timestamp": e["timestamp"],
-                    "node_name": e["node_name"],
-                    "exception_type": e["exception_type"],
-                    "exception_message": e["exception_message"],
-                    "traceback": e["traceback"],
-                }
-                for e in state.run_errors(run.id) or []
-            ]
-        }
 
     @app.get("/loggables/{loggable_id}")
     async def get_loggable(loggable_id: str):

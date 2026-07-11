@@ -47,14 +47,13 @@ class LoggableInfo:
     """Base class for any entity that the terminal renders.
 
     The SDK keeps the bare minimum the local terminal display needs
-    (recent logs, errors, progress). Metric values, image metadata,
+    (recent logs, progress). Metric values, image metadata,
     and audio metadata are no longer mirrored — those flow straight
     to the daemon, which persists them in the `.nebo` file.
     """
     loggable_id: str = ""
     kind: Literal["node", "global", "agent"] = "node"
     logs: Deque[dict] = field(default_factory=lambda: deque(maxlen=RECENT_LOGS_MAXLEN))
-    errors: list = field(default_factory=list)
     progress: Optional[dict] = None
 
 

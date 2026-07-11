@@ -18,7 +18,6 @@ class MessageType(str, Enum):
     ALERT = "alert"
     AUDIO = "audio"
     PROGRESS = "progress"
-    ERROR = "error"
     LOGGABLE_REGISTER = "loggable_register"
     EDGE = "edge"
     GRAPH_UPDATE = "graph_update"

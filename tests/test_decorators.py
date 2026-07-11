@@ -107,7 +107,8 @@ class TestFnDecorator:
 
         state = get_state()
         node = next(l for l in state.loggables.values() if isinstance(l, NodeInfo) and l.func_name == "error_func")
-        assert node.errors == []
+        # Error reporting is removed entirely — loggables carry no error state.
+        assert not hasattr(node, "errors")
 
 
 class TestDAGInference:

@@ -27,7 +27,7 @@ MCP_TOOLS = [
     },
     {
         "name": "nebo_get_loggable_status",
-        "description": "Get detailed status for a specific loggable (node or global). Includes execution count, params, docstring, recent logs, errors.",
+        "description": "Get detailed status for a specific loggable (node or global). Includes execution count, params, docstring, recent logs.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -59,16 +59,6 @@ MCP_TOOLS = [
                 "name": {"type": "string", "description": "Optional specific metric name."},
             },
             "required": ["loggable_id"],
-        },
-    },
-    {
-        "name": "nebo_get_errors",
-        "description": "Get all errors with full tracebacks, node context, and param values.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "run_id": {"type": "string", "description": "Optional run ID."},
-            },
         },
     },
     {
@@ -275,7 +265,6 @@ async def handle_tool_call(name: str, arguments: dict[str, Any], server_url: str
         "nebo_get_loggable_status": lambda a: tools.get_loggable_status(a["loggable_id"], a.get("run_id"), server_url),
         "nebo_get_logs": lambda a: tools.get_logs(a.get("loggable_id"), a.get("run_id"), a.get("limit", 100), server_url),
         "nebo_get_metrics": lambda a: tools.get_metrics(a["loggable_id"], a.get("name"), server_url),
-        "nebo_get_errors": lambda a: tools.get_errors(a.get("run_id"), server_url),
         "nebo_get_description": lambda a: tools.get_description(server_url),
         # Action
         "nebo_get_run_status": lambda a: tools.get_run_status(a["run_id"], server_url),
