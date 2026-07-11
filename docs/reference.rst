@@ -397,13 +397,6 @@ Commands
 
         $ nebo logs [--run RUN_ID] [--node NODE] [--limit N] [--port PORT]
 
-``errors``
-    View errors from runs.
-
-    .. code-block:: console
-
-        $ nebo errors [--run RUN_ID] [--port PORT]
-
 ``load``
     Load a ``.nebo`` file into the daemon for viewing and Q&A. With
     ``--url`` (or ``NEBO_URL`` env), the file is read locally and its
@@ -493,7 +486,7 @@ Observation Tools
     :param run_id: Optional run ID. Uses the latest run if omitted.
 
 ``nebo_get_loggable_status``
-    Get detailed status for a specific loggable (node or global): execution count, params, docstring, recent logs, errors, and progress.
+    Get detailed status for a specific loggable (node or global): execution count, params, docstring, recent logs, and progress.
 
     :param loggable_id: The loggable ID (required).
     :param run_id: Optional run ID.
@@ -510,9 +503,6 @@ Observation Tools
 
     :param loggable_id: The loggable ID (required).
     :param name: Optional specific metric name.
-
-``nebo_get_errors``
-    Get all errors with full tracebacks, node context, and parameter values.
 
     :param run_id: Optional run ID.
 
@@ -698,6 +688,6 @@ Nebo persists runs as append-only binary files using MessagePack.
       size: u32 big-endian (payload size in bytes)
       payload: msgpack map (entry-specific data)
 
-Entry types: log (0), metric (1), image (2), audio (3), node_register (4), edge (5), error (6), ui_config (8), text (9), progress (10), config (11), description (12), node_executed (13), run_start (15), run_completed (16), run_config (18), loggable_register (19). Codes 7, 14, and 17 are reserved (formerly ask, ask_response, pause_state — removed).
+Entry types: log (0), metric (1), image (2), audio (3), node_register (4), edge (5), ui_config (8), text (9), progress (10), config (11), description (12), node_executed (13), run_start (15), run_completed (16), run_config (18), loggable_register (19). Codes 6, 7, 14, and 17 are reserved (formerly error, ask, ask_response, pause_state — removed).
 
 Media assets (images, audio) are embedded as raw bytes inside the msgpack payload, avoiding base64 overhead.

@@ -1,6 +1,6 @@
 ---
 name: nebo-runs-qa
-description: Use when the user asks questions about nebo runs — logs, metrics, errors, DAG structure, comparisons across runs — or wants you to compute and display a derived metric (line, bar, pie, scatter, histogram) in the nebo web UI. Talks to the daemon via the `nebo` CLI (no MCP configuration required). The daemon must be running (`nebo serve`).
+description: Use when the user asks questions about nebo runs — logs, metrics, DAG structure, comparisons across runs — or wants you to compute and display a derived metric (line, bar, pie, scatter, histogram) in the nebo web UI. Talks to the daemon via the `nebo` CLI (no MCP configuration required). The daemon must be running (`nebo serve`).
 ---
 
 # Nebo Q&A and derived metrics (CLI)
@@ -63,7 +63,6 @@ rely on the human-formatted columns.
 | Inspect the DAG | `nebo graph show --run <R> --json` |
 | What did node N do? | `nebo loggables show <N> --run <R> --json` |
 | Get logs for node N | `nebo logs --run <R> --node <N> --json` |
-| Get errors | `nebo errors --run <R> --json` |
 | List available metrics | `nebo metrics list --run <R> --json` |
 | Read one metric's series | `nebo metrics get <loggable> --name <M> --values-only --run <R> --json` |
 | Read all of a loggable's metrics | `nebo metrics get <loggable> --run <R> --json` |
@@ -261,7 +260,6 @@ are available without spawning subprocesses. Both transports are parallel
 | `nebo graph show` | `nebo_get_graph` |
 | `nebo loggables show <id>` | `nebo_get_loggable_status` |
 | `nebo logs` | `nebo_get_logs` |
-| `nebo errors` | `nebo_get_errors` |
 | `nebo metrics get` | `nebo_get_metrics` |
 | `nebo metrics log` | `nebo_log_metric` |
 | `nebo alerts ls` | `nebo_list_alerts` |

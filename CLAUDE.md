@@ -27,7 +27,7 @@ uv run python examples/basic_pipeline.py   # run a pipeline (SDK auto-connects t
 ```bash
 cd ui
 npm install
-npm run dev      # Vite dev server, proxies /health /events /runs /graph /logs /errors /nodes /stream → localhost:7861
+npm run dev      # Vite dev server, proxies /health /events /runs /graph /logs /nodes /stream → localhost:7861
 npm run build    # tsc -b && vite build
 npm run lint     # eslint
 ```
@@ -275,12 +275,12 @@ Smoothed values are rendered, not persisted: raw entries in the store remain unt
 - `nebo/logging/` — user-facing `log`/`log_line`/`log_bar`/`log_pie`/`log_scatter`/`log_histogram`/`log_image`/`log_audio`/`md`, plus the serializer/queue that batches events to the daemon.
 - `nebo/labels.py` — public dataclasses (`Points`, `Boxes`, `Circles`, `Polygons`, `Bitmasks`) for `nb.log_image` overlays. Re-exported as `nb.labels`.
 - `nebo/server/` — `daemon.py` (FastAPI app, created via `create_daemon_app` factory), `cache.py` (`RunCache` write-behind SQLite cache, `MediaLRU`, `media_id_for`, cache-path/sweep helpers), `watcher.py` (directory watcher with persisted offsets), `runner.py` (vestigial subprocess manager; the agent surface no longer launches pipelines, but the daemon's `POST /run` route still uses it), `protocol.py` (`MessageType` enum + `decode_batch`).
-- `nebo/mcp/` — MCP tools (`tools.py`) and stdio/server entry points. Split into observation (graph, logs, metrics, errors, description, run summary/history), alerts (`wait_for_alert`, `list_alerts`, `set_alert`, `delete_alert`), utility (`load_file`), and write (`log_metric/text/image/audio`). Run lifecycle is NOT exposed — pipelines start/stop via the user's shell.
+- `nebo/mcp/` — MCP tools (`tools.py`) and stdio/server entry points. Split into observation (graph, logs, metrics, description, run summary/history), alerts (`wait_for_alert`, `list_alerts`, `set_alert`, `delete_alert`), utility (`load_file`), and write (`log_metric/text/image/audio`). Run lifecycle is NOT exposed — pipelines start/stop via the user's shell.
 - `nebo/client.py` — single HTTP client shared by `nebo/mcp/tools.py` and `nebo/cli.py`. Owns all daemon-bound `urllib` traffic; resolves `--url`/`--port`/`--api-token` from kwargs → `NEBO_URL`/`NEBO_PORT`/`NEBO_API_TOKEN` → defaults.
 - `nebo/core/transport.py` — `Transport` Protocol shared by the two SDK transports. `FileTransport` (this module) writes append-only `.nebo` files in file mode; `NetworkTransport` (in `nebo/core/client.py`) POSTs events to a daemon in network mode.
 - `nebo/cli.py` — subcommands split into two groups:
   - **Server/admin:** `serve`, `cache ls|clear`, `status`, `stop`, `mcp`, `mcp-stdio`, `skill`, `deploy`. PID file at `~/.nebo/server.pid`.
-  - **Agent-callable Q&A:** `runs list|show|wait`, `graph show`, `loggables show`, `describe`, `logs`, `errors`, `metrics list|get|log`, `alerts ls|get|set|rm`, `text|images|audio log`, `load`. Each takes `--url`/`--port`/`--api-token`/`--json` via the shared `_common_conn_parser()` and routes through `nebo/client.py`. `metrics get` supports `--values-only` (emit just the entries array; requires `--name`) and `--runs R1,R2` (client-side cross-run fan-out).
+  - **Agent-callable Q&A:** `runs list|show|wait`, `graph show`, `loggables show`, `describe`, `logs`, `metrics list|get|log`, `alerts ls|get|set|rm`, `text|images|audio log`, `load`. Each takes `--url`/`--port`/`--api-token`/`--json` via the shared `_common_conn_parser()` and routes through `nebo/client.py`. `metrics get` supports `--values-only` (emit just the entries array; requires `--name`) and `--runs R1,R2` (client-side cross-run fan-out).
 - `nebo/extras/cv/` — optional computer-vision helpers. `nebo/extensions/` — extension hook point.
 
 ### Web UI (`ui/`)
@@ -298,7 +298,7 @@ Plain `pytest` + `pytest-asyncio`. Tests are self-contained and exercise the pub
 - **Auto-init is load-bearing.** Any new public SDK function that touches state must call `_ensure_init()` before reading/writing it (see `ui()` and `start_run()` for examples). Breaking this makes nebo require an explicit `nb.init()`, which it is explicitly designed not to need.
 - **Run lifecycle flows through events.** The daemon only opens a `.nebo` writer after receiving a `run_start` event — so any code path that connects a client in network mode must also emit `run_start` (see the comment block in `init()` around `script_name`).
 - **No run states.** There is no `status` (running/crashed/completed) anywhere — a logging SDK can't keep it in sync. Liveness is derived from facts: `started_at` set and `ended_at` unset. `run_completed` is only a lifecycle marker (sets `ended_at`, finalizes the `.nebo` writer) and carries no exit-code semantics. Don't reintroduce derived state fields.
-- **No automatic exception capture.** `@nb.fn()` lets exceptions propagate untouched — no error event, no excepthook. The `error` event type and read paths (`/errors`, `nebo errors`, UI panel) remain for externally written events and old files, but nothing in the SDK emits them automatically.
+- **No error reporting, period.** `@nb.fn()` lets exceptions propagate untouched — no error event, no excepthook. There is no `error` event type anywhere: incoming `error` wire events are silently ignored by the daemon, entry code 6 is retired in the file format, and there are no error read paths (no `/errors`, no `nebo errors`, no UI error panel). Don't reintroduce any of it.
 - **`MessageType` is the source of truth for protocol events.** Add new event kinds to `nebo/server/protocol.py` and handle them in the daemon, not ad-hoc strings.
 - **The Global loggable is always present.** `SessionState.loggables["__global__"]` is seeded on init/reset/clear. `nb.log*` calls outside any `@nb.fn()` context route there. Any code that iterates loggables and assumes node-only fields (`func_name`, `exec_count`, etc.) must filter by `isinstance(l, NodeInfo)` or `kind == "node"`.
 - **`@nb.fn(ui={})` keys.** Production code reads `color` and `default_tab`. `default_tab` values are `"info"` / `"logs"` / `"metrics"` / `"images"` / `"audio"` (no `"ask"` — that tab was removed along with `nb.ask`). Unknown keys are forwarded to the UI verbatim so adding a new hint requires only a UI consumer, no SDK change.

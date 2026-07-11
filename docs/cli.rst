@@ -125,8 +125,8 @@ WebSocket.
 
 .. option:: --ram-budget <mb>
 
-    RAM budget for resident run data — metric points, log lines, and
-    error entries across all runs (default: ``384``). Beyond it, idle
+    RAM budget for resident run data — metric points and log lines
+    across all runs (default: ``384``). Beyond it, idle
     completed runs are evicted from RAM and oversized live runs are
     served from the cache instead.
 
@@ -384,19 +384,6 @@ nebo logs
 .. option:: --limit <n>
 
     Maximum entries to return (default: ``100``).
-
-nebo errors
-===========
-
-.. program:: nebo errors
-
-List error entries for a run. Note that ``@nb.fn()`` never captures
-exceptions automatically — error entries only exist when written
-explicitly over the wire or loaded from older files.
-
-.. option:: --run <run_id>
-
-    Run ID (latest if omitted).
 
 nebo metrics (read)
 ===================

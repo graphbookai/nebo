@@ -313,10 +313,9 @@ When the nebo daemon is running (`nebo serve`), 15 MCP tools are available for q
 | Tool | Parameters | Returns |
 |------|------------|---------|
 | `nebo_get_graph` | `run_id?` | Full DAG: nodes (name, docstring, exec_count, progress, group, ui_hints), edges, workflow description |
-| `nebo_get_loggable_status` | `loggable_id`, `run_id?` | Single loggable detail (node or global): logs (last 20), metrics, errors, params, progress |
+| `nebo_get_loggable_status` | `loggable_id`, `run_id?` | Single loggable detail (node or global): logs (last 20), metrics, params, progress |
 | `nebo_get_logs` | `loggable_id?`, `run_id?`, `limit?` (default 100) | Recent log entries filtered by loggable_id |
 | `nebo_get_metrics` | `loggable_id`, `name?` | Metric time series: `{metric_name: [(step, value), ...]}` |
-| `nebo_get_errors` | `run_id?` | All errors with full tracebacks, node context, params |
 | `nebo_get_description` | — | Workflow description + all node docstrings |
 | `nebo_get_run_status` | `run_id` | Run status: running/completed/crashed/stopped, exit code, duration |
 | `nebo_get_run_history` | — | All runs with outcomes, timestamps, error counts |
@@ -334,7 +333,6 @@ When the nebo daemon is running (`nebo serve`), 15 MCP tools are available for q
 1. The user launches the script themselves: `uv run python my_script.py`. The SDK prints `Your run id is: <id>.` on connect.
 2. **Watch:** `nebo_wait_for_alert` to block until `nb.alert(...)` fires (or use the equivalent CLI: `nebo runs wait <id>`).
 3. **Inspect:** `nebo_get_graph` for DAG overview, `nebo_get_logs` / `nebo_get_metrics` for detail.
-4. **Debug:** `nebo_get_errors` for tracebacks with full node context.
 5. **Iterate:** Edit the source file directly with your normal file tools, then re-run from the shell.
 
 ## Common Mistakes

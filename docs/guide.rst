@@ -575,7 +575,7 @@ up MCP:
 The tools fall into three buckets:
 
 - **Observation** — ``nebo_get_graph``, ``nebo_get_loggable_status``,
-  ``nebo_get_logs``, ``nebo_get_metrics``, ``nebo_get_errors``,
+  ``nebo_get_logs``, ``nebo_get_metrics``,
   ``nebo_get_description``, ``nebo_get_run_status``,
   ``nebo_get_run_history``.
 - **Alerts & utility** — ``nebo_wait_for_alert``, ``nebo_list_alerts``,

@@ -1,6 +1,6 @@
 # Nebo
 
-A modern logging SDK for multi-modal data. Decorate your functions with `@nb.fn()`, and nebo automatically infers a DAG from your call graph, captures logs, metrics, images, audio, text, and errors -- all written to append-only `.nebo` files locally (tensorboard-style) and queryable in real time via CLI, MCP tools, or a web dashboard.
+A modern logging SDK for multi-modal data. Decorate your functions with `@nb.fn()`, and nebo automatically infers a DAG from your call graph, captures logs, metrics, images, audio, and text -- all written to append-only `.nebo` files locally (tensorboard-style) and queryable in real time via CLI, MCP tools, or a web dashboard.
 
 ## Installation
 
@@ -242,13 +242,12 @@ pipeline from the shell (Ctrl+C, `kill`, `pkill`).
 nebo load .nebo/2026-04-06_143000_run-1.nebo
 ```
 
-### Check status, logs, errors
+### Check status and logs
 
 ```bash
 nebo status
 nebo logs
 nebo logs --run experiment-1 --node train --limit 50
-nebo errors
 nebo errors --run experiment-1
 ```
 

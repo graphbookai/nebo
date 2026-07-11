@@ -103,7 +103,7 @@ Nebo also supports function-level logging which allows you to decorate functions
         loading="lazy">
     </iframe>
 
-Logs, metrics, images, audio, text, and errors are captured and surfaced through a web UI, an MCP server, and a nebo CLI that comes with agent skills.
+Logs, metrics, images, audio, and text are captured and surfaced through a web UI, an MCP server, and a nebo CLI that comes with agent skills.
 The UI is mobile-first supporting live viewing of metrics while you walk away from your desk.
 
 Features
