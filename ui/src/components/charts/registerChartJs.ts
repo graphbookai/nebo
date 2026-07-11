@@ -12,6 +12,7 @@ import {
   CategoryScale,
   Tooltip,
   Filler,
+  Decimation,
 } from 'chart.js'
 import zoomPlugin from 'chartjs-plugin-zoom'
 import { customPointShapesPlugin } from './customPointShapes'
@@ -35,6 +36,7 @@ export function registerChartJs(): void {
     CategoryScale,
     Tooltip,
     Filler,
+    Decimation,
     zoomPlugin,
     customPointShapesPlugin,
   )

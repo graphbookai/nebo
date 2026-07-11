@@ -20,6 +20,18 @@ import { useChartDpr } from './ChartDprContext'
 
 const MUTED_COLOR = 'rgba(156, 163, 175, 0.45)' // tailwind text-muted-foreground feel
 
+// Entries append in step order in the normal case; only fall back to a
+// full sort when a linear scan finds an out-of-order step (explicit
+// user-supplied steps can go backwards).
+function sortedByStep(entries: MetricEntry[]): MetricEntry[] {
+  for (let i = 1; i < entries.length; i++) {
+    if ((entries[i].step ?? 0) < (entries[i - 1].step ?? 0)) {
+      return [...entries].sort((a, b) => (a.step ?? 0) - (b.step ?? 0))
+    }
+  }
+  return entries
+}
+
 function toLinePoints(entries: MetricEntry[]): XYPoint[] {
   const points: XYPoint[] = []
   for (let i = 0; i < entries.length; i++) {
@@ -154,7 +166,7 @@ export const LineMetric = memo(function LineMetric({
   // transitions — without this we previously split into one dataset per
   // tag, which left a visible gap whenever the tag changed mid-series.
   const { datasets, tagsByStep } = useMemo(() => {
-    const sorted = [...entries].sort((a, b) => (a.step ?? 0) - (b.step ?? 0))
+    const sorted = sortedByStep(entries)
     const tagsByStep = new Map<number, string[]>()
     for (let i = 0; i < sorted.length; i++) {
       const e = sorted[i]
@@ -221,6 +233,16 @@ export const LineMetric = memo(function LineMetric({
         value: isFiltering ? timelineStep : null,
         color,
       },
+      // LTTB decimation keeps charts responsive on long runs: beyond
+      // `threshold` points, only ~`samples` visually-representative real
+      // points are handed to the renderer (re-decimated on zoom).
+      // Requires parsing:false + sorted {x,y} data — both hold here.
+      decimation: {
+        enabled: true,
+        algorithm: 'lttb' as const,
+        samples: 500,
+        threshold: 1000,
+      },
       zoom: buildZoomOptions('x'),
     } as unknown as ChartConfiguration<'line'>['options'] extends { plugins?: infer P }
       ? P
@@ -230,6 +252,8 @@ export const LineMetric = memo(function LineMetric({
       data: { datasets },
       options: {
         animation: false,
+        parsing: false,
+        normalized: true,
         responsive: true,
         maintainAspectRatio: false,
         onClick: handleClick,

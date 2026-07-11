@@ -108,6 +108,14 @@ export const ComparisonLine = memo(function ComparisonLine({
           raw.push({ x: step, y: v })
           stepIndex.set(step, v)
         }
+        // Decimation (and sane rendering) needs x ascending; entries
+        // arrive in step order except for explicit backwards steps.
+        for (let i = 1; i < raw.length; i++) {
+          if (raw[i].x < raw[i - 1].x) {
+            raw.sort((a, b) => a.x - b.x)
+            break
+          }
+        }
         const data = smoothLinePoints(raw, lineSmoothing)
         return {
           label: rid,
@@ -134,6 +142,12 @@ export const ComparisonLine = memo(function ComparisonLine({
       const pluginOpts = {
         legend: { display: false },
         activeStepLine: { value: isFiltering ? timelineStep : null },
+        decimation: {
+          enabled: true,
+          algorithm: 'lttb' as const,
+          samples: 500,
+          threshold: 1000,
+        },
         zoom: buildZoomOptions('x'),
       } as unknown as ChartConfiguration<'line'>['options'] extends { plugins?: infer P }
         ? P
@@ -143,6 +157,8 @@ export const ComparisonLine = memo(function ComparisonLine({
         data: { datasets },
         options: {
           animation: false,
+          parsing: false,
+          normalized: true,
           responsive: true,
           maintainAspectRatio: false,
           scales: {
