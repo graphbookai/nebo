@@ -33,7 +33,6 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
 
   // Granular selectors — only re-render when THIS node's data changes, not on every log/metric append
   const nodeInfo = useStore(s => s.runs.get(runId)?.graph?.nodes[nodeId] ?? null)
-  const hasErrors = useStore(s => (s.runs.get(runId)?.errors ?? []).some(e => e.node_name === nodeId))
   // "Live" derives from timestamps: started but no run_completed yet.
   const runIsLive = useStore(s => {
     const summary = s.runs.get(runId)?.summary
@@ -67,9 +66,7 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
   const isRunning = runIsLive && nodeInfo.exec_count > 0
   const progress = nodeInfo.progress
 
-  const borderColor = hasErrors
-    ? 'border-red-500'
-    : isRunning
+  const borderColor = isRunning
     ? 'border-blue-500'
     : !inDag
     ? 'border-dashed border-muted-foreground/40'
@@ -77,11 +74,11 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
 
   // Per-node ui_hints (from @nb.fn(ui=...)) — currently we honor `color`
   // as an explicit border color override so the hint has a visible effect
-  // in the graph. Status colors (errors/running) still win because they
+  // in the graph. Status colors (running) still win because they
   // are derived from live run state.
   const uiHints = (nodeInfo.ui_hints ?? null) as { color?: string; collapsed?: boolean } | null
   const hintColor = uiHints?.color
-  const hasStatusColor = hasErrors || isRunning
+  const hasStatusColor = isRunning
   // Collapsed = explicit user toggle if present, otherwise the SDK's
   // ui_hints.collapsed seed.
   const isCollapsed = collapseOverride ?? uiHints?.collapsed === true
@@ -119,8 +116,7 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
         // resizing look laggy.
         'bg-card rounded-lg border-2 shadow-sm transition-colors transition-shadow flex flex-col',
         borderColor,
-        hasErrors && 'animate-shake',
-        isRunning && !hasErrors && 'shadow-blue-500/20',
+        isRunning && 'shadow-blue-500/20',
       )}
       style={nodeStyle}
       {...contextMenu.handlers}

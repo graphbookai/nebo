@@ -73,7 +73,7 @@ function mergeMetrics(
 }
 
 function fetchSingleRun(runId: string, store: ReturnType<typeof useStore.getState>) {
-  const { setRunGraph, setRunLogs, setRunErrors, setRunMetrics, setRunImages, setRunAudio } = store
+  const { setRunGraph, setRunLogs, setRunMetrics, setRunImages, setRunAudio } = store
   // Read the *current* live slice inside each `.then()` (not from the captured
   // `store` snapshot) so WS entries that landed during the fetch are merged in.
   const current = () => useStore.getState().runs.get(runId)
@@ -96,7 +96,6 @@ function fetchSingleRun(runId: string, store: ReturnType<typeof useStore.getStat
       })
       setRunLogs(runId, mergeLogs(normalized, current()?.logs ?? []))
     }),
-    api.getRunErrors(runId).then(d => setRunErrors(runId, d.errors)),
     api.getRunMetrics(runId).then(d => setRunMetrics(runId, mergeMetrics(d.metrics, current()?.loggableMetrics ?? {}))),
     api.getRunImages(runId).then(d => {
       const mapped: Record<string, ImageEntry[]> = {}

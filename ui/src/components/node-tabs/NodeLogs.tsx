@@ -95,10 +95,7 @@ interface ComparisonLogCellProps {
 
 function ComparisonLogCell({ runId, loggableId, search, levelFilter, fillParent }: ComparisonLogCellProps) {
   const logs = useStore(s => s.runs.get(runId)?.logs ?? [])
-  const errors = useStore(s => s.runs.get(runId)?.errors ?? [])
   const timelineFilter = useTimelineFilter()
-
-  const nodeErrors = useMemo(() => errors.filter(e => e.node_name === loggableId), [errors, loggableId])
 
   const nodeLogs = useMemo(() => {
     let filtered = logs.filter(l => l.node === loggableId)
@@ -116,7 +113,7 @@ function ComparisonLogCell({ runId, loggableId, search, levelFilter, fillParent 
     return filtered
   }, [logs, loggableId, levelFilter, search, timelineFilter])
 
-  if (nodeLogs.length === 0 && nodeErrors.length === 0) {
+  if (nodeLogs.length === 0) {
     return <p className="text-xs text-muted-foreground p-2">No logs</p>
   }
 
@@ -141,18 +138,6 @@ function ComparisonLogCell({ runId, loggableId, search, levelFilter, fillParent 
           <span>{log.message}</span>
         </div>
       ))}
-      {nodeErrors.map((err, i) => (
-        <div key={`err-${i}`} className="text-xs bg-red-500/10 rounded p-2 mt-1">
-          <div className="font-medium text-red-400">
-            {err.exception_type}: {err.exception_message}
-          </div>
-          {err.traceback && (
-            <pre className="mt-1 text-[10px] text-red-300/70 overflow-auto whitespace-pre-wrap">
-              {err.traceback}
-            </pre>
-          )}
-        </div>
-      ))}
     </div>
   )
 }
@@ -169,13 +154,10 @@ interface SingleRunLogsProps {
 
 function SingleRunLogs({ runId, loggableId, search, setSearch, levelFilter, setLevelFilter, fillParent }: SingleRunLogsProps) {
   const logs = useStore(s => s.runs.get(runId)?.logs ?? [])
-  const errors = useStore(s => s.runs.get(runId)?.errors ?? [])
   const exportLimit = useStore(s => s.exportEntryLimit)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [autoScroll, setAutoScroll] = useState(true)
   const timelineFilter = useTimelineFilter()
-
-  const nodeErrors = useMemo(() => errors.filter(e => e.node_name === loggableId), [errors, loggableId])
 
   const nodeLogs = useMemo(() => {
     let filtered = logs.filter(l => l.node === loggableId)
@@ -196,14 +178,13 @@ function SingleRunLogs({ runId, loggableId, search, setSearch, levelFilter, setL
 
   const allNodeLogs = useMemo(() => logs.filter(l => l.node === loggableId), [logs, loggableId])
 
-  if (allNodeLogs.length === 0 && nodeErrors.length === 0) {
+  if (allNodeLogs.length === 0) {
     return <p className="text-xs text-muted-foreground">No logs for this node</p>
   }
 
   return (
     <NodeLogsInner
       nodeLogs={nodeLogs}
-      nodeErrors={nodeErrors}
       search={search}
       setSearch={setSearch}
       levelFilter={levelFilter}
@@ -218,7 +199,6 @@ function SingleRunLogs({ runId, loggableId, search, setSearch, levelFilter, setL
 
 interface NodeLogsInnerProps {
   nodeLogs: { timestamp: number; node: string | null; message: string; level: string }[]
-  nodeErrors: { exception_type: string; exception_message: string; traceback: string }[]
   search: string
   setSearch: (v: string) => void
   levelFilter: string
@@ -231,7 +211,6 @@ interface NodeLogsInnerProps {
 
 function NodeLogsInner({
   nodeLogs,
-  nodeErrors,
   search,
   setSearch,
   levelFilter,
@@ -334,19 +313,6 @@ function NodeLogsInner({
           })}
         </div>
 
-        {/* Error tracebacks (outside virtualizer — typically few, variable height) */}
-        {nodeErrors.map((err, i) => (
-          <div key={`err-${i}`} className="text-xs bg-red-500/10 rounded p-2 mt-1">
-            <div className="font-medium text-red-400">
-              {err.exception_type}: {err.exception_message}
-            </div>
-            {err.traceback && (
-              <pre className="mt-1 text-[10px] text-red-300/70 overflow-auto whitespace-pre-wrap">
-                {err.traceback}
-              </pre>
-            )}
-          </div>
-        ))}
       </div>
 
       {/* Jump to latest */}

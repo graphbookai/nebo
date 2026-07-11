@@ -17,7 +17,6 @@ export default defineConfig({
       '/runs': 'http://localhost:7861',
       '/graph': 'http://localhost:7861',
       '/logs': 'http://localhost:7861',
-      '/errors': 'http://localhost:7861',
       '/nodes': 'http://localhost:7861',
       '/stream': {
         target: 'http://localhost:7861',

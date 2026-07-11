@@ -52,15 +52,11 @@ export function LoggableTabContainer({ runId, loggableId, fillParent = false }: 
       return comparisonRunIds.some(rid => {
         const r = runs.get(rid)
         if (!r) return false
-        const logsHit = r.logs?.some(l => l.node === loggableId) ?? false
-        const errHit = r.errors?.some(e => e.node_name === loggableId) ?? false
-        return logsHit || errHit
+        return r.logs?.some(l => l.node === loggableId) ?? false
       })
     }
     if (!run) return false
-    const logsHit = run.logs?.some(l => l.node === loggableId) ?? false
-    const errHit = run.errors?.some(e => e.node_name === loggableId) ?? false
-    return logsHit || errHit
+    return run.logs?.some(l => l.node === loggableId) ?? false
   }, [isComparison, comparisonRunIds, runs, run, loggableId])
 
   const hasMetrics = useMemo(() => {

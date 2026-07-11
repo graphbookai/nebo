@@ -32,7 +32,6 @@ export interface RunSummary {
   node_count: number
   edge_count: number
   log_count: number
-  error_count: number
   run_name: string | null
   run_config?: Record<string, unknown>
   metric_series_count?: number
@@ -73,18 +72,6 @@ export interface LogEntry {
   message: string
   level: string
   step: number | null
-}
-
-export interface ErrorEntry {
-  timestamp: number
-  node_name: string
-  node_docstring: string | null
-  exception_type: string
-  exception_message: string
-  traceback: string
-  execution_count: number
-  params: Record<string, unknown>
-  last_logs: string[]
 }
 
 export interface BitmaskEntry {
@@ -138,7 +125,6 @@ export interface NodeDetail {
   is_source: boolean
   params: Record<string, unknown>
   recent_logs: unknown[]
-  errors: unknown[]
   metrics: Record<string, LoggableMetricSeries>
   progress: { current: number; total: number; name?: string } | null
 }
@@ -175,7 +161,6 @@ export const api = {
     const qs = params.toString()
     return get<{ logs: LogEntry[] }>(`/runs/${id}/logs${qs ? `?${qs}` : ''}`)
   },
-  getRunErrors: (id: string) => get<{ errors: ErrorEntry[] }>(`/runs/${id}/errors`),
   getRunMetrics: (id: string) => get<{ metrics: Record<string, Record<string, LoggableMetricSeries>> }>(`/runs/${id}/metrics`),
   getRunImages: (id: string) => get<{ images: Record<string, Array<{ node: string; media_id: string; name: string; step: number | null; timestamp: number; labels?: LabelsPayload | null }>> }>(`/runs/${id}/images`),
   getRunAudio: (id: string) => get<{ audio: Record<string, Array<{ node: string; media_id: string; name: string; sr: number; step: number | null; timestamp: number }>> }>(`/runs/${id}/audio`),

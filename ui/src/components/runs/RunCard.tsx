@@ -69,10 +69,6 @@ export function RunCard({ run, selected, onClick }: RunCardProps) {
       })
     : null
 
-  const errorInfo = run.error_count > 0
-    ? `${run.error_count} error${run.error_count > 1 ? 's' : ''}`
-    : null
-
   return (
     <RunHoverInfo runId={run.id} side="right">
       {/* div with button semantics instead of <button>: the card body can
@@ -124,9 +120,6 @@ export function RunCard({ run, selected, onClick }: RunCardProps) {
               </div>
             )}
             {startedAt && <div className="text-xs text-muted-foreground mt-0.5">{startedAt}</div>}
-            {errorInfo && (
-              <div className="mt-2 text-xs text-red-500">{errorInfo}</div>
-            )}
           </div>
         </div>
         {isSelectedForCompare && (

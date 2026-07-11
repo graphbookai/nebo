@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { RunSummary, GraphData, LogEntry, ErrorEntry, LabelsPayload, MetricType, MetricEntry, LoggableMetricSeries } from '@/lib/api'
+import type { RunSummary, GraphData, LogEntry, LabelsPayload, MetricType, MetricEntry, LoggableMetricSeries } from '@/lib/api'
 import type { WsEvent } from '@/lib/ws'
 import { assignColor } from '@/lib/colors'
 
@@ -139,7 +139,6 @@ export interface RunState {
   summary: RunSummary
   graph: GraphData | null
   logs: LogEntry[]
-  errors: ErrorEntry[]
   loggableMetrics: Record<string, Record<string, LoggableMetricSeries>>
   loggableImages: Record<string, ImageEntry[]>
   loggableAudio: Record<string, AudioEntry[]>
@@ -243,8 +242,6 @@ interface NeboStore {
   setRunGraph: (runId: string, graph: GraphData) => void
   setRunLogs: (runId: string, logs: LogEntry[]) => void
   appendRunLog: (runId: string, log: LogEntry) => void
-  setRunErrors: (runId: string, errors: ErrorEntry[]) => void
-  appendRunError: (runId: string, error: ErrorEntry) => void
   setRunMetrics: (runId: string, metrics: Record<string, Record<string, LoggableMetricSeries>>) => void
   setRunImages: (runId: string, images: Record<string, ImageEntry[]>) => void
   setRunAudio: (runId: string, audio: Record<string, AudioEntry[]>) => void
@@ -444,7 +441,6 @@ export const useStore = create<NeboStore>((set, get) => ({
           summary: s,
           graph: null,
           logs: [],
-          errors: [],
           loggableMetrics: {},
           loggableImages: {},
           loggableAudio: {},
@@ -537,20 +533,6 @@ export const useStore = create<NeboStore>((set, get) => ({
     const runs = new Map(state.runs)
     const run = runs.get(runId)
     if (run) run.logs = [...run.logs, log]
-    return { runs }
-  }),
-
-  setRunErrors: (runId, errors) => set(state => {
-    const runs = new Map(state.runs)
-    const run = runs.get(runId)
-    if (run) run.errors = errors
-    return { runs }
-  }),
-
-  appendRunError: (runId, error) => set(state => {
-    const runs = new Map(state.runs)
-    const run = runs.get(runId)
-    if (run) run.errors = [...run.errors, error]
     return { runs }
   }),
 
@@ -720,12 +702,10 @@ export const useStore = create<NeboStore>((set, get) => ({
             node_count: 0,
             edge_count: 0,
             log_count: 0,
-            error_count: 0,
             run_name: null,
           },
           graph: null,
           logs: [],
-          errors: [],
           loggableMetrics: {},
           loggableImages: {},
           loggableAudio: {},
@@ -737,9 +717,8 @@ export const useStore = create<NeboStore>((set, get) => ({
       run = { ...run } as RunState
       runs.set(runId, run)
 
-      // Accumulate new logs/errors so we can spread once at the end
+      // Accumulate new logs so we can spread once at the end
       const newLogs: LogEntry[] = []
-      const newErrors: ErrorEntry[] = []
 
       for (const event of events) {
         const etype = event.type
@@ -841,20 +820,6 @@ export const useStore = create<NeboStore>((set, get) => ({
                 progress: data as { current: number; total: number; name?: string },
               }
             }
-            break
-
-          case 'error':
-            newErrors.push({
-              timestamp: (data.timestamp as number) ?? Date.now() / 1000,
-              node_name: (data.loggable_id as string) ?? loggableId ?? '',
-              node_docstring: (data.docstring as string) ?? null,
-              exception_type: (data.type as string) ?? '',
-              exception_message: (data.error as string) ?? '',
-              traceback: (data.traceback as string) ?? '',
-              execution_count: (data.exec_count as number) ?? 0,
-              params: (data.params as Record<string, unknown>) ?? {},
-              last_logs: (data.last_logs as string[]) ?? [],
-            })
             break
 
           case 'loggable_register': {
@@ -1025,12 +990,9 @@ export const useStore = create<NeboStore>((set, get) => ({
         }
       }
 
-      // Batch-append accumulated logs and errors
+      // Batch-append accumulated logs
       if (newLogs.length > 0) {
         run.logs = [...run.logs, ...newLogs]
-      }
-      if (newErrors.length > 0) {
-        run.errors = [...run.errors, ...newErrors]
       }
 
       return { runs }
