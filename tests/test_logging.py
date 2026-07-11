@@ -236,17 +236,21 @@ class TestImageSerializer:
         images = capturing_client.by_type("image")
         assert len(images) == 1
         assert images[0]["name"] == "x"
-        # v4: media rides in-process (and on disk) as raw bytes; base64
-        # only happens at the JSON wire boundary in NetworkTransport.
-        assert isinstance(images[0]["data"], bytes)
-        assert images[0]["data"].startswith(b"\x89PNG")
+        # The caller thread only validates + copies; PNG bytes are encoded
+        # by the transport flush thread (resolve_media). The wire event
+        # carries a PendingMedia until then.
+        from nebo.logging.serializers import PendingMedia
+
+        assert isinstance(images[0]["data"], PendingMedia)
+        assert images[0]["data"].encode().startswith(b"\x89PNG")
         # The SDK no longer keeps an ``images`` list.
         node = _node_by_func_name("f")
         assert not hasattr(node, "images")
 
-    def test_log_audio_emits_raw_bytes(self, capturing_client) -> None:
+    def test_log_audio_emits_pending_media(self, capturing_client) -> None:
         import numpy as np
         from nebo.logging.logger import log_audio
+        from nebo.logging.serializers import PendingMedia
 
         @fn()
         def f():
@@ -254,8 +258,8 @@ class TestImageSerializer:
 
         f()
         (audio,) = capturing_client.by_type("audio")
-        assert isinstance(audio["data"], bytes)
-        assert audio["data"][:4] == b"RIFF"
+        assert isinstance(audio["data"], PendingMedia)
+        assert audio["data"].encode()[:4] == b"RIFF"
 
 
 def test_log_outside_fn_routes_to_global():

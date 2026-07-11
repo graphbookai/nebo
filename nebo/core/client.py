@@ -266,10 +266,17 @@ class NetworkTransport:
     def _prepare_batch(
         self, batch: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        """Coalesce accumulating metrics and JSON-encode media bytes."""
+        """Coalesce metrics, encode deferred media, JSON-encode bytes."""
         from nebo.core.coalesce import coalesce
+        from nebo.logging.serializers import resolve_media
 
-        return [self._jsonable(e) for e in coalesce(batch)]
+        out: list[dict[str, Any]] = []
+        for event in coalesce(batch):
+            resolved = resolve_media(event)
+            if resolved is None:
+                continue  # encoding failed; already logged
+            out.append(self._jsonable(resolved))
+        return out
 
     def _partition_serializable(
         self, batch: list[dict[str, Any]]

@@ -825,3 +825,18 @@ class TestCoalescedNetworkFlush:
         }]
         assert client.flush(timeout=1.0) is True
         assert isinstance(sent[0]["data"], str)
+
+
+def test_prepare_batch_resolves_pending_media() -> None:
+    import numpy as np
+
+    from nebo.logging.serializers import prepare_image
+
+    client = DaemonClient()
+    out = client._prepare_batch([{
+        "type": "image", "loggable_id": "a", "name": "f",
+        "data": prepare_image(np.zeros((4, 4, 3), dtype=np.uint8)),
+        "step": None, "timestamp": 1.0,
+    }])
+    assert isinstance(out[0]["data"], str)  # base64 at the JSON boundary
+    json.dumps(out)

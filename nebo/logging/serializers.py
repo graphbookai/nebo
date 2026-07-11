@@ -3,25 +3,67 @@
 from __future__ import annotations
 
 import io
-from typing import Any
+import logging
+from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 
-def serialize_image(image: Any) -> bytes:
-    """Serialize an image to PNG bytes.
+class PendingMedia:
+    """A validated, isolated copy of media input whose byte encoding is
+    deferred to the transport's background thread.
+
+    The expensive part of `nb.log_image` (PNG compression, ~300 ms for a
+    1080p frame) used to run on the caller's thread. `prepare_image` /
+    `prepare_audio` now do only the cheap parts synchronously — type
+    validation (so TypeError still raises at the call site) and a
+    defensive copy (so callers can reuse their buffers) — and `encode()`
+    runs in the transport flush loop via `resolve_media`.
+    """
+
+    __slots__ = ("kind", "_payload", "_sr", "_encoded")
+
+    def __init__(self, kind: str, payload: Any, sr: int | None = None) -> None:
+        self.kind = kind
+        self._payload = payload  # PIL.Image (image) or int16 ndarray (audio)
+        self._sr = sr
+        self._encoded: bytes | None = None
+
+    def encode(self) -> bytes:
+        """Encode to PNG/WAV bytes. Idempotent; frees the copy after."""
+        if self._encoded is None:
+            if self.kind == "image":
+                buf = io.BytesIO()
+                self._payload.save(buf, format="PNG")
+                self._encoded = buf.getvalue()
+            else:
+                self._encoded = _wav_bytes(self._payload, self._sr or 16000)
+            self._payload = None
+        return self._encoded
+
+    @property
+    def nbytes(self) -> int:
+        """Rough in-memory size, for transport buffer accounting."""
+        if self._encoded is not None:
+            return len(self._encoded)
+        payload = self._payload
+        n = getattr(payload, "nbytes", None)
+        if n is not None:
+            return int(n)
+        if hasattr(payload, "width") and hasattr(payload, "height"):
+            return payload.width * payload.height * 4
+        return 0
+
+
+def prepare_image(image: Any) -> PendingMedia:
+    """Validate + copy an image input; PNG encoding is deferred.
 
     Supports: PIL.Image, numpy array, torch tensor.
 
-    Args:
-        image: The image to serialize.
-
-    Returns:
-        PNG-encoded bytes.
-
     Raises:
-        TypeError: If *image* is not a supported type.
-        Any exception raised by the underlying conversion (e.g. a
-        broken numpy array, bad PIL dtype) is propagated unmodified
-        rather than being silently remapped to "unsupported type".
+        TypeError: If *image* is not a supported type (at the call site,
+        exactly like the old eager path). Conversion errors from broken
+        arrays also raise here — only the PNG compression is deferred.
     """
     # PIL Image
     try:
@@ -30,9 +72,7 @@ def serialize_image(image: Any) -> bytes:
         _PILImage = None
 
     if _PILImage is not None and isinstance(image, _PILImage.Image):
-        buf = io.BytesIO()
-        image.save(buf, format="PNG")
-        return buf.getvalue()
+        return PendingMedia("image", image.copy())
 
     # Torch tensor
     try:
@@ -41,8 +81,7 @@ def serialize_image(image: Any) -> bytes:
         torch = None
 
     if torch is not None and isinstance(image, torch.Tensor):
-        arr = image.detach().cpu().numpy()
-        return _numpy_to_png(arr)
+        return PendingMedia("image", _numpy_to_pil(image.detach().cpu().numpy()))
 
     # Numpy array
     try:
@@ -51,13 +90,18 @@ def serialize_image(image: Any) -> bytes:
         np = None
 
     if np is not None and isinstance(image, np.ndarray):
-        return _numpy_to_png(image)
+        return PendingMedia("image", _numpy_to_pil(image))
 
     raise TypeError(f"Cannot serialize image of type {type(image).__name__}")
 
 
-def _numpy_to_png(arr: Any) -> bytes:
-    """Convert a numpy array to PNG bytes."""
+def serialize_image(image: Any) -> bytes:
+    """Eagerly serialize an image to PNG bytes (validate + copy + encode)."""
+    return prepare_image(image).encode()
+
+
+def _numpy_to_pil(arr: Any) -> Any:
+    """Normalize a numpy array to an owned PIL Image (always a copy)."""
     import numpy as np
     from PIL import Image
 
@@ -71,42 +115,64 @@ def _numpy_to_png(arr: Any) -> bytes:
     if arr.ndim == 3 and arr.shape[2] == 1:
         arr = arr.squeeze(2)
 
-    img = Image.fromarray(arr)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
+    # Explicit copy: transposes/squeezes above are views, and the caller
+    # may mutate its buffer after nb.log_image returns.
+    return Image.fromarray(np.array(arr, dtype=np.uint8, copy=True))
 
 
-def serialize_audio(audio: Any, sr: int = 16000) -> bytes:
-    """Serialize audio to WAV bytes.
-
-    Args:
-        audio: Audio data as numpy array.
-        sr: Sample rate.
-
-    Returns:
-        WAV-encoded bytes.
-    """
+def prepare_audio(audio: Any, sr: int = 16000) -> PendingMedia:
+    """Validate + copy audio input; WAV encoding is deferred."""
     import numpy as np
-    import struct
-    import wave
 
     if not isinstance(audio, np.ndarray):
         audio = np.array(audio, dtype=np.float32)
 
     if audio.dtype in (np.float32, np.float64):
         audio = (audio * 32767).clip(-32768, 32767).astype(np.int16)
+    else:
+        audio = np.array(audio, dtype=np.int16, copy=True)
+
+    return PendingMedia("audio", audio, sr=sr)
+
+
+def serialize_audio(audio: Any, sr: int = 16000) -> bytes:
+    """Eagerly serialize audio to WAV bytes (validate + copy + encode)."""
+    return prepare_audio(audio, sr).encode()
+
+
+def _wav_bytes(audio: Any, sr: int) -> bytes:
+    """Write an int16 ndarray as WAV bytes."""
+    import wave
 
     buf = io.BytesIO()
     channels = 1 if audio.ndim == 1 else audio.shape[1]
-
     with wave.open(buf, "wb") as wf:
         wf.setnchannels(channels)
         wf.setsampwidth(2)  # 16-bit
         wf.setframerate(sr)
         wf.writeframes(audio.tobytes())
-
     return buf.getvalue()
+
+
+def resolve_media(event: dict) -> Optional[dict]:
+    """Encode a deferred-media event in place of its PendingMedia payload.
+
+    Called by the transports' flush loops (background threads). Returns
+    the event unchanged when there is nothing to resolve; returns None
+    (drop) when encoding fails — background threads can't raise to the
+    user, so the failure is logged instead.
+    """
+    data = event.get("data")
+    if not isinstance(data, PendingMedia):
+        return event
+    try:
+        return {**event, "data": data.encode()}
+    except Exception:
+        logger.warning(
+            "nebo: dropping %s event %r — media encoding failed",
+            event.get("type"), event.get("name"), exc_info=True,
+        )
+        return None
 
 
 def _to_list(value: Any) -> Any:

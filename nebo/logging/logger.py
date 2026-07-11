@@ -422,7 +422,7 @@ def log_image(
     matching nb.labels.* class.
     """
     _ensure_initialized()
-    from nebo.logging.serializers import serialize_image, _serialize_labels
+    from nebo.logging.serializers import prepare_image, _serialize_labels
 
     state = get_state()
     node_id = _current_node.get() or GLOBAL_LOGGABLE_ID
@@ -430,19 +430,20 @@ def log_image(
 
     state.ensure_loggable(node_id)
 
-    image_bytes = serialize_image(image)
+    # Cheap on the caller thread: type validation (raises here) plus a
+    # defensive copy. PNG compression happens in the transport's flush
+    # thread via resolve_media().
+    pending = prepare_image(image)
     labels = _serialize_labels(
         points=points, boxes=boxes, circles=circles,
         polygons=polygons, bitmasks=bitmasks,
     )
 
-    # Raw bytes end-to-end: msgpack bin on disk (format v4); the network
-    # transport base64-encodes at its JSON boundary.
     entry: dict = {
         "type": "image",
         "loggable_id": node_id,
         "name": name,
-        "data": image_bytes,
+        "data": pending,
         "step": step,
         "timestamp": timestamp,
     }
@@ -461,7 +462,7 @@ def log_audio(audio: Any, sr: int = 16000, *, name: Optional[str] = None, step: 
         sr: Sample rate.
     """
     _ensure_initialized()
-    from nebo.logging.serializers import serialize_audio
+    from nebo.logging.serializers import prepare_audio
 
     state = get_state()
     node_id = _current_node.get() or GLOBAL_LOGGABLE_ID
@@ -469,13 +470,11 @@ def log_audio(audio: Any, sr: int = 16000, *, name: Optional[str] = None, step: 
 
     state.ensure_loggable(node_id)
 
-    audio_bytes = serialize_audio(audio, sr)
-
     entry = {
         "type": "audio",
         "loggable_id": node_id,
         "name": name,
-        "data": audio_bytes,
+        "data": prepare_audio(audio, sr),
         "sr": sr,
         "step": step,
         "timestamp": timestamp,

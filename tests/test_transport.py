@@ -196,3 +196,27 @@ def test_file_transport_flush_means_on_disk(tmp_path):
         assert "x" in msgs
     finally:
         t.close()
+
+
+def test_file_transport_resolves_pending_media(tmp_path):
+    import numpy as np
+    from nebo.logging.serializers import prepare_image
+
+    t = FileTransport(logdir=tmp_path, run_id="pendingmedia", script_path="/x/s.py")
+    try:
+        t.send_event({
+            "type": "image", "loggable_id": "a", "name": "f",
+            "data": prepare_image(np.zeros((6, 6, 3), dtype=np.uint8)),
+            "step": None, "timestamp": 1.0,
+        })
+        assert t.flush(timeout=2.0)
+    finally:
+        t.close()
+
+    (path,) = tmp_path.glob("*.nebo")
+    with path.open("rb") as f:
+        reader = NeboFileReader(f)
+        reader.read_header()
+        (img,) = [e for e in reader.read_entries() if e["type"] == "image"]
+    assert isinstance(img["payload"]["data"], bytes)
+    assert img["payload"]["data"].startswith(b"\x89PNG")

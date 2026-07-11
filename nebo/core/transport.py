@@ -84,6 +84,7 @@ class FileTransport:
         syscall pair per event.
         """
         from nebo.core.coalesce import coalesce
+        from nebo.logging.serializers import resolve_media
 
         stop = False
         while not stop:
@@ -110,8 +111,13 @@ class FileTransport:
                 else:
                     events.append(item)
 
+            # Deferred media encodes here, off the caller thread. A None
+            # from resolve_media means encoding failed (already logged).
+            resolved = [
+                r for r in (resolve_media(e) for e in events) if r is not None
+            ]
             with self._lock:
-                for event in coalesce(events):
+                for event in coalesce(resolved):
                     self._writer.write_entry(event.get("type", "log"), event)
                 self._stream.flush()
             for barrier in barriers:
