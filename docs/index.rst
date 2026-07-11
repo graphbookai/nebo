@@ -129,4 +129,5 @@ Features
    installing
    guide
    reference
+   cli
    contributing
