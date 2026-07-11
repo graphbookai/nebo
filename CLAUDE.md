@@ -138,14 +138,52 @@ Batching happens in the **transports**, not the logger: both flush loops
 drain their queue per tick and run `coalesce()` (`nebo/core/coalesce.py`) —
 same-series points group per `(loggable_id, name)`, cut on any
 `(metric_type, tags, colors)` change or at `MAX_BATCH_POINTS=5000`;
-singletons pass through as plain `metric`. Per-series order is preserved;
-cross-type order within a flush window is best-effort (timestamps are
-authoritative). Coalescing is an optimization, never required — every
-consumer (daemon `_process_event`, UI `processWsEvents`, readers) accepts
-both shapes, so degraded paths may skip it. FileTransport also flushes the
-stream once per drain tick (not per entry) and its `flush()` is a barrier
-event, not a queue-empty poll. Measured: ~21 B/point on disk (was 116),
-~156k scalar events/s end-to-end in file mode (was ~91k).
+singletons pass through as plain `metric`. The coalescer also keeps only
+the **last** snapshot metric per series and the last `progress` event per
+loggable within a window (they overwrite on ingest anyway), and folds
+`node_executed` ticks into one event per `(loggable, caller)` carrying
+`data.count` (absent = 1; daemon and UI add the delta). Per-series order
+is preserved; cross-type order within a flush window is best-effort
+(timestamps are authoritative). Coalescing is an optimization, never
+required — every consumer (daemon `_process_event`, UI `processWsEvents`,
+readers) accepts both shapes, so degraded paths may skip it. FileTransport
+also flushes the stream once per drain tick (not per entry) and its
+`flush()` is a barrier event, not a queue-empty poll. Measured: ~21 B/point
+on disk (was 116), ~156k scalar events/s end-to-end in file mode (was ~91k).
+
+### SDK write-path costs (deferred media, throttles, backpressure)
+
+- **Media encoding is deferred.** `log_image`/`log_audio` only validate
+  (TypeError still raises at the call site) and copy on the caller thread
+  (~9 ms for a 1080p frame, was ~300 ms); `event["data"]` holds a
+  `PendingMedia` (`nebo/logging/serializers.py`) that PNG/WAV-encodes in
+  the transport flush thread via `resolve_media`. Encode failures log +
+  drop (background threads can't raise). `serialize_image/serialize_audio`
+  are eager wrappers over the same `prepare_*` path.
+- **`nb.track` throttles wire emissions** to one per `min_interval`
+  (default 0.1 s; first and final always emit). Local `node.progress`
+  still updates every iteration.
+- **`track_return` doesn't pin user data**: weakrefs where the type
+  supports them (arrays/tensors/objects); non-weakrefable builtins keep
+  strong refs in a 4096-entry recency window (`RETURN_ORIGINS_MAX`).
+- **Network wire is msgpack**: `NetworkTransport` POSTs
+  `application/msgpack` bodies — a concatenation of individually-packed
+  event maps (daemon splits with `msgpack.Unpacker`; JSON bodies still
+  accepted for MCP/CLI writers). Each event packs exactly once
+  (`_prepare_packed`); chunking sums pre-encoded sizes; media bytes ride
+  natively (no base64 anywhere). Keep-alive `http.client` connections are
+  **per-thread** (`_conn_local`) — the flush loop and explicit `flush()`
+  post concurrently and `http.client` is not thread-safe.
+- **Backpressure**: `send_event` charges an approximate byte budget
+  (`NEBO_BUFFER_BUDGET_MB`, default 128) across queue+buffer+fallback;
+  over budget, non-structural events drop (progress first at 90%) with a
+  one-time warning + shutdown summary. `STRUCTURAL_TYPES` (run_start,
+  run_completed, loggable_register, edge, node_executed, …) always get
+  through. While disconnected, the flush loop retries `connect()` with
+  1 s → 30 s backoff forever and replays the fallback buffer on success.
+- **WS broadcast never blocks ingest**: the daemon serializes each batch
+  once and enqueues it into bounded per-client queues (`_WsClient`,
+  256 batches, drop-oldest); per-client sender tasks own the sockets.
 
 ### Metrics model (line + scatter accumulate, bar/pie/histogram snapshot)
 
@@ -173,6 +211,16 @@ Step filter: clicking a datapoint on a line or scatter chart sets `timeline.step
 Supporting modules: `ui/src/lib/streams.ts` (stream path + tree-flatten helpers), `ui/src/hooks/useStreams.ts` (stream data hook), `ui/src/hooks/useAxisTransform.ts` (zoom/pan math via a native non-passive wheel listener). The store `timeline` slice is `{ mode, step, time, selectedStream }`.
 
 The old `ui/src/components/timeline/TimelineScrubber.tsx` was removed.
+
+UI perf: line charts (`LineMetric`, `ComparisonLine`) run with
+`parsing: false` + sorted `{x, y}` data and Chart.js **LTTB decimation**
+(500 samples past 1000 points, re-decimated on zoom) — keep data sorted by
+x and don't reintroduce `parsing: true` there. The tracker dedupes
+datapoints per row by quantized x (bucket resolution scales with zoom) and
+scrub commits to the store at most once per animation frame. `useStreams`
+keeps a per-run incremental accumulator (only newly-appended logs are
+walked per WS batch) and computes nothing while the tracker is collapsed.
+Run-list/status polls pause while `document.hidden`.
 
 UI invariant: chart components index palette colors by `allLabels.indexOf(label)` (the full vocabulary), never by the iteration index over the filtered list — otherwise toggling a label off via the chip row reshuffles the remaining colors. `ScatterMetric` and `HistogramMetric` both follow this rule.
 
