@@ -1451,7 +1451,21 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         }
 
     @app.post("/events")
-    async def ingest_events(events: list[dict[str, Any]], run_id: str | None = None):
+    async def ingest_events(request: Request, run_id: str | None = None):
+        # Two wire formats: application/msgpack (SDK — a concatenation of
+        # individually-packed event maps, media bytes native) and JSON
+        # (MCP/CLI writers, tests). Both fan into the same ingest path.
+        content_type = request.headers.get("content-type", "")
+        body = await request.body()
+        if "msgpack" in content_type:
+            import msgpack
+
+            unpacker = msgpack.Unpacker(raw=False)
+            unpacker.feed(body)
+            events = [e for e in unpacker if isinstance(e, dict)]
+        else:
+            parsed = json.loads(body) if body else []
+            events = parsed if isinstance(parsed, list) else []
         await state.ingest_events(events, run_id)
         return {"status": "ok", "count": len(events)}
 

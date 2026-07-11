@@ -10,6 +10,7 @@ Uses only stdlib (urllib) — no httpx dependency required.
 from __future__ import annotations
 
 import atexit
+import http.client
 import json
 import logging
 import os
@@ -17,10 +18,13 @@ import queue
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 import urllib.error
 from dataclasses import dataclass
 from typing import Any, Optional
+
+import msgpack
 
 
 logger = logging.getLogger(__name__)
@@ -94,6 +98,14 @@ class NetworkTransport:
         self._fallback_buffer: list[dict[str, Any]] = []
         self._lock = threading.Lock()
         self._run_completed: bool = False
+        # Persistent keep-alive connection for the flush thread (the only
+        # POSTer). Rebuilt lazily after any error.
+        self._conn: Optional[http.client.HTTPConnection] = None
+        parts = urllib.parse.urlsplit(self._base_url)
+        self._conn_scheme = parts.scheme or "http"
+        self._conn_host = parts.hostname or "localhost"
+        self._conn_port = parts.port
+        self._conn_prefix = parts.path.rstrip("/")
 
         env_timeout = os.environ.get("NEBO_SHUTDOWN_TIMEOUT")
         if env_timeout is not None:
@@ -194,6 +206,7 @@ class NetworkTransport:
             self._thread.join(timeout=3.0)
         self._flush_remaining()
         self._connected = False
+        self._drop_connection()
 
     def _start_flush_thread(self) -> None:
         """Start the background flush thread."""
@@ -223,81 +236,62 @@ class NetworkTransport:
                 if not success:
                     self._handle_disconnect()
 
-    def _chunk_buffer(
-        self,
-        events: list[dict[str, Any]],
-        max_bytes: int,
-    ) -> list[list[dict[str, Any]]]:
-        """Split events into sub-batches each <= max_bytes encoded JSON.
-
-        A single event larger than max_bytes becomes its own chunk
-        (the chunker never drops — the network may still accept it).
-        """
-        chunks: list[list[dict[str, Any]]] = []
-        current: list[dict[str, Any]] = []
-        current_size = 0
-        for event in events:
-            event_size = len(json.dumps(event))
-            if current and current_size + event_size > max_bytes:
-                chunks.append(current)
-                current = []
-                current_size = 0
-            current.append(event)
-            current_size += event_size
-        if current:
-            chunks.append(current)
-        return chunks
-
-    @staticmethod
-    def _jsonable(event: dict[str, Any]) -> dict[str, Any]:
-        """Make a media event JSON-safe: raw `data` bytes -> base64 str.
-
-        v4 media events carry raw bytes end-to-end in-process; the JSON
-        wire is the only boundary that needs base64.
-        """
-        data = event.get("data")
-        if isinstance(data, (bytes, bytearray)):
-            import base64
-
-            event = dict(event)
-            event["data"] = base64.b64encode(data).decode("ascii")
-        return event
-
-    def _prepare_batch(
+    def _prepare_packed(
         self, batch: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
-        """Coalesce metrics, encode deferred media, JSON-encode bytes."""
+    ) -> tuple[list[dict[str, Any]], list[bytes], list[dict[str, Any]]]:
+        """Coalesce, resolve deferred media, and pack each event ONCE.
+
+        Returns (events, packed, bad) with events/packed parallel. Events
+        msgpack can't encode (most commonly a `set` value) are quarantined
+        into `bad` so one poison event can't wedge every later flush —
+        callers must drop them, never re-buffer. Media bytes ride natively
+        in the msgpack body: no base64 anywhere on this path.
+        """
         from nebo.core.coalesce import coalesce
         from nebo.logging.serializers import resolve_media
 
-        out: list[dict[str, Any]] = []
+        events: list[dict[str, Any]] = []
+        packed: list[bytes] = []
+        bad: list[dict[str, Any]] = []
         for event in coalesce(batch):
             resolved = resolve_media(event)
             if resolved is None:
                 continue  # encoding failed; already logged
-            out.append(self._jsonable(resolved))
-        return out
-
-    def _partition_serializable(
-        self, batch: list[dict[str, Any]]
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        """Split events into (good, bad) by whether `json.dumps` succeeds.
-
-        Quarantines events that JSON can't encode (most commonly a set
-        value snuck into a payload) so that one bad event cannot poison
-        every subsequent flush. Bad events MUST be dropped at the call
-        site — re-buffering them re-triggers the same TypeError forever.
-        """
-        good: list[dict[str, Any]] = []
-        bad: list[dict[str, Any]] = []
-        for event in batch:
             try:
-                json.dumps(event)
-            except (TypeError, ValueError):
-                bad.append(event)
+                data = msgpack.packb(resolved, use_bin_type=True)
+            except (TypeError, ValueError, OverflowError):
+                bad.append(resolved)
                 continue
-            good.append(event)
-        return good, bad
+            events.append(resolved)
+            packed.append(data)
+        return events, packed, bad
+
+    @staticmethod
+    def _chunk_packed(
+        events: list[dict[str, Any]],
+        packed: list[bytes],
+        max_bytes: int,
+    ) -> list[tuple[list[dict[str, Any]], list[bytes]]]:
+        """Split parallel (events, packed) into chunks <= max_bytes each.
+
+        Sizes come from the already-encoded bytes — no re-serialization. A
+        single oversized event becomes its own chunk (never dropped; the
+        network may still accept it).
+        """
+        chunks: list[tuple[list[dict[str, Any]], list[bytes]]] = []
+        cur_events: list[dict[str, Any]] = []
+        cur_packed: list[bytes] = []
+        size = 0
+        for event, data in zip(events, packed):
+            if cur_events and size + len(data) > max_bytes:
+                chunks.append((cur_events, cur_packed))
+                cur_events, cur_packed, size = [], [], 0
+            cur_events.append(event)
+            cur_packed.append(data)
+            size += len(data)
+        if cur_events:
+            chunks.append((cur_events, cur_packed))
+        return chunks
 
     def _warn_unserializable(self, bad: list[dict[str, Any]]) -> None:
         """Log a warning summarising dropped un-serializable events."""
@@ -334,38 +328,37 @@ class NetworkTransport:
                     sent=sent, dropped=0, dropped_bytes=0, last_error=None
                 )
 
-            pending = self._prepare_batch(self._buffer[:])
+            pending = self._buffer[:]
             self._buffer.clear()
-
-            # Partition before chunking — `_chunk_buffer` itself runs
-            # `json.dumps` per event and would raise uncaught on poison.
-            pending, bad = self._partition_serializable(pending)
+            events, packed, bad = self._prepare_packed(pending)
             if bad:
                 self._warn_unserializable(bad)
-            if not pending:
+            if not events:
                 continue
 
-            chunks = self._chunk_buffer(pending, self._MAX_CHUNK_BYTES)
+            chunks = self._chunk_packed(events, packed, self._MAX_CHUNK_BYTES)
 
             failed_at: Optional[int] = None
-            for i, chunk in enumerate(chunks):
-                ok, exc = self._post_batch(chunk)
+            for i, (chunk_events, chunk_packed) in enumerate(chunks):
+                ok, exc = self._post_packed(chunk_events, chunk_packed)
                 if ok:
-                    sent += len(chunk)
+                    sent += len(chunk_events)
                 else:
                     last_error = repr(exc)
                     failed_at = i
                     break
 
             if failed_at is not None:
-                # Restore the failed chunk + everything after it.
-                for chunk in chunks[failed_at:]:
-                    self._buffer.extend(chunk)
+                # Restore the failed chunk + everything after it. Restored
+                # events are post-coalesce shapes — legal wire events.
+                rest = chunks[failed_at:]
+                for chunk_events, _ in rest:
+                    self._buffer.extend(chunk_events)
 
                 now = time.monotonic()
                 if now >= deadline:
                     dropped_bytes = sum(
-                        len(json.dumps(e)) for e in self._buffer
+                        len(p) for _, chunk_packed in rest for p in chunk_packed
                     )
                     return DrainResult(
                         sent=sent,
@@ -377,35 +370,56 @@ class NetworkTransport:
             # If failed_at is None, all chunks succeeded; loop again to
             # catch anything queued during the POSTs.
 
-    def _post_batch(
-        self, batch: list[dict[str, Any]]
-    ) -> tuple[bool, Optional[Exception]]:
-        """POST a batch of events to the daemon.
-
-        Returns (True, None) on HTTP 200; (False, exc) otherwise. The
-        exception form is returned (not raised) so callers keep linear
-        flow and can record the cause for diagnostics.
-        """
-        if not batch:
-            return True, None
-        try:
-            url = f"{self._base_url}/events"
-            if self._run_id:
-                url += f"?run_id={urllib.request.quote(self._run_id)}"
-            data = json.dumps(batch).encode("utf-8")
-            req = urllib.request.Request(url, data=data, method="POST")
-            req.add_header("Content-Type", "application/json")
-            for k, v in self._auth_headers().items():
-                req.add_header(k, v)
+    def _connection(self) -> http.client.HTTPConnection:
+        """Persistent keep-alive connection (flush thread only)."""
+        if self._conn is None:
             # Remote daemons cross the public internet; loopback daemons
             # are fast. Use the longer timeout whenever a token is in
             # play, since that's the remote-target signal.
-            request_timeout = 30.0 if self._api_token else 5.0
-            with urllib.request.urlopen(req, timeout=request_timeout) as resp:
-                if resp.status == 200:
-                    return True, None
-                return False, RuntimeError(f"HTTP {resp.status}")
+            timeout = 30.0 if self._api_token else 5.0
+            conn_cls = (
+                http.client.HTTPSConnection
+                if self._conn_scheme == "https"
+                else http.client.HTTPConnection
+            )
+            self._conn = conn_cls(self._conn_host, self._conn_port, timeout=timeout)
+        return self._conn
+
+    def _drop_connection(self) -> None:
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = None
+
+    def _post_packed(
+        self, events: list[dict[str, Any]], packed: list[bytes],
+    ) -> tuple[bool, Optional[Exception]]:
+        """POST pre-packed events as one concatenated-msgpack body.
+
+        The body is the concatenation of individually-packed event maps
+        (the daemon splits them with msgpack.Unpacker), so no bytes are
+        re-encoded here. Returns (True, None) on HTTP 200; (False, exc)
+        otherwise — returned, not raised, so callers keep linear flow.
+        """
+        if not events:
+            return True, None
+        path = f"{self._conn_prefix}/events"
+        if self._run_id:
+            path += f"?run_id={urllib.parse.quote(self._run_id)}"
+        headers = {"Content-Type": "application/msgpack"}
+        headers.update(self._auth_headers())
+        try:
+            conn = self._connection()
+            conn.request("POST", path, body=b"".join(packed), headers=headers)
+            resp = conn.getresponse()
+            resp.read()  # drain so the connection can be reused
+            if resp.status == 200:
+                return True, None
+            return False, RuntimeError(f"HTTP {resp.status}")
         except Exception as exc:
+            self._drop_connection()
             return False, exc
 
     def _do_flush(self) -> bool:
@@ -413,22 +427,26 @@ class NetworkTransport:
         if not self._buffer:
             return True
 
-        batch = self._prepare_batch(self._buffer[:])
+        batch = self._buffer[:]
         self._buffer.clear()
+        events, packed, bad = self._prepare_packed(batch)
 
         # Drop un-serializable events before posting. Re-buffering them
         # would re-poison every subsequent flush — see issue.md.
-        batch, bad = self._partition_serializable(batch)
         if bad:
             self._warn_unserializable(bad)
-        if not batch:
+        if not events:
             return True
 
-        ok, _ = self._post_batch(batch)
-        if not ok:
-            # Put events back for retry by the next periodic tick.
-            self._buffer = batch + self._buffer
-        return ok
+        chunks = self._chunk_packed(events, packed, self._MAX_CHUNK_BYTES)
+        for i, (chunk_events, chunk_packed) in enumerate(chunks):
+            ok, _ = self._post_packed(chunk_events, chunk_packed)
+            if not ok:
+                # Put events back for retry by the next periodic tick.
+                restored = [e for evs, _ in chunks[i:] for e in evs]
+                self._buffer = restored + self._buffer
+                return False
+        return True
 
     def _drain_queue_into_buffer(self) -> None:
         """Move every event currently in self._queue into self._buffer."""

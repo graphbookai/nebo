@@ -7,6 +7,7 @@ import logging
 import time
 from typing import Any
 
+import msgpack
 import pytest
 
 from nebo.core.client import NetworkTransport as DaemonClient
@@ -49,63 +50,67 @@ class TestDaemonClient:
         client = DaemonClient(port=19999)
         client.disconnect()  # should not raise
 
-    def test_post_batch_uses_events_endpoint_with_auth_header(self) -> None:
-        """Regression: when an api_token is set, `_post_batch` must POST
+    def test_post_packed_uses_events_endpoint_with_auth_header(self) -> None:
+        """Regression: when an api_token is set, `_post_packed` must POST
         to /events with `X-Nebo-Token` — not to a separate /r/v1
         envelope endpoint. The HF-Spaces deploy in 2026-05 caught the
         old behaviour silently 404ing on `/r/v1`."""
-        from unittest.mock import patch, MagicMock
         client = DaemonClient(
             base_url="https://example.test", api_token="tok123",
         )
         captured: dict[str, Any] = {}
 
-        class FakeResp:
-            status = 200
-            def __enter__(self): return self
-            def __exit__(self, *a): pass
+        class FakeConn:
+            def request(self, method, path, body=None, headers=None):
+                captured.update(method=method, path=path, body=body, headers=headers)
 
-        def fake_urlopen(req, timeout):
-            captured["url"] = req.full_url
-            captured["headers"] = dict(req.headers)
-            captured["body"] = req.data
-            return FakeResp()
+            def getresponse(self):
+                class R:
+                    status = 200
 
-        with patch("urllib.request.urlopen", fake_urlopen):
-            ok, exc = client._post_batch([{"type": "log", "message": "hi"}])
+                    def read(self):
+                        return b"{}"
 
-        assert ok is True
-        assert captured["url"].startswith("https://example.test/events")
-        assert "X-nebo-token" in captured["headers"]
-        assert captured["headers"]["X-nebo-token"] == "tok123"
-        # Body is the raw event list, not a `{t, events}` envelope.
-        body = json.loads(captured["body"].decode())
-        assert isinstance(body, list)
-        assert body[0]["message"] == "hi"
+                return R()
+
+            def close(self):
+                pass
+
+        client._connection = lambda: FakeConn()  # type: ignore[method-assign]
+        events = [{"type": "log", "message": "hi"}]
+        packed = [msgpack.packb(e, use_bin_type=True) for e in events]
+        ok, exc = client._post_packed(events, packed)
+
+        assert ok is True and exc is None
+        assert captured["path"].startswith("/events")
+        assert captured["headers"]["X-Nebo-Token"] == "tok123"
+        # Body is the concatenation of packed event maps, no envelope.
+        unpacker = msgpack.Unpacker(raw=False)
+        unpacker.feed(captured["body"])
+        assert list(unpacker)[0]["message"] == "hi"
 
 
-class TestChunkBuffer:
+class TestChunkPacked:
     def test_splits_by_byte_cap(self) -> None:
-        client = DaemonClient()
         events = [{"data": "x" * 300_000} for _ in range(10)]
-        chunks = client._chunk_buffer(events, max_bytes=1_000_000)
+        packed = [msgpack.packb(e, use_bin_type=True) for e in events]
+        chunks = DaemonClient._chunk_packed(events, packed, max_bytes=1_000_000)
 
-        for chunk in chunks:
-            size = sum(len(json.dumps(e)) for e in chunk)
-            assert len(chunk) == 1 or size <= 1_000_000
+        for ev_chunk, pk_chunk in chunks:
+            size = sum(len(p) for p in pk_chunk)
+            assert len(ev_chunk) == 1 or size <= 1_000_000
 
-        flat = [e for c in chunks for e in c]
+        flat = [e for ev_chunk, _ in chunks for e in ev_chunk]
         assert flat == events
 
     def test_oversize_event_is_own_chunk(self) -> None:
-        client = DaemonClient()
         big = {"data": "x" * 3_000_000}
-        chunks = client._chunk_buffer([big], max_bytes=1_000_000)
-        assert chunks == [[big]]
+        packed = [msgpack.packb(big, use_bin_type=True)]
+        chunks = DaemonClient._chunk_packed([big], packed, max_bytes=1_000_000)
+        assert chunks == [([big], packed)]
 
     def test_empty_input_returns_empty_list(self) -> None:
-        client = DaemonClient()
-        assert client._chunk_buffer([], max_bytes=1_000_000) == []
+        assert DaemonClient._chunk_packed([], [], max_bytes=1_000_000) == []
 
 
 class TestDrainQueueIntoBuffer:
@@ -135,8 +140,8 @@ class TestDrainQueueIntoBuffer:
         assert client._buffer == []
 
 
-class TestPartitionSerializable:
-    """`_partition_serializable` underpins the poison-batch quarantine.
+class TestPreparePackedQuarantine:
+    """`_prepare_packed` underpins the poison-batch quarantine.
 
     Without it, a single un-serializable event (e.g. a `set` value snuck
     into a payload via `@nb.fn(ui={"a", "b"})`) re-buffers forever and
@@ -146,8 +151,9 @@ class TestPartitionSerializable:
     def test_all_serializable_passes_through(self) -> None:
         client = DaemonClient()
         events = [{"e": 1}, {"e": 2}, {"e": 3}]
-        good, bad = client._partition_serializable(events)
+        good, packed, bad = client._prepare_packed(events)
         assert good == events
+        assert len(packed) == 3
         assert bad == []
 
     def test_separates_set_value(self) -> None:
@@ -157,8 +163,9 @@ class TestPartitionSerializable:
             {"type": "loggable_register", "ui_hints": {"default_tab", "metrics"}},
             {"type": "log", "id": 2},
         ]
-        good, bad = client._partition_serializable(events)
+        good, packed, bad = client._prepare_packed(events)
         assert good == [{"type": "log", "id": 1}, {"type": "log", "id": 2}]
+        assert len(packed) == 2
         assert len(bad) == 1
         assert bad[0]["ui_hints"] == {"default_tab", "metrics"}
 
@@ -181,11 +188,11 @@ class TestDoFlushQuarantine:
         ]
         sent_batches: list[list[dict[str, Any]]] = []
 
-        def fake_post(batch):
-            sent_batches.append(batch)
+        def fake_post(events, packed):
+            sent_batches.append(events)
             return True, None
 
-        client._post_batch = fake_post  # type: ignore[method-assign]
+        client._post_packed = fake_post  # type: ignore[method-assign]
 
         ok = client._do_flush()
 
@@ -202,11 +209,11 @@ class TestDoFlushQuarantine:
         client._buffer = [{"type": "x", "v": {"a"}}]
         called: list[Any] = []
 
-        def fake_post(batch):
-            called.append(batch)
+        def fake_post(events, packed):
+            called.append(events)
             return True, None
 
-        client._post_batch = fake_post  # type: ignore[method-assign]
+        client._post_packed = fake_post  # type: ignore[method-assign]
 
         ok = client._do_flush()
 
@@ -219,7 +226,7 @@ class TestDoFlushQuarantine:
     ) -> None:
         client = DaemonClient()
         client._buffer = [{"type": "loggable_register", "v": {"a"}}]
-        client._post_batch = lambda batch: (True, None)  # type: ignore[method-assign]
+        client._post_packed = lambda events, packed: (True, None)  # type: ignore[method-assign]
 
         with caplog.at_level(logging.WARNING, logger="nebo.core.client"):
             client._do_flush()
@@ -238,7 +245,7 @@ class TestDoFlushQuarantine:
             {"type": "x", "v": {"a"}},
             {"type": "log", "id": 2},
         ]
-        client._post_batch = lambda batch: (False, RuntimeError("net"))  # type: ignore[method-assign]
+        client._post_packed = lambda events, packed: (False, RuntimeError("net"))  # type: ignore[method-assign]
 
         ok = client._do_flush()
 
@@ -266,11 +273,11 @@ class TestDrainWithRetryQuarantine:
         ]
         sent: list[list[dict[str, Any]]] = []
 
-        def fake_post(batch):
-            sent.append(batch)
+        def fake_post(events, packed):
+            sent.append(events)
             return True, None
 
-        client._post_batch = fake_post  # type: ignore[method-assign]
+        client._post_packed = fake_post  # type: ignore[method-assign]
 
         deadline = time.monotonic() + 5.0
         result = client._drain_with_retry(deadline)
@@ -289,11 +296,11 @@ class TestDrainWithRetryQuarantine:
         client._buffer = [{"v": {"a"}}, {"v": frozenset()}]
         called: list[Any] = []
 
-        def fake_post(batch):
-            called.append(batch)
+        def fake_post(events, packed):
+            called.append(events)
             return True, None
 
-        client._post_batch = fake_post  # type: ignore[method-assign]
+        client._post_packed = fake_post  # type: ignore[method-assign]
 
         deadline = time.monotonic() + 5.0
         result = client._drain_with_retry(deadline)
@@ -310,11 +317,11 @@ class TestDrainWithRetry:
         client._buffer = [{"e": 1}, {"e": 2}]
         sent_batches: list[list[dict[str, Any]]] = []
 
-        def fake_post(batch):
-            sent_batches.append(batch)
+        def fake_post(events, packed):
+            sent_batches.append(events)
             return True, None
 
-        client._post_batch = fake_post  # type: ignore[method-assign]
+        client._post_packed = fake_post  # type: ignore[method-assign]
 
         deadline = time.monotonic() + 5.0
         result = client._drain_with_retry(deadline)
@@ -330,13 +337,13 @@ class TestDrainWithRetry:
         client._buffer = [{"e": 1}, {"e": 2}]
         calls = {"n": 0}
 
-        def fake_post(batch):
+        def fake_post(events, packed):
             calls["n"] += 1
             if calls["n"] == 1:
                 return False, RuntimeError("transient")
             return True, None
 
-        client._post_batch = fake_post  # type: ignore[method-assign]
+        client._post_packed = fake_post  # type: ignore[method-assign]
 
         deadline = time.monotonic() + 5.0
         result = client._drain_with_retry(deadline)
@@ -351,10 +358,10 @@ class TestDrainWithRetry:
         client = DaemonClient()
         client._buffer = [{"e": 1}, {"e": 2}]
 
-        def fake_post(batch):
+        def fake_post(events, packed):
             return False, RuntimeError("permanent")
 
-        client._post_batch = fake_post  # type: ignore[method-assign]
+        client._post_packed = fake_post  # type: ignore[method-assign]
 
         deadline = time.monotonic() + 0.3
         result = client._drain_with_retry(deadline)
@@ -371,13 +378,13 @@ class TestDrainWithRetry:
         client._queue.put({"e": 1})
         first_call = {"done": False}
 
-        def fake_post(batch):
+        def fake_post(events, packed):
             if not first_call["done"]:
                 first_call["done"] = True
                 client._queue.put({"e": 2})
             return True, None
 
-        client._post_batch = fake_post  # type: ignore[method-assign]
+        client._post_packed = fake_post  # type: ignore[method-assign]
 
         deadline = time.monotonic() + 5.0
         result = client._drain_with_retry(deadline)
@@ -391,11 +398,11 @@ class TestDrainWithRetry:
 
         sent_batches: list[list[dict[str, Any]]] = []
 
-        def fake_post(batch):
-            sent_batches.append(batch)
+        def fake_post(events, packed):
+            sent_batches.append(events)
             return True, None
 
-        client._post_batch = fake_post  # type: ignore[method-assign]
+        client._post_packed = fake_post  # type: ignore[method-assign]
 
         deadline = time.monotonic() + 5.0
         result = client._drain_with_retry(deadline)
@@ -433,7 +440,7 @@ class TestFlushTimeout:
     def test_returns_true_on_success(self) -> None:
         client = DaemonClient()
         client._buffer = [{"e": 1}]
-        client._post_batch = lambda batch: (True, None)  # type: ignore[method-assign]
+        client._post_packed = lambda events, packed: (True, None)  # type: ignore[method-assign]
 
         assert client.flush(timeout=1.0) is True
         assert client._buffer == []
@@ -441,7 +448,7 @@ class TestFlushTimeout:
     def test_returns_false_when_dropped(self) -> None:
         client = DaemonClient()
         client._buffer = [{"e": 1}]
-        client._post_batch = lambda batch: (False, RuntimeError("nope"))  # type: ignore[method-assign]
+        client._post_packed = lambda events, packed: (False, RuntimeError("nope"))  # type: ignore[method-assign]
 
         assert client.flush(timeout=0.2) is False
         assert client._buffer == [{"e": 1}]
@@ -451,7 +458,7 @@ class TestFlushTimeout:
         within the default budget (~5 s + slack)."""
         client = DaemonClient()
         client._buffer = [{"e": 1}]
-        client._post_batch = lambda batch: (False, RuntimeError("nope"))  # type: ignore[method-assign]
+        client._post_packed = lambda events, packed: (False, RuntimeError("nope"))  # type: ignore[method-assign]
 
         start = time.monotonic()
         result = client.flush()
@@ -467,7 +474,7 @@ class TestFlushRemainingWarning:
     ) -> None:
         client = DaemonClient(shutdown_timeout=1.0)
         client._buffer = [{"e": 1}]
-        client._post_batch = lambda batch: (True, None)  # type: ignore[method-assign]
+        client._post_packed = lambda events, packed: (True, None)  # type: ignore[method-assign]
 
         client._flush_remaining()
 
@@ -480,7 +487,7 @@ class TestFlushRemainingWarning:
     ) -> None:
         client = DaemonClient(shutdown_timeout=0.1)
         client._buffer = [{"e": 1}, {"e": 2}]
-        client._post_batch = lambda batch: (False, RuntimeError("nope"))  # type: ignore[method-assign]
+        client._post_packed = lambda events, packed: (False, RuntimeError("nope"))  # type: ignore[method-assign]
 
         client._flush_remaining()
 
@@ -761,9 +768,8 @@ class TestUiConfigEmission:
 
 
 
-class TestCoalescedNetworkFlush:
-    """v4: _do_flush and _drain_with_retry coalesce accumulating metrics
-    and base64-encode raw media bytes at the JSON boundary."""
+class TestMsgpackWire:
+    """v4 wire: concatenated-msgpack bodies, packed once, keep-alive."""
 
     @staticmethod
     def _pt(name, value, step):
@@ -773,70 +779,120 @@ class TestCoalescedNetworkFlush:
             "tags": [], "timestamp": 100.0 + step,
         }
 
-    def _capture(self, client):
-        sent: list[dict] = []
+    def test_pack_each_event_exactly_once(self, monkeypatch) -> None:
+        import msgpack as _msgpack
 
-        def fake_post(batch):
-            json.dumps(batch)  # must be wire-safe
-            sent.extend(batch)
-            return True, None
+        calls = []
+        real_packb = _msgpack.packb
 
-        client._post_batch = fake_post  # type: ignore[method-assign]
-        return sent
+        def counting_packb(obj, **kw):
+            calls.append(obj)
+            return real_packb(obj, **kw)
 
-    def test_do_flush_coalesces(self) -> None:
+        monkeypatch.setattr("nebo.core.client.msgpack.packb", counting_packb)
         client = DaemonClient()
-        sent = self._capture(client)
+        posted = []
+        client._post_packed = lambda events, packed: (posted.extend(packed), (True, None))[1]  # type: ignore[method-assign]
+        client._buffer = [self._pt("loss", 0.5, 0), self._pt("loss", 0.4, 1)]
+        assert client._do_flush() is True
+        # 2 points coalesce into 1 metric_batch -> exactly 1 packb call.
+        assert len(calls) == 1
+        assert len(posted) == 1
+
+    def test_unpackable_event_quarantined(self, caplog) -> None:
+        client = DaemonClient()
+        posted = []
+        client._post_packed = lambda events, packed: (posted.extend(events), (True, None))[1]  # type: ignore[method-assign]
         client._buffer = [
-            self._pt("loss", 0.5, 0), self._pt("acc", 0.1, 0),
-            self._pt("loss", 0.4, 1), self._pt("acc", 0.2, 1),
+            {"type": "log", "message": "good"},
+            {"type": "loggable_register", "ui_hints": {"a", "b"}},  # a set
+            {"type": "log", "message": "also good"},
+        ]
+        with caplog.at_level(logging.WARNING, logger="nebo.core.client"):
+            ok = client._do_flush()
+        assert ok is True
+        assert [e.get("message") for e in posted] == ["good", "also good"]
+        assert any("un-serializable" in r.getMessage() for r in caplog.records)
+
+    def test_chunking_by_packed_size(self) -> None:
+        client = DaemonClient()
+        batches = []
+        client._post_packed = lambda events, packed: (batches.append(list(events)), (True, None))[1]  # type: ignore[method-assign]
+        big = "x" * 700_000  # ~700KB message; two fit under the 2MB cap, three do not
+        client._buffer = [
+            {"type": "log", "message": big},
+            {"type": "log", "message": big},
+            {"type": "log", "message": big},
         ]
         assert client._do_flush() is True
-        assert [e["type"] for e in sent] == ["metric_batch", "metric_batch"]
-        assert sent[0]["steps"] == [0, 1]
+        assert len(batches) == 2
+        assert sum(len(b) for b in batches) == 3
 
-    def test_do_flush_jsonifies_media_bytes(self) -> None:
-        import base64
+    def test_media_bytes_ride_natively(self) -> None:
+        import msgpack as _msgpack
 
         raw = b"\x89PNG\r\n\x1a\n123"
         client = DaemonClient()
-        sent = self._capture(client)
+        bodies = []
+        client._post_packed = lambda events, packed: (bodies.append(b"".join(packed)), (True, None))[1]  # type: ignore[method-assign]
         client._buffer = [{
             "type": "image", "loggable_id": "a", "name": "f",
             "data": raw, "step": None, "timestamp": 1.0,
         }]
         assert client._do_flush() is True
-        assert sent[0]["data"] == base64.b64encode(raw).decode("ascii")
+        unpacker = _msgpack.Unpacker(raw=False)
+        unpacker.feed(bodies[0])
+        (event,) = list(unpacker)
+        assert event["data"] == raw  # no base64 anywhere
 
-    def test_drain_with_retry_coalesces(self) -> None:
+    def test_wire_post_shape(self, monkeypatch) -> None:
+        """_post_packed sends Content-Type: application/msgpack with the
+        concatenated body over a persistent connection."""
         client = DaemonClient()
-        sent = self._capture(client)
-        client._buffer = [self._pt("loss", 0.5, 0), self._pt("loss", 0.4, 1)]
-        assert client.flush(timeout=1.0) is True
-        assert [e["type"] for e in sent] == ["metric_batch"]
+        seen = {}
 
-    def test_drain_with_retry_jsonifies_media_bytes(self) -> None:
-        raw = b"RIFFxxxxWAVE"
-        client = DaemonClient()
-        sent = self._capture(client)
-        client._buffer = [{
-            "type": "audio", "loggable_id": "a", "name": "s",
-            "data": raw, "sr": 16000, "step": None, "timestamp": 1.0,
-        }]
-        assert client.flush(timeout=1.0) is True
-        assert isinstance(sent[0]["data"], str)
+        class FakeConn:
+            def __init__(self):
+                self.requests = 0
+            def request(self, method, path, body=None, headers=None):
+                self.requests += 1
+                seen.update(method=method, path=path, body=body, headers=headers)
+            def getresponse(self):
+                class R:
+                    status = 200
+                    def read(self):
+                        return b"{}"
+                return R()
+            def close(self):
+                pass
+
+        fake = FakeConn()
+        monkeypatch.setattr(client, "_connection", lambda: fake)
+        events = [{"type": "log", "message": "hi"}]
+        import msgpack as _msgpack
+
+        packed = [_msgpack.packb(e, use_bin_type=True) for e in events]
+        ok, exc = client._post_packed(events, packed)
+        assert ok is True and exc is None
+        assert seen["headers"]["Content-Type"] == "application/msgpack"
+        assert seen["body"] == b"".join(packed)
+        # Second post reuses the same connection (keep-alive).
+        client._post_packed(events, packed)
+        assert fake.requests == 2
 
 
-def test_prepare_batch_resolves_pending_media() -> None:
+def test_prepare_packed_resolves_pending_media() -> None:
     import numpy as np
 
     from nebo.logging.serializers import prepare_image
 
     client = DaemonClient()
-    out = client._prepare_batch([{
+    events, packed, bad = client._prepare_packed([{
         "type": "image", "loggable_id": "a", "name": "f",
         "data": prepare_image(np.zeros((4, 4, 3), dtype=np.uint8)),
         "step": None, "timestamp": 1.0,
     }])
-    assert isinstance(out[0]["data"], str)  # base64 at the JSON boundary
-    json.dumps(out)
+    assert bad == []
+    assert isinstance(events[0]["data"], bytes)  # encoded off the caller path
+    assert events[0]["data"].startswith(b"\x89PNG")
+    assert len(packed) == 1

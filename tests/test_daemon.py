@@ -1076,3 +1076,46 @@ class TestNodeExecutedCount:
              "data": {"loggable_id": "a"}},
         ], run_id="r1")
         assert state.runs["r1"].loggables["a"].exec_count == 1
+
+
+class TestMsgpackIngestEndpoint:
+    def _client(self):
+        from fastapi.testclient import TestClient
+
+        state = DaemonState()
+        from nebo.server.daemon import create_daemon_app
+
+        return state, TestClient(create_daemon_app(state))
+
+    def test_msgpack_body_ingests_like_json(self) -> None:
+        import msgpack as _msgpack
+
+        raw = b"\x89PNG\r\n\x1a\n" + b"m" * 24
+        events = [
+            {"type": "metric", "loggable_id": "a", "name": "loss",
+             "metric_type": "line", "value": 0.5, "step": 0,
+             "tags": [], "timestamp": 1.0},
+            {"type": "image", "loggable_id": "a", "name": "f",
+             "data": raw, "step": None, "timestamp": 2.0},
+        ]
+        state, client = self._client()
+        body = b"".join(_msgpack.packb(e, use_bin_type=True) for e in events)
+        resp = client.post(
+            "/events?run_id=r1", content=body,
+            headers={"Content-Type": "application/msgpack"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["count"] == 2
+        run = state.runs["r1"]
+        assert run.loggables["a"].metrics["loss"]["entries"][0]["value"] == 0.5
+        (img,) = run.loggables["a"].images
+        assert state.media_bytes("r1", img["media_id"]) == raw
+
+    def test_json_body_still_works(self) -> None:
+        state, client = self._client()
+        resp = client.post("/events?run_id=r1", json=[
+            {"type": "log", "loggable_id": "__global__", "message": "hi",
+             "timestamp": 1.0},
+        ])
+        assert resp.status_code == 200
+        assert len(state.runs["r1"].logs) == 1
