@@ -82,6 +82,8 @@ class TestCoalesce:
         assert out[1]["colors"] is True
 
     def test_snapshot_types_never_batch(self):
+        """Snapshots never become metric_batch frames; re-emissions within
+        a window coalesce last-wins (they overwrite daemon-side anyway)."""
         events = [
             _pt("dist", {"x": 1}, 0, mtype="bar"),
             _pt("dist", {"x": 2}, 1, mtype="bar"),
@@ -90,7 +92,10 @@ class TestCoalesce:
             _pt("p", {"x": 1}, 0, mtype="pie"),
         ]
         out = coalesce(events)
-        assert out == events
+        assert all(e["type"] == "metric" for e in out)
+        assert [e["name"] for e in out] == ["dist", "h", "p"]
+        assert out[0]["value"] == {"x": 2}
+        assert out[1]["value"] == {"a": [3]}
 
     def test_max_batch_points_split(self):
         events = [_pt("loss", float(i), i) for i in range(MAX_BATCH_POINTS + 3)]
@@ -126,3 +131,46 @@ class TestCoalesce:
         assert coalesce([]) == []
         logs = [{"type": "log", "message": "x"}]
         assert coalesce(logs) == logs
+
+
+class TestSnapshotCoalescing:
+    def test_progress_last_wins_per_loggable(self):
+        events = [
+            {"type": "progress", "loggable_id": "a", "data": {"current": 1}},
+            {"type": "log", "message": "between"},
+            {"type": "progress", "loggable_id": "a", "data": {"current": 2}},
+            {"type": "progress", "loggable_id": "b", "data": {"current": 9}},
+            {"type": "progress", "loggable_id": "a", "data": {"current": 3}},
+        ]
+        out = coalesce(events)
+        progress = [e for e in out if e["type"] == "progress"]
+        assert len(progress) == 2
+        by_lid = {e["loggable_id"]: e["data"]["current"] for e in progress}
+        assert by_lid == {"a": 3, "b": 9}
+        # Survivor sits at the first occurrence's position (before the log).
+        assert out[0]["type"] == "progress" and out[0]["data"]["current"] == 3
+        assert out[1]["type"] == "log"
+
+    def test_snapshot_metrics_last_wins_per_series(self):
+        events = [
+            _pt("dist", {"x": 1}, 0, mtype="bar"),
+            _pt("dist", {"x": 2}, 1, mtype="bar"),
+            _pt("other", {"y": 5}, 0, mtype="pie"),
+            _pt("dist", {"x": 3}, 2, mtype="bar"),
+        ]
+        out = coalesce(events)
+        assert len(out) == 2
+        dist = next(e for e in out if e["name"] == "dist")
+        assert dist["value"] == {"x": 3}
+        assert next(e for e in out if e["name"] == "other")["value"] == {"y": 5}
+
+    def test_accumulating_metrics_unaffected_by_snapshot_rule(self):
+        events = [
+            _pt("loss", 0.5, 0), _pt("loss", 0.4, 1),
+            _pt("dist", {"x": 1}, 0, mtype="bar"),
+            _pt("dist", {"x": 2}, 1, mtype="bar"),
+        ]
+        out = coalesce(events)
+        assert [e["type"] for e in out] == ["metric_batch", "metric"]
+        assert out[0]["steps"] == [0, 1]
+        assert out[1]["value"] == {"x": 2}

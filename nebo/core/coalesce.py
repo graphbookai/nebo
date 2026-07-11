@@ -37,13 +37,19 @@ _MARKER = "__coalesce_run__"
 
 
 def coalesce(events: list[dict]) -> list[dict]:
-    """Fold same-series accumulating metric events into metric_batch events."""
+    """Fold same-series accumulating metric events into metric_batch events;
+    keep only the LAST snapshot metric per series and the LAST progress
+    event per loggable (both overwrite on ingest, so intermediates within
+    one flush window are pure overhead). Survivors land at their first
+    occurrence's position."""
     staged: list[dict] = []
     open_runs: dict[tuple, dict] = {}  # (loggable_id, name) -> run
+    snapshots: dict[tuple, dict] = {}  # last-wins keys -> {"last": event}
 
     for event in events:
+        etype = event.get("type")
         if (
-            event.get("type") == "metric"
+            etype == "metric"
             and event.get("metric_type") in ACCUMULATING_TYPES
         ):
             key = (event.get("loggable_id"), event.get("name"))
@@ -62,6 +68,24 @@ def coalesce(events: list[dict]) -> list[dict]:
                 open_runs[key] = run
                 staged.append({_MARKER: run})
             run["items"].append(event)
+        elif etype == "metric":
+            key = ("snap", event.get("loggable_id"), event.get("name"))
+            slot = snapshots.get(key)
+            if slot is None:
+                slot = {"last": event}
+                snapshots[key] = slot
+                staged.append({_MARKER: slot})
+            else:
+                slot["last"] = event
+        elif etype == "progress":
+            key = ("progress", event.get("loggable_id"))
+            slot = snapshots.get(key)
+            if slot is None:
+                slot = {"last": event}
+                snapshots[key] = slot
+                staged.append({_MARKER: slot})
+            else:
+                slot["last"] = event
         else:
             staged.append(event)
 
@@ -70,6 +94,9 @@ def coalesce(events: list[dict]) -> list[dict]:
         run = item.get(_MARKER) if len(item) == 1 else None
         if run is None:
             out.append(item)
+            continue
+        if "last" in run:  # snapshot/progress slot: last-wins survivor
+            out.append(run["last"])
             continue
         items = run["items"]
         if len(items) == 1:

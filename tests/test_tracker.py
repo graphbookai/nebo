@@ -106,11 +106,52 @@ class TestTrackerProgressForwarding:
         do_work()
 
         progress_events = [e for e in client.events if e.get("type") == "progress"]
-        assert len(progress_events) >= 3, (
-            f"expected >= 3 progress events, got {len(progress_events)}: "
+        # Wire emissions are throttled (min_interval): first + final always
+        # emit; intermediates within the interval are suppressed.
+        assert len(progress_events) >= 2, (
+            f"expected >= 2 progress events, got {len(progress_events)}: "
             f"{[e.get('type') for e in client.events]}"
         )
         last = progress_events[-1]["data"]
         assert last["current"] == 3
         assert last["total"] == 3
         assert last["name"] == "work"
+
+
+class TestTrackThrottle:
+    def test_progress_events_throttled(self, capturing_client):
+        """1000 iterations must not emit 1000 progress events."""
+        import nebo as nb
+
+        for _ in nb.track(range(1000), name="throttled"):
+            pass
+        events = capturing_client.by_type("progress")
+        # First + final + at most a handful of interval-gated emissions.
+        assert 1 <= len(events) <= 15
+        # Final state always arrives.
+        assert events[-1]["data"]["current"] == 1000
+
+    def test_slow_iterations_all_emit(self, capturing_client, monkeypatch):
+        """When iterations are slower than min_interval, every update emits."""
+        import nebo as nb
+        from nebo.core import tracker as tracker_mod
+
+        clock = {"t": 0.0}
+        monkeypatch.setattr(
+            tracker_mod.time, "monotonic", lambda: clock["t"]
+        )
+        it = nb.track(range(3), name="slow", min_interval=0.1)
+        for _ in it:
+            clock["t"] += 1.0  # each iteration takes 1s >> min_interval
+        events = capturing_client.by_type("progress")
+        # initial(0) + 1 + 2 + 3(final) emissions all pass the gate
+        assert len(events) >= 4
+
+    def test_local_progress_always_updates(self, capturing_client):
+        import nebo as nb
+        from nebo.core.state import get_state
+
+        for _ in nb.track(range(50), name="localprog"):
+            pass
+        node = get_state().loggables["_track_localprog"]
+        assert node.progress["current"] == 50

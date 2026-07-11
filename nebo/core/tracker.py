@@ -18,6 +18,7 @@ class TrackedIterable(Iterator[T]):
         iterable: Iterable[T],
         name: Optional[str] = None,
         total: Optional[int] = None,
+        min_interval: float = 0.1,
     ) -> None:
         self._iterable = iter(iterable)
         self._name = name
@@ -25,6 +26,13 @@ class TrackedIterable(Iterator[T]):
         self._current = 0
         self._start_time = time.monotonic()
         self._node_id = _current_node.get()
+        # Wire-emission throttle (tqdm-style): local progress state updates
+        # every iteration, but at most one progress *event* per
+        # `min_interval` seconds goes to the transport — plus the first and
+        # final updates, which always emit. A tight loop over a million
+        # items otherwise writes a million frames to disk and the wire.
+        self._min_interval = min_interval
+        self._last_emit: Optional[float] = None
 
         # Try to infer total from iterable
         if self._total is None:
@@ -55,10 +63,10 @@ class TrackedIterable(Iterator[T]):
             self._update_progress()
             return value
         except StopIteration:
-            self._update_progress()
+            self._update_progress(force=True)
             raise
 
-    def _update_progress(self) -> None:
+    def _update_progress(self, force: bool = False) -> None:
         """Update progress state on the current node."""
         if self._node_id is None:
             return
@@ -71,6 +79,12 @@ class TrackedIterable(Iterator[T]):
                 "name": self._name,
                 "elapsed": time.monotonic() - self._start_time,
             }
+            now = time.monotonic()
+            if not force and self._last_emit is not None and (
+                now - self._last_emit
+            ) < self._min_interval:
+                return
+            self._last_emit = now
             # Forward to the daemon client so the web UI shows progress
             # bars in server mode.
             state._send_to_client({
@@ -84,6 +98,7 @@ def track(
     iterable: Iterable[T],
     name: Optional[str] = None,
     total: Optional[int] = None,
+    min_interval: float = 0.1,
 ) -> TrackedIterable[T]:
     """Wrap an iterable to track progress, like tqdm.
 
@@ -91,8 +106,13 @@ def track(
         iterable: The iterable to wrap.
         name: Display name for the progress bar.
         total: Total number of items (auto-detected if possible).
+        min_interval: Minimum seconds between progress events on the
+            wire (the first and final updates always emit). Local
+            progress state still updates on every iteration.
 
     Returns:
         A TrackedIterable that reports progress.
     """
-    return TrackedIterable(iterable, name=name, total=total)
+    return TrackedIterable(
+        iterable, name=name, total=total, min_interval=min_interval,
+    )
