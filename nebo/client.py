@@ -15,6 +15,7 @@ import json
 import os
 import re
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any, Optional
@@ -82,6 +83,10 @@ def _run_scope(run_id: Optional[str]) -> str:
     """Return `/runs/<id>` for run-scoped reads, or '' for the legacy
     'latest run' read paths kept for backward compatibility."""
     return f"/runs/{urllib.parse.quote(run_id)}" if run_id else ""
+
+
+def get_health(**conn) -> Any:
+    return _get("/health", **conn)
 
 
 def get_run_history(**conn) -> Any:
@@ -257,6 +262,7 @@ def _request_json(
     path: str,
     *,
     method: str,
+    body: Any = None,
     url: Optional[str] = None,
     port: Optional[int] = None,
     api_token: Optional[str] = None,
@@ -264,11 +270,99 @@ def _request_json(
 ) -> Any:
     base = _resolve_url(url=url, port=port)
     token = _resolve_token(api_token)
-    req = urllib.request.Request(f"{base}{path}", method=method)
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(f"{base}{path}", data=data, method=method)
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
     if token:
         req.add_header("X-Nebo-Token", token)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+        raw = resp.read().decode("utf-8")
+        return json.loads(raw) if raw else {}
+
+
+# -- run tree (groups + placements + docs) -----------------------------
+
+def _group_path(path: str) -> str:
+    """URL-encode a group path, keeping `/` separators intact."""
+    return urllib.parse.quote(path.strip("/"), safe="/")
+
+
+def get_tree(**conn) -> Any:
+    return _get("/tree", **conn)
+
+
+def create_group(path: str, **conn) -> Any:
+    return _request_json("/groups", method="POST", body={"path": path}, **conn)
+
+
+def move_group(path: str, new_path: str, **conn) -> Any:
+    return _request_json(
+        f"/groups/{_group_path(path)}", method="PATCH",
+        body={"new_path": new_path}, **conn,
+    )
+
+
+def delete_group(path: str, **conn) -> Any:
+    return _request_json(f"/groups/{_group_path(path)}", method="DELETE", **conn)
+
+
+def set_run_group(run_id: str, group: str, **conn) -> Any:
+    return _request_json(
+        f"/runs/{urllib.parse.quote(run_id)}/group", method="PUT",
+        body={"group": group}, **conn,
+    )
+
+
+def _raw(
+    path: str, *, method: str, data: Optional[bytes] = None,
+    content_type: Optional[str] = None, url: Optional[str] = None,
+    port: Optional[int] = None, api_token: Optional[str] = None,
+    timeout: float = 10.0,
+) -> tuple[int, str]:
+    """Send a request returning (status, text); 4xx/5xx don't raise."""
+    base = _resolve_url(url=url, port=port)
+    token = _resolve_token(api_token)
+    req = urllib.request.Request(f"{base}{path}", data=data, method=method)
+    if content_type:
+        req.add_header("Content-Type", content_type)
+    if token:
+        req.add_header("X-Nebo-Token", token)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8")
+
+
+def get_group_doc(path: str, name: str, **conn) -> Optional[str]:
+    """Return a group doc's markdown, or None if it doesn't exist."""
+    status, text = _raw(
+        f"/groups/{_group_path(path)}/docs/{urllib.parse.quote(name)}",
+        method="GET", **conn,
+    )
+    return text if status == 200 else None
+
+
+def set_group_doc(path: str, name: str, content: str, **conn) -> Any:
+    status, text = _raw(
+        f"/groups/{_group_path(path)}/docs/{urllib.parse.quote(name)}",
+        method="PUT", data=content.encode("utf-8"),
+        content_type="text/markdown", **conn,
+    )
+    if status >= 400:
+        raise RuntimeError(f"set_group_doc failed: HTTP {status} {text}")
+    return {"status": status}
+
+
+def delete_group_doc(path: str, name: str, **conn) -> Any:
+    status, text = _raw(
+        f"/groups/{_group_path(path)}/docs/{urllib.parse.quote(name)}",
+        method="DELETE", **conn,
+    )
+    if status not in (204, 200, 404):
+        raise RuntimeError(f"delete_group_doc failed: HTTP {status} {text}")
+    return {"status": status}
 
 
 def _ensure_loggable_event(loggable_id: str) -> dict[str, Any]:

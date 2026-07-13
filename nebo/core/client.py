@@ -41,6 +41,26 @@ STRUCTURAL_TYPES = frozenset({
 DEFAULT_BUFFER_BUDGET_MB = 128
 
 
+class DaemonLocalOnlyError(RuntimeError):
+    """Connecting to a daemon that refuses network runs.
+
+    A local-only daemon (`nebo serve` with no `--remote*` flag) only ingests
+    `.nebo` files from its watched logdir. To accept runs over the network,
+    restart it with `--remote [dir]` (persisted) or `--remote-ephemeral`
+    (RAM/cache only). Raised at `nb.init()` / first emit so the misconfig
+    surfaces immediately, not hours into a run.
+    """
+
+
+def _local_only_message(base_url: str) -> str:
+    return (
+        f"The nebo daemon at {base_url} is running in local-only mode and does "
+        "not accept network runs. Restart it with `nebo serve --remote [dir]` "
+        "to persist incoming runs, or `--remote-ephemeral` to accept them "
+        "without persistence. (Or log to a file instead: nb.init('.nebo/').)"
+    )
+
+
 @dataclass
 class DrainResult:
     """Outcome of a drain attempt.
@@ -131,6 +151,12 @@ class NetworkTransport:
         self._buffered_bytes = 0
         self._budget_lock = threading.Lock()
         self._dropped_events = 0
+        # Policy rejection (daemon in local-only mode). `_fatal` stops the
+        # flush loop from retrying forever the way a transient outage would;
+        # `_policy_error` carries the message init() raises as
+        # DaemonLocalOnlyError. Set at connect (fail-fast) or on a mid-run 409.
+        self._fatal = False
+        self._policy_error: Optional[str] = None
         # Reconnect pacing for the flush loop (test-overridable).
         self._reconnect_backoff_initial = 1.0
         self._reconnect_backoff_max = 30.0
@@ -190,6 +216,17 @@ class NetworkTransport:
                 req.add_header(k, v)
             with urllib.request.urlopen(req, timeout=2.0) as resp:
                 if resp.status == 200:
+                    try:
+                        body = json.loads(resp.read().decode("utf-8"))
+                    except Exception:
+                        body = {}
+                    # A local-only daemon won't accept our runs — fail fast
+                    # instead of buffering events that will never be accepted.
+                    if body.get("mode") == "local":
+                        self._policy_error = _local_only_message(self._base_url)
+                        self._fatal = True
+                        self._connected = False
+                        return False
                     self._connected = True
                     self._start_flush_thread()
                     return True
@@ -310,6 +347,9 @@ class NetworkTransport:
         backoff = self._reconnect_backoff_initial
 
         while self._running:
+            if self._fatal:
+                self._on_fatal()
+                return
             if not self._connected:
                 now = time.monotonic()
                 if now >= reconnect_at:
@@ -518,9 +558,14 @@ class NetworkTransport:
             conn = self._connection()
             conn.request("POST", path, body=b"".join(packed), headers=headers)
             resp = conn.getresponse()
-            resp.read()  # drain so the connection can be reused
+            payload = resp.read()  # drain so the connection can be reused
             if resp.status == 200:
                 return True, None
+            # The daemon restarted into local-only mode mid-run: fatal, not a
+            # transient outage. Stop retrying rather than buffer forever.
+            if resp.status == 409 and b"daemon_local_only" in payload:
+                self._policy_error = _local_only_message(self._base_url)
+                self._fatal = True
             return False, RuntimeError(f"HTTP {resp.status}")
         except Exception as exc:
             self._drop_connection()
@@ -592,6 +637,17 @@ class NetworkTransport:
             )
             print(msg, file=sys.stderr, flush=True)
 
+    def _on_fatal(self) -> None:
+        """Tear down after a fatal policy rejection: log once, drop buffers,
+        stop. Unlike a transient outage, retrying can never succeed."""
+        self._running = False
+        self._connected = False
+        self._drop_connection()
+        with self._lock:
+            self._fallback_buffer.clear()
+        self._buffer.clear()
+        logger.error("nebo: %s", self._policy_error or "transport disabled")
+
     def _handle_disconnect(self) -> None:
         """Mark the daemon as away; the flush loop owns reconnection.
 
@@ -641,6 +697,8 @@ class NetworkTransport:
 
     def try_reconnect(self) -> bool:
         """Manually attempt reconnection."""
+        if self._fatal:
+            return False
         if self._connected:
             return True
         connected = self.connect()

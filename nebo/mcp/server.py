@@ -156,6 +156,105 @@ MCP_TOOLS = [
             "required": ["filepath"],
         },
     },
+    # ── Run Tree (groups) ──
+    {
+        "name": "nebo_get_tree",
+        "description": (
+            "Get the run tree: groups (each with its markdown doc filenames) "
+            "and per-run placements (run_id -> group path). Runs absent from "
+            "the placements map are at the root."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "nebo_create_group",
+        "description": (
+            "Create a run group (and any missing ancestors), e.g. "
+            "'vision/detr/lr-sweep'. Idempotent."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Group path, '/'-delimited."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "nebo_move_group",
+        "description": "Rename/move a group subtree — its runs and docs move with it.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Existing group path."},
+                "new_path": {"type": "string", "description": "New group path."},
+            },
+            "required": ["path", "new_path"],
+        },
+    },
+    {
+        "name": "nebo_delete_group",
+        "description": (
+            "Delete an empty group. Refuses (409) if it still has member runs "
+            "or subgroups — move them out first (nebo has no run deletion)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Group path to delete."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "nebo_move_run",
+        "description": (
+            "Place a run into a group (empty string = root). Auto-creates the "
+            "target group. This is an explicit override that persists."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string", "description": "The run to move."},
+                "group": {"type": "string", "description": "Destination group path ('' = root)."},
+            },
+            "required": ["run_id"],
+        },
+    },
+    {
+        "name": "nebo_get_group_doc",
+        "description": "Read a group's markdown doc (default README.md).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Group path."},
+                "name": {"type": "string", "description": "Doc filename (default README.md)."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "nebo_set_group_doc",
+        "description": (
+            "Write/overwrite a group's markdown doc (default README.md). After "
+            "finishing work in a group, record: WHAT the group represents, WHY "
+            "the experiments ran (the question/hypothesis), HOW they ran "
+            "(commands, config, the NEBO_GROUP used), and the FINDINGS — "
+            "conclusive results, updated as they land. Cite specific runs and "
+            "steps with nebo:// links: [baseline](nebo://run/<id>) or "
+            "[diverged](nebo://run/<id>?step=<n>), and groups as "
+            "nebo://group/<path>."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Group path."},
+                "content": {"type": "string", "description": "Markdown body."},
+                "name": {"type": "string", "description": "Doc filename (default README.md)."},
+            },
+            "required": ["path", "content"],
+        },
+    },
     # ── Write Tools ──
     # These mirror the SDK's nb.log_* helpers so an external agent can push
     # data into a run without owning the SDK process. Each tool accepts a
@@ -277,6 +376,14 @@ async def handle_tool_call(name: str, arguments: dict[str, Any], server_url: str
         ),
         "nebo_delete_alert": lambda a: tools.delete_alert(a["rule_id"], server_url),
         "nebo_load_file": lambda a: tools.load_file(a["filepath"], server_url),
+        # Run tree
+        "nebo_get_tree": lambda a: tools.get_tree(server_url),
+        "nebo_create_group": lambda a: tools.create_group(a["path"], server_url),
+        "nebo_move_group": lambda a: tools.move_group(a["path"], a["new_path"], server_url),
+        "nebo_delete_group": lambda a: tools.delete_group(a["path"], server_url),
+        "nebo_move_run": lambda a: tools.move_run(a["run_id"], a.get("group", ""), server_url),
+        "nebo_get_group_doc": lambda a: tools.get_group_doc(a["path"], a.get("name", "README.md"), server_url),
+        "nebo_set_group_doc": lambda a: tools.set_group_doc(a["path"], a["content"], a.get("name", "README.md"), server_url),
         # Write
         "nebo_log_metric": lambda a: tools.log_metric(a["entries"], a.get("run_id"), server_url),
         "nebo_log_image": lambda a: tools.log_image(a["entries"], a.get("run_id"), server_url),

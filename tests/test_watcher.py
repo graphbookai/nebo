@@ -38,9 +38,14 @@ async def test_watcher_picks_up_new_file(tmp_path):
     watcher.stop()
     await task
 
+    # Shallow registration: the run is listed from the header alone; a static
+    # file's body is not read until a detail request deepens it.
     assert "newrun123456" in state.runs
     run = state.runs["newrun123456"]
-    assert any(l.message == "hello" for l in run.logs)
+    assert not any(l.message == "hello" for l in run.logs)
+
+    await watcher.ensure_deep("newrun123456")
+    assert any(l.message == "hello" for l in state.runs["newrun123456"].logs)
 
 
 @pytest.mark.asyncio
@@ -90,12 +95,14 @@ async def test_offsets_persist_across_restart(tmp_path):
             [{"type": "log", "loggable_id": "__global__", "message": "one"}],
         )
         watcher = DirectoryWatcher(state, logdir=logdir, poll_interval=0.05)
-        await watcher._tick()
+        await watcher._tick()                     # shallow register
+        await watcher.ensure_deep("persistrun01")  # deep-ingest the body
         assert cache.flush()
         assert state.runs["persistrun01"].source == "watcher"
         n_before = cache._read_conn().execute(
             "SELECT COUNT(*) FROM logs"
         ).fetchone()[0]
+        assert n_before == 1
         cache.close()
 
         # "Restart": fresh cache handle + state + watcher over the same db.
@@ -137,11 +144,13 @@ async def test_torn_tail_parks_and_resumes(tmp_path):
         filepath.write_bytes(whole[:-7])
 
         watcher = DirectoryWatcher(state, logdir=logdir, poll_interval=0.05)
-        await watcher._tick()
+        await watcher._tick()                     # shallow register
+        # Deepening reads the body but parks at the torn last frame.
+        await watcher.ensure_deep("tornrun00001")
         msgs = [l.message for l in state.runs["tornrun00001"].logs]
         assert msgs == ["m0", "m1"]
 
-        # Complete the write; only the missing entry arrives.
+        # Complete the write; the tail resumes and only the missing entry arrives.
         filepath.write_bytes(whole)
         await watcher._tick()
         msgs = [l.message for l in state.runs["tornrun00001"].logs]
@@ -166,6 +175,7 @@ async def test_watcher_media_by_reference(tmp_path):
         )
         watcher = DirectoryWatcher(state, logdir=logdir, poll_interval=0.05)
         await watcher._tick()
+        await watcher.ensure_deep("mediarun0001")
         assert cache.flush()
 
         row = cache._read_conn().execute(
@@ -240,6 +250,7 @@ async def test_v4_file_end_to_end(tmp_path):
 
         watcher = DirectoryWatcher(state, logdir=logdir, poll_interval=0.05)
         await watcher._tick()
+        await watcher.ensure_deep("v4endtoend01")
         assert cache.flush()
 
         run = state.runs["v4endtoend01"]

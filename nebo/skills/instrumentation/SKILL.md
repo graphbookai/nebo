@@ -285,6 +285,29 @@ with nb.start_run(name="experiment-1", run_id=previous_run_id):
 
 **`start_run(config=)` vs `nb.log_cfg()`:** `config=` sets run-level metadata (visible in run history). `nb.log_cfg()` sets per-node params (visible in the node's info tab). Use both — they serve different levels.
 
+### Organizing runs into groups (`group=` / `NEBO_GROUP`)
+
+Place a run in a filesystem-like group so it's organized in the UI/CLI tree:
+
+```python
+nb.init(group="vision/detr")                 # default group for the process
+with nb.start_run(name="lr=3e-4", group="vision/detr/lr-sweep"):
+    ...                                       # start_run(group=) overrides init
+```
+
+For sweeps, set `NEBO_GROUP` per child process — it overrides both call sites,
+so the launcher places each run with zero code changes:
+
+```bash
+NEBO_GROUP=sweeps/lr/run-3 python train.py
+```
+
+Precedence: `NEBO_GROUP` > `start_run(group=)` > `init(group=)`. Group paths are
+`/`-delimited (e.g. `a/b/c`); components can't be `.`/`..` or contain
+`/ \ : * ? " < > |`, control chars, whitespace edges; max depth 16. Invalid
+paths raise `ValueError`. Reorganize and document groups later via the
+`nebo groups` CLI / MCP tools (see the nebo-runs-qa skill).
+
 ### DAG Edge Inference
 
 Edges are created automatically from **data flow** — when a return value from node A is passed as an argument to node B:

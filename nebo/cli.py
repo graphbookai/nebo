@@ -26,6 +26,10 @@ from pathlib import Path
 _PID_DIR = Path.home() / ".nebo"
 _PID_FILE = _PID_DIR / "server.pid"
 
+# argparse `const` for a bare `--remote` (no dir): resolve to <logdir>/remote/
+# in cmd_serve, where the logdir is known.
+_REMOTE_DEFAULT = object()
+
 
 def _write_pid(pid: int) -> None:
     _PID_DIR.mkdir(parents=True, exist_ok=True)
@@ -79,25 +83,50 @@ def cmd_serve(args: argparse.Namespace) -> None:
     # if they're typed as known args downstream we'd silently accept). The
     # argparse change above already rejects unknown args; this is belt-and-suspenders.
 
-    logdir_abs = None if args.no_local else Path(args.logdir).resolve()
-    save_abs = Path(args.save_files).resolve() if args.save_files else None
-    if logdir_abs and save_abs and logdir_abs == save_abs:
+    # --logdir is the workspace root in every mode — it anchors the SQLite
+    # cache identity, the meta/ tree, and the default remote dir. --no-local
+    # only turns off the directory watcher; it no longer nulls the logdir.
+    logdir_abs = Path(args.logdir).resolve()
+
+    remote = getattr(args, "remote", None)
+    ephemeral = getattr(args, "remote_ephemeral", False)
+
+    if args.no_local and remote is None and not ephemeral:
         print(
-            "nebo serve: --logdir and --save-files cannot be the same directory.\n"
-            f"  --logdir:     {logdir_abs}\n"
-            f"  --save-files: {save_abs}\n"
-            "  Watcher input and writer output would feed back into each other.\n"
-            "  Either drop --save-files, set different paths, or pass --no-local.",
+            "nebo serve --no-local needs --remote or --remote-ephemeral — "
+            "with the watcher off and no network intake, the daemon would "
+            "ingest nothing.",
             file=sys.stderr,
         )
         sys.exit(2)
 
+    remote_abs = None
+    if remote is not None:
+        remote_abs = (
+            logdir_abs / "remote" if remote is _REMOTE_DEFAULT
+            else Path(remote).resolve()
+        )
+        # Watcher input and the remote writer can't share a directory or they
+        # feed back into each other. Nesting under the logdir is fine — the
+        # watcher is non-recursive.
+        if not args.no_local and remote_abs == logdir_abs:
+            print(
+                "nebo serve: --remote dir cannot be the watched --logdir.\n"
+                f"  --logdir: {logdir_abs}\n"
+                f"  --remote: {remote_abs}\n"
+                "  Use a subdirectory (the default <logdir>/remote/) or a "
+                "separate path.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
+    os.environ["NEBO_LOGDIR"] = str(logdir_abs)
     if args.no_local:
         os.environ["NEBO_NO_LOCAL"] = "1"
-    if logdir_abs is not None:
-        os.environ["NEBO_LOGDIR"] = str(logdir_abs)
-    if save_abs is not None:
-        os.environ["NEBO_SAVE_FILES"] = str(save_abs)
+    if remote_abs is not None:
+        os.environ["NEBO_REMOTE"] = str(remote_abs)
+    if ephemeral:
+        os.environ["NEBO_REMOTE_EPHEMERAL"] = "1"
     if getattr(args, "api_token", None):
         os.environ["NEBO_API_TOKEN"] = args.api_token
     if getattr(args, "read", None):
@@ -134,20 +163,10 @@ def cmd_serve(args: argparse.Namespace) -> None:
             "--port", str(port),
             "--log-level", "warning",
         ]
+        # Every NEBO_* var (logdir, mode, cache, auth) was already written to
+        # os.environ above, so the child inherits them via the copy.
         env = os.environ.copy()
         env["NEBO_DAEMON_PORT"] = str(port)
-        if args.no_local:
-            env["NEBO_NO_LOCAL"] = "1"
-        if logdir_abs is not None:
-            env["NEBO_LOGDIR"] = str(logdir_abs)
-        if save_abs is not None:
-            env["NEBO_SAVE_FILES"] = str(save_abs)
-        if getattr(args, "api_token", None):
-            env["NEBO_API_TOKEN"] = args.api_token
-        if getattr(args, "read", None):
-            env["NEBO_READ_MODE"] = args.read
-        if getattr(args, "write", None):
-            env["NEBO_WRITE_MODE"] = args.write
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
@@ -272,8 +291,9 @@ def cmd_status(args: argparse.Namespace) -> None:
     """Show daemon status and recent runs."""
     from nebo import client
 
+    conn = _conn_kwargs(args)
     try:
-        runs = client.get_run_history(**_conn_kwargs(args))
+        runs = client.get_run_history(**conn)
     except Exception:
         print("Nebo daemon is not running.")
         pid = _read_pid()
@@ -281,12 +301,20 @@ def cmd_status(args: argparse.Namespace) -> None:
             print(f"  Stale PID file found: {pid}")
         return
 
+    try:
+        mode = client.get_health(**conn).get("mode")
+    except Exception:
+        mode = None
+
     if args.json:
-        print(json.dumps({"daemon": "running", "runs": runs.get("runs", [])}))
+        print(json.dumps(
+            {"daemon": "running", "mode": mode, "runs": runs.get("runs", [])}
+        ))
         return
 
     port = getattr(args, "port", None) or int(os.environ.get("NEBO_PORT", 7861))
-    print(f"Nebo daemon: running on port {port}")
+    mode_note = f"  (mode: {mode})" if mode else ""
+    print(f"Nebo daemon: running on port {port}{mode_note}")
 
     run_list = runs.get("runs", [])
     if run_list:
@@ -561,6 +589,11 @@ def cmd_runs(args: argparse.Namespace) -> None:
         else:
             for k, v in result.items():
                 print(f"{k}: {v}")
+        return
+    if sub == "mv":
+        group = "" if args.root else (args.group or "")
+        client.set_run_group(args.run_id, group, **conn)
+        print(f"moved {args.run_id} -> {group or '(root)'}")
         return
     if sub == "wait":
         result = client.wait_for_alert(
@@ -882,6 +915,141 @@ def _conn_kwargs(args: argparse.Namespace) -> dict:
     }
 
 
+def _run_names(client, conn) -> dict:
+    try:
+        return {
+            r["id"]: (r.get("run_name") or "")
+            for r in client.get_run_history(**conn).get("runs", [])
+        }
+    except Exception:
+        return {}
+
+
+def cmd_tree(args: argparse.Namespace) -> None:
+    """Render the whole run tree (groups + placed/root runs + docs)."""
+    from nebo import client
+    conn = _conn_kwargs(args)
+    tree = client.get_tree(**conn)
+    if args.json:
+        print(json.dumps(tree))
+        return
+    groups = tree.get("groups", {})
+    placements = tree.get("runs", {})  # run_id -> group (non-root only)
+    names = _run_names(client, conn)
+    by_group: dict[str, list[str]] = {}
+    for rid, gp in placements.items():
+        by_group.setdefault(gp, []).append(rid)
+
+    def _run_line(indent: str, rid: str) -> str:
+        return f"{indent}- {rid}  {names.get(rid, '')}".rstrip()
+
+    if not groups and not names:
+        print("(empty tree — no groups or runs yet)")
+        return
+    for gp in sorted(groups):
+        indent = "  " * gp.count("/")
+        docs = groups[gp].get("docs", [])
+        doc_note = f"   [{', '.join(docs)}]" if docs else ""
+        print(f"{indent}{gp.rsplit('/', 1)[-1]}/{doc_note}")
+        for rid in sorted(by_group.get(gp, [])):
+            print(_run_line(indent + "  ", rid))
+    root = sorted(rid for rid in names if rid not in placements)
+    if root:
+        print("(root)")
+        for rid in root:
+            print(_run_line("  ", rid))
+
+
+def cmd_groups(args: argparse.Namespace) -> None:
+    """Create / list / move / delete groups and their markdown docs."""
+    from nebo import client
+    conn = _conn_kwargs(args)
+    action = args.groups_action
+    if action == "add":
+        client.create_group(args.path, **conn)
+        print(f"created group {args.path}")
+    elif action == "mv":
+        client.move_group(args.path, args.new_path, **conn)
+        print(f"moved {args.path} -> {args.new_path}")
+    elif action == "rm":
+        client.delete_group(args.path, **conn)
+        print(f"deleted group {args.path}")
+    elif action == "ls":
+        _groups_ls(args, client, conn)
+    elif action == "doc":
+        _groups_doc(args, client, conn)
+
+
+def _groups_ls(args, client, conn) -> None:
+    path = (getattr(args, "path", None) or "").strip("/")
+    tree = client.get_tree(**conn)
+    groups = tree.get("groups", {})
+    placements = tree.get("runs", {})
+    if path:
+        prefix = path + "/"
+        subgroups = sorted(
+            g for g in groups
+            if g.startswith(prefix) and "/" not in g[len(prefix):]
+        )
+        members = sorted(rid for rid, gp in placements.items() if gp == path)
+        docs = groups.get(path, {}).get("docs", [])
+    else:
+        subgroups = sorted(g for g in groups if "/" not in g)
+        placed = set(placements)
+        members = sorted(rid for rid in _run_names(client, conn) if rid not in placed)
+        docs = []
+    if args.json:
+        print(json.dumps(
+            {"path": path, "subgroups": subgroups, "runs": members, "docs": docs}
+        ))
+        return
+    names = _run_names(client, conn)
+    if subgroups:
+        print("subgroups:")
+        for g in subgroups:
+            print(f"  {g}")
+    if members:
+        print("runs:")
+        for rid in members:
+            print(f"  {rid}  {names.get(rid, '')}".rstrip())
+    if docs:
+        print("docs:")
+        for d in docs:
+            print(f"  {d}")
+    if not (subgroups or members or docs):
+        print("(empty)")
+
+
+def _groups_doc(args, client, conn) -> None:
+    action = args.doc_action
+    if action == "ls":
+        tree = client.get_tree(**conn)
+        docs = tree.get("groups", {}).get(
+            args.path.strip("/"), {}
+        ).get("docs", [])
+        if args.json:
+            print(json.dumps({"docs": docs}))
+        else:
+            for d in docs:
+                print(d)
+    elif action == "get":
+        content = client.get_group_doc(args.path, args.name, **conn)
+        if content is None:
+            print(f"doc not found: {args.path}/{args.name}", file=sys.stderr)
+            sys.exit(1)
+        print(content)
+    elif action == "set":
+        if args.file:
+            content = Path(args.file).read_text()
+        else:
+            content = args.text or ""
+        client.set_group_doc(args.path, args.name, content, **conn)
+        print(f"wrote {args.path}/{args.name}")
+    elif action == "rm":
+        client.delete_group_doc(args.path, args.name, **conn)
+        print(f"deleted {args.path}/{args.name}")
+
+
 def main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -904,11 +1072,25 @@ def main() -> None:
     p_serve.add_argument(
         "--no-local",
         action="store_true",
-        help="Disable the directory watcher; daemon listens for network events only.",
+        help="Disable the directory watcher (requires --remote or "
+             "--remote-ephemeral; the logdir still anchors cache + meta/).",
     )
-    p_serve.add_argument(
-        "--save-files",
-        help="Persist network-mode events to .nebo files at this path. Off by default.",
+    _remote_group = p_serve.add_mutually_exclusive_group()
+    _remote_group.add_argument(
+        "--remote",
+        nargs="?",
+        const=_REMOTE_DEFAULT,
+        default=None,
+        metavar="DIR",
+        help="Accept runs over the network and persist them as .nebo files in "
+             "DIR (default <logdir>/remote/). Without --remote/-ephemeral, "
+             "network runs are rejected.",
+    )
+    _remote_group.add_argument(
+        "--remote-ephemeral",
+        action="store_true",
+        help="Accept network runs but do not persist them (RAM + cache only) "
+             "— for CI, demos, and tests.",
     )
     p_serve.add_argument("--api-token", help="Require this token on API requests via X-Nebo-Token / ?token=. Sets NEBO_API_TOKEN.")
     p_serve.add_argument("--read", choices=["public", "private"], help="Read access mode (default: public). Only matters when --api-token is set.")
@@ -1030,6 +1212,68 @@ def main() -> None:
     p_runs_wait.add_argument("run_id")
     p_runs_wait.add_argument("--timeout", type=float, default=300.0)
     p_runs_wait.add_argument("--min-level", type=int, default=20)
+    p_runs_mv = runs_sub.add_parser(
+        "mv", parents=[_common_conn_parser()],
+        help="Move a run into a group (or --root)",
+    )
+    p_runs_mv.add_argument("run_id")
+    p_runs_mv.add_argument("group", nargs="?", help="Destination group path")
+    p_runs_mv.add_argument(
+        "--root", action="store_true", help="Move the run to the root (no group)"
+    )
+
+    # tree
+    p_tree = subparsers.add_parser(
+        "tree", parents=[_common_conn_parser()],
+        help="Render the run tree (groups + runs)",
+    )
+
+    # groups
+    p_groups = subparsers.add_parser("groups", help="Manage run groups and docs")
+    groups_sub = p_groups.add_subparsers(dest="groups_action", required=True)
+    p_g_add = groups_sub.add_parser(
+        "add", parents=[_common_conn_parser()], help="Create a group (with ancestors)"
+    )
+    p_g_add.add_argument("path")
+    p_g_ls = groups_sub.add_parser(
+        "ls", parents=[_common_conn_parser()],
+        help="List a group's subgroups, member runs, and docs",
+    )
+    p_g_ls.add_argument("path", nargs="?", help="Group path (root if omitted)")
+    p_g_mv = groups_sub.add_parser(
+        "mv", parents=[_common_conn_parser()], help="Rename/move a group subtree"
+    )
+    p_g_mv.add_argument("path")
+    p_g_mv.add_argument("new_path")
+    p_g_rm = groups_sub.add_parser(
+        "rm", parents=[_common_conn_parser()],
+        help="Delete an empty group (refuses if it has runs or subgroups)",
+    )
+    p_g_rm.add_argument("path")
+    p_g_doc = groups_sub.add_parser("doc", help="Manage a group's markdown docs")
+    doc_sub = p_g_doc.add_subparsers(dest="doc_action", required=True)
+    p_d_ls = doc_sub.add_parser(
+        "ls", parents=[_common_conn_parser()], help="List a group's docs"
+    )
+    p_d_ls.add_argument("path")
+    p_d_get = doc_sub.add_parser(
+        "get", parents=[_common_conn_parser()], help="Print a doc's markdown"
+    )
+    p_d_get.add_argument("path")
+    p_d_get.add_argument("name")
+    p_d_set = doc_sub.add_parser(
+        "set", parents=[_common_conn_parser()], help="Write a doc (--file or --text)"
+    )
+    p_d_set.add_argument("path")
+    p_d_set.add_argument("name")
+    _d_src = p_d_set.add_mutually_exclusive_group(required=True)
+    _d_src.add_argument("--file", help="Read the doc body from this file")
+    _d_src.add_argument("--text", help="Doc body given inline")
+    p_d_rm = doc_sub.add_parser(
+        "rm", parents=[_common_conn_parser()], help="Delete a doc"
+    )
+    p_d_rm.add_argument("path")
+    p_d_rm.add_argument("name")
 
     # graph
     p_graph = subparsers.add_parser("graph", help="Inspect the DAG")
@@ -1143,6 +1387,8 @@ def main() -> None:
         "skill": cmd_skill,
         "deploy": _lazy_deploy,
         "runs": cmd_runs,
+        "tree": cmd_tree,
+        "groups": cmd_groups,
         "graph": cmd_graph,
         "loggables": cmd_loggables,
         "describe": cmd_describe,

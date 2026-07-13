@@ -19,12 +19,14 @@ import logging as _stdlib_logging
 from typing import Any, Literal, Optional, TypeVar
 
 from nebo.core.decorators import fn
+from nebo.core.client import DaemonLocalOnlyError
 from nebo.core.tracker import track
 from nebo.core.config import log_cfg
 from nebo.core.state import get_state
 from nebo.alerts import AlertLevel, alert
 from nebo.notebook import show
 from nebo import labels
+from nebo.core import groups
 from nebo.logging.logger import (
     log,
     log_line,
@@ -96,6 +98,7 @@ def init(
     dag_strategy: Literal["object", "stack", "both", "linear", "none"] = "object",
     flush_interval: float = 0.1,
     api_token: Optional[str] = None,
+    group: Optional[str] = None,
     webhook_url: Optional[str] = None,
     webhook_min_level: Optional[int] = None,
     _internal: bool = False,
@@ -127,6 +130,10 @@ def init(
         api_token: Token for daemons that require auth. Sent as
             ``X-Nebo-Token``. Defaults to env var NEBO_API_TOKEN.
             Network mode only; ignored in file mode.
+        group: Run-tree group path this run is born into (e.g.
+            ``"vision/detr/lr-sweep"``), organizing it in the UI/CLI tree.
+            ``NEBO_GROUP`` overrides this; ``nb.start_run(group=)`` overrides
+            per run. Invalid paths raise ``ValueError``. See ``nb.groups``.
         webhook_url: Slack-compatible webhook URL for ``nb.alert()``.
         webhook_min_level: Minimum ``AlertLevel`` that fires the webhook.
     """
@@ -174,6 +181,10 @@ def init(
     state._pending_flush_interval = flush_interval
     state._pending_api_token = api_token
     state._pending_run_id = os.environ.get("NEBO_RUN_ID")
+    # Validate the group at the call site so a bad path fails fast (env and
+    # start_run overrides are resolved + re-validated at run materialization).
+    from nebo.core.groups import validate_group_path
+    state._pending_group = validate_group_path(group)
     state._mode = "file" if mode is Mode.FILE else "network"
 
     _install_text_logger()
@@ -191,6 +202,10 @@ def init(
             flush_interval=flush_interval,
         )
         if not transport.connect():
+            # A local-only daemon is a hard misconfiguration — surface it at
+            # init() rather than silently buffering events that never land.
+            if transport._policy_error:
+                raise DaemonLocalOnlyError(transport._policy_error)
             print(
                 f"warning: could not reach nebo daemon at {dest}. "
                 "events will be buffered locally and dropped on exit.",
@@ -207,6 +222,7 @@ def _create_run_transport(
     *,
     name: Optional[str] = None,
     config: Optional[dict] = None,
+    group: Optional[str] = None,
 ) -> None:
     """Open the transport for a run, emit register + run_start, print banner.
 
@@ -234,6 +250,15 @@ def _create_run_transport(
     quiet = bool(os.environ.get("NEBO_QUIET"))
     script_name = os.path.abspath(sys.argv[0]) if sys.argv else "script"
 
+    # Resolve the run-tree group: NEBO_GROUP > start_run(group=) > init(group=).
+    from nebo.core.groups import validate_group_path
+    env_group = os.environ.get("NEBO_GROUP")
+    if env_group is not None:
+        group = env_group
+    elif group is None:
+        group = state._pending_group
+    group = validate_group_path(group)
+
     transport: Any = None
     banner_endpoint = ""
 
@@ -244,6 +269,8 @@ def _create_run_transport(
                 run_id=run_id,
                 script_path=script_name,
                 flush_interval=state._pending_flush_interval,
+                run_name=name,
+                group=group,
             )
             banner_endpoint = str(transport.filepath)
         else:
@@ -265,6 +292,8 @@ def _create_run_transport(
                 flush_interval=state._pending_flush_interval,
             )
             if not transport.connect():
+                if transport._policy_error:
+                    raise DaemonLocalOnlyError(transport._policy_error)
                 print(
                     f"warning: could not reach nebo daemon at {dest}. "
                     "events will be buffered locally and dropped on exit.",
@@ -291,6 +320,8 @@ def _create_run_transport(
         }
         if name is not None:
             run_start_data["run_name"] = name
+        if group:
+            run_start_data["group"] = group
         state._send_to_client({
             "type": "run_start",
             "data": run_start_data,
@@ -441,6 +472,7 @@ def start_run(
     name: Optional[str] = None,
     config: Optional[dict] = None,
     run_id: Optional[str] = None,
+    group: Optional[str] = None,
 ) -> _RunContext:
     """Start a new run or resume an existing one.
 
@@ -450,12 +482,18 @@ def start_run(
         name: Optional display name for the run.
         config: Optional config dict (or OmegaConf DictConfig).
         run_id: Optional run_id to resume a previous run.
+        group: Run-tree group path for this run (overrides ``nb.init(group=)``;
+            ``NEBO_GROUP`` overrides both). Invalid paths raise ``ValueError``.
 
     Returns:
         A _RunContext with a .run_id attribute.
     """
     _ensure_init()
     state = get_state()
+
+    if group is not None:
+        from nebo.core.groups import validate_group_path
+        validate_group_path(group)  # fail fast at the call site
 
     resolved_config = _resolve_config(config) if config is not None else None
     resuming = run_id is not None and run_id in state._run_snapshots
@@ -496,7 +534,7 @@ def start_run(
     # accidentally re-consume the env override.
     state._pending_run_id = None
 
-    _create_run_transport(run_id, name=name, config=resolved_config)
+    _create_run_transport(run_id, name=name, config=resolved_config, group=group)
     # Flip the materialized flag so _ensure_run is a no-op for the
     # remainder of the process: start_run takes ownership of the
     # run lifecycle.
@@ -521,7 +559,9 @@ __all__ = [
     "log_audio",
     "md",
     "labels",
+    "groups",
     "ui",
     "start_run",
     "get_state",
+    "DaemonLocalOnlyError",
 ]

@@ -1,8 +1,9 @@
 """Shared pytest configuration.
 
 Suite-wide invariants:
-* NEBO_NO_STORE=1 — SDK file mode opens no file; daemon save-files path
-  is gated by --save-files flags so tests don't litter the working dir.
+* NEBO_NO_STORE=1 — SDK file mode opens no file, so tests don't litter
+  the working dir. (A bare DaemonState() defaults to remote-ephemeral, so
+  daemon-side ingest also persists nothing unless a test opts in.)
 * NEBO_QUIET=1 — suppress the startup banner so pytest's stdout capture
   stays focused on what each test prints.
 """

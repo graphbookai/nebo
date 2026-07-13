@@ -174,6 +174,7 @@ class SessionState:
         self._pending_flush_interval: float = 0.1
         self._pending_api_token: Optional[str] = None
         self._pending_run_id: Optional[str] = None
+        self._pending_group: str = ""  # run tree group from nb.init(group=)
         self._pending_transport: Any = None
         # Flips True once a run's transport has been opened (or skipped
         # under NEBO_NO_STORE in file mode). Guards _ensure_run from
@@ -505,6 +506,7 @@ class SessionState:
             self._pending_flush_interval = 0.1
             self._pending_api_token = None
             self._pending_run_id = None
+            self._pending_group = ""
             self._pending_transport = None
             self._run_materialized = False
 

@@ -181,6 +181,81 @@ async def delete_alert(rule_id: str, server_url: str = _DEFAULT_URL) -> dict[str
         return _daemon_unreachable(server_url, e)
 
 
+# ─── Run Tree (groups) ───────────────────────────────────────────────────────
+#
+# Organize runs into a filesystem-like group hierarchy and document each group.
+# The intended loop: run a sweep (runs land in a group via NEBO_GROUP), inspect
+# metrics with the observation tools, then write the group's README.md with what
+# it represents, why the experiments ran, how, and the conclusive findings —
+# citing runs/steps with nebo:// links (e.g. nebo://run/<id>?step=<n>).
+
+
+async def get_tree(server_url: str = _DEFAULT_URL) -> dict[str, Any]:
+    """Get the run tree: groups (with their docs) and per-run placements."""
+    try:
+        return _client.get_tree(url=server_url)
+    except Exception as e:
+        return _daemon_unreachable(server_url, e)
+
+
+async def create_group(path: str, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
+    """Create a group (and any missing ancestors), e.g. 'vision/detr/lr-sweep'."""
+    try:
+        return _client.create_group(path, url=server_url)
+    except Exception as e:
+        return {"error": f"could not create group: {e}"}
+
+
+async def move_group(path: str, new_path: str, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
+    """Rename/move a group subtree (its runs and docs move with it)."""
+    try:
+        return _client.move_group(path, new_path, url=server_url)
+    except Exception as e:
+        return {"error": f"could not move group: {e}"}
+
+
+async def delete_group(path: str, server_url: str = _DEFAULT_URL) -> dict[str, Any]:
+    """Delete an empty group (refuses if it has member runs or subgroups)."""
+    try:
+        return _client.delete_group(path, url=server_url)
+    except Exception as e:
+        return {"error": f"could not delete group: {e}"}
+
+
+async def move_run(run_id: str, group: str = "", server_url: str = _DEFAULT_URL) -> dict[str, Any]:
+    """Place a run in a group (empty string = root). Auto-creates the target."""
+    try:
+        return _client.set_run_group(run_id, group, url=server_url)
+    except Exception as e:
+        return {"error": f"could not move run: {e}"}
+
+
+async def get_group_doc(path: str, name: str = "README.md", server_url: str = _DEFAULT_URL) -> dict[str, Any]:
+    """Read a group's markdown doc (default README.md)."""
+    try:
+        content = _client.get_group_doc(path, name, url=server_url)
+    except Exception as e:
+        return _daemon_unreachable(server_url, e)
+    if content is None:
+        return {"error": f"doc '{name}' not found in group '{path}'"}
+    return {"path": path, "name": name, "content": content}
+
+
+async def set_group_doc(
+    path: str, content: str, name: str = "README.md", server_url: str = _DEFAULT_URL,
+) -> dict[str, Any]:
+    """Write/overwrite a group's markdown doc (default README.md).
+
+    Use this to record what the group represents, why the experiments were run,
+    how they were run (commands/config/NEBO_GROUP), and the findings — citing
+    runs/steps with nebo:// links.
+    """
+    try:
+        return _client.set_group_doc(path, name, content, url=server_url)
+    except Exception as e:
+        return {"error": f"could not write doc: {e}"}
+
+
 # ─── Write Tools ─────────────────────────────────────────────────────────────
 #
 # These mirror the SDK's `nb.log_*` helpers as MCP tools so an external

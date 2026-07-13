@@ -236,7 +236,7 @@ UI Configuration
 Initialization
 --------------
 
-.. function:: nb.init(uri: str | None = None, *, dag_strategy: str = "object", flush_interval: float = 0.1, api_token: str | None = None, webhook_url: str | None = None, webhook_min_level: int | None = None) -> None
+.. function:: nb.init(uri: str | None = None, *, dag_strategy: str = "object", flush_interval: float = 0.1, api_token: str | None = None, group: str | None = None, webhook_url: str | None = None, webhook_min_level: int | None = None) -> None
 
     Explicitly initialize nebo.
 
@@ -254,8 +254,13 @@ Initialization
     :param dag_strategy: How DAG edges are inferred: ``"object"`` (default), ``"stack"``, ``"both"``, ``"linear"``, or ``"none"``. ``"linear"`` chains nodes in first-execution order.
     :param flush_interval: Seconds between event flushes (default: 0.1).
     :param api_token: Token for daemons that require auth (network mode only). Sent as the ``X-Nebo-Token`` header. Defaults to env var ``NEBO_API_TOKEN``.
+    :param group: Run-tree group path this run is born into (e.g. ``"vision/detr/lr-sweep"``), organizing it in the UI/CLI tree. ``nb.start_run(group=)`` overrides per run; ``NEBO_GROUP`` overrides both. Invalid paths raise ``ValueError``.
     :param webhook_url: Slack-compatible webhook URL for ``nb.alert()``.
     :param webhook_min_level: Minimum ``AlertLevel`` that fires the webhook.
+    :raises nb.DaemonLocalOnlyError: In network mode, if the daemon is
+        running local-only (plain ``nebo serve``) and so refuses network
+        runs — restart it with ``--remote`` or ``--remote-ephemeral``. Raised
+        immediately (fail-fast) rather than after buffering events.
 
     .. note::
 
@@ -474,8 +479,8 @@ Commands
 MCP Tools Reference
 ====================
 
-The daemon exposes 21 MCP tools split across observation, action, and
-write categories.
+The daemon exposes 23 MCP tools split across observation, action, run-tree,
+and write categories.
 
 Observation Tools
 -----------------
@@ -600,6 +605,37 @@ values aren't silently dropped.
     :param entries: Single dict or list. Each: ``{run_id?, loggable_id?, message, level?, step?}``.
     :param run_id: Default run ID.
 
+Run Tree Tools
+--------------
+
+``nebo_get_tree``
+    Get the run tree: ``groups`` (each with its doc filenames) and per-run
+    placements. Runs absent from the placements map are at the root.
+
+``nebo_create_group``
+    Create a group (and any missing ancestors), e.g. ``vision/detr/lr-sweep``.
+
+    :param path: Group path (required).
+
+``nebo_move_group`` / ``nebo_delete_group``
+    Rename/move a group subtree, or delete an empty one (409 if it has member
+    runs or subgroups). :param path: (and ``new_path`` for move).
+
+``nebo_move_run``
+    Place a run in a group (empty string = root); auto-creates the target.
+
+    :param run_id: The run (required).
+    :param group: Destination group path (default: root).
+
+``nebo_get_group_doc`` / ``nebo_set_group_doc``
+    Read or write a group's markdown doc (default ``README.md``). Record what
+    the group is, why/how the experiments ran, and the findings — citing runs
+    with ``nebo://run/<id>?step=<n>`` links.
+
+    :param path: Group path (required).
+    :param content: Markdown body (``set`` only, required).
+    :param name: Doc filename (default ``README.md``).
+
 
 Environment Variables
 ======================
@@ -630,16 +666,27 @@ SDK-side (read by ``nb.init()``):
 Daemon-side (read by ``nebo serve``):
 
 ``NEBO_LOGDIR``
-    Directory the watcher tails for ``.nebo`` files written by SDK
-    file-mode runs. Set automatically by ``nebo serve --logdir``.
+    The daemon's workspace root (watched dir, cache anchor, and ``meta/``
+    home). Set automatically by ``nebo serve --logdir``.
 
-``NEBO_SAVE_FILES``
-    Directory the daemon persists network-mode events into. Off by
-    default. Set automatically by ``nebo serve --save-files``.
+``NEBO_REMOTE``
+    A path (or ``1`` for the default ``<logdir>/remote/``): the daemon
+    accepts network runs and persists them there. Set by
+    ``nebo serve --remote``.
+
+``NEBO_REMOTE_EPHEMERAL``
+    When set, the daemon accepts network runs but persists none of them
+    (RAM + cache only). Set by ``nebo serve --remote-ephemeral``. Mutually
+    exclusive with ``NEBO_REMOTE``.
+
+``NEBO_GROUP``
+    Run-tree group path a run is born into — overrides
+    ``nb.start_run(group=)`` and ``nb.init(group=)`` (useful for placing
+    each child of a sweep without code changes).
 
 ``NEBO_NO_LOCAL``
-    When set, the daemon's directory watcher is disabled. Set
-    automatically by ``nebo serve --no-local``.
+    When set, the daemon's directory watcher is disabled (needs a remote
+    flag). Set automatically by ``nebo serve --no-local``.
 
 ``NEBO_DAEMON_PORT``
     Used internally by the daemon process itself.

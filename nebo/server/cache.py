@@ -2,8 +2,8 @@
 
 `.nebo` files remain the sole source of truth; this cache is derived
 state. Deleting the database never loses data that exists in a `.nebo`
-file (network-mode runs logged without --save-files are the documented
-exception — they are ephemeral by user choice).
+file (runs on a `--remote-ephemeral` daemon are the documented exception —
+they live only in RAM + this cache, ephemeral by user choice).
 
 Design:
   * Ingest keeps mutating RAM synchronously (the hot path is untouched)
@@ -34,7 +34,7 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "4"
 
 DEFAULT_RAM_BUDGET_MB = 384
 BYTES_PER_POINT = 372  # measured: dict-per-point daemon entry overhead
@@ -45,7 +45,7 @@ _SCHEMA = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE runs (
   run_id TEXT PRIMARY KEY, script_path TEXT, run_name TEXT, args_json TEXT,
-  started_at REAL, ended_at REAL, source TEXT,
+  started_at REAL, last_event_at REAL, source TEXT,
   workflow_description TEXT, config_json TEXT, ui_config_json TEXT,
   run_config_json TEXT, edges_json TEXT
 );
@@ -77,7 +77,8 @@ CREATE INDEX idx_media_run ON media(run_id, loggable_id);
 CREATE INDEX idx_media_mid ON media(media_id);
 CREATE TABLE media_blobs (media_id TEXT PRIMARY KEY, blob BLOB);
 CREATE TABLE watch_files (
-  path TEXT PRIMARY KEY, run_id TEXT, offset INTEGER, size INTEGER, mtime REAL
+  path TEXT PRIMARY KEY, run_id TEXT, offset INTEGER, size INTEGER, mtime REAL,
+  shallow INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -334,7 +335,7 @@ class RunCache:
     # Columns accepted by the two partial-upsert ops. Guards the dynamic
     # SQL below against arbitrary keys.
     _RUN_COLS = frozenset({
-        "script_path", "run_name", "args_json", "started_at", "ended_at",
+        "script_path", "run_name", "args_json", "started_at", "last_event_at",
         "source", "workflow_description", "config_json", "ui_config_json",
         "run_config_json", "edges_json",
     })
@@ -430,14 +431,16 @@ class RunCache:
                 (media_id, blob),
             )
         elif kind == "watch_file":
-            _, path, run_id, offset, size, mtime = op
+            _, path, run_id, offset, size, mtime, shallow = op
             conn.execute(
-                "INSERT INTO watch_files (path, run_id, offset, size, mtime)"
-                " VALUES (?, ?, ?, ?, ?)"
+                "INSERT INTO watch_files"
+                " (path, run_id, offset, size, mtime, shallow)"
+                " VALUES (?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT(path) DO UPDATE SET"
                 " run_id=excluded.run_id, offset=excluded.offset,"
-                " size=excluded.size, mtime=excluded.mtime",
-                (path, run_id, offset, size, mtime),
+                " size=excluded.size, mtime=excluded.mtime,"
+                " shallow=excluded.shallow",
+                (path, run_id, offset, size, mtime, int(shallow)),
             )
         else:
             raise ValueError(f"unknown cache op kind: {kind!r}")
@@ -510,7 +513,7 @@ class RunCache:
             "script_path": row["script_path"],
             "args": json.loads(row["args_json"]) if row["args_json"] else [],
             "started_at": _iso(row["started_at"]),
-            "ended_at": _iso(row["ended_at"]),
+            "last_event_at": row["last_event_at"],
             "node_count": node_count,
             "edge_count": len(edges),
             "log_count": log_count,
@@ -826,6 +829,7 @@ class RunCache:
                 "offset": r["offset"],
                 "size": r["size"],
                 "mtime": r["mtime"],
+                "shallow": bool(r["shallow"]),
             }
             for r in rows
         }

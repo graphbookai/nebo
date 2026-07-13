@@ -22,7 +22,7 @@ class TestDaemonState:
         assert run.script_path == "test_script.py"
         assert run.args == ["--epochs", "10"]
         assert run.started_at is not None
-        assert run.ended_at is None
+        assert run.last_event_at > 0  # recency seeded at creation; no ended_at
         assert self.state.active_run_id == run.id
 
     def test_create_run_custom_id(self) -> None:
@@ -529,7 +529,12 @@ class TestRunCompletedEventClearsActiveRun:
             f"active_run_id should be None after run_completed event, "
             f"got {state.active_run_id!r}"
         )
-        assert state.runs["bug10_repro"].ended_at is not None
+        # run_completed carries no ended_at (no lifecycle state) — it is
+        # recorded only as a significant event, which /events/wait fires on.
+        assert any(
+            e["type"] == "run_completed"
+            for e in state.runs["bug10_repro"].significant_events
+        )
 
     def test_run_completed_event_preserves_other_active_run(self) -> None:
         """A run_completed event for a non-active run must not clear active_run_id."""

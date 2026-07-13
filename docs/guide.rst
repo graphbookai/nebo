@@ -519,16 +519,21 @@ In file mode the SDK writes ``.nebo/<timestamp>_<run_id>.nebo``
 directly. To make a particular invocation a no-op (no file opened),
 set ``NEBO_NO_STORE=1`` — used by the test suite.
 
-In network mode the daemon stays in-memory by default. Pass
-``--save-files PATH`` to persist incoming events to disk:
+A plain ``nebo serve`` is **local-only**: it watches ``--logdir`` and
+*rejects* runs pushed over the network (the SDK raises
+``nb.DaemonLocalOnlyError`` at ``init`` time so the misconfiguration
+surfaces immediately). To host a daemon that accepts network runs, choose
+how they're persisted:
 
 .. code-block:: bash
 
-    nebo serve --save-files ./.nebo/
+    nebo serve --remote ./runs/       # accept + persist to ./runs/*.nebo
+    nebo serve --remote-ephemeral     # accept, persist nothing (CI/demos)
 
-The watcher (``--logdir``) and the writer (``--save-files``) can't
-share a directory — the daemon refuses to start if they resolve to
-the same path.
+The watcher (``--logdir``) and the ``--remote`` writer dir can't be the
+same directory — the daemon refuses to start if they resolve to the same
+path (nesting under the logdir is fine). Env mirrors: ``NEBO_REMOTE`` and
+``NEBO_REMOTE_EPHEMERAL``.
 
 To load a ``.nebo`` file into a *local* daemon for viewing and Q&A:
 
@@ -551,11 +556,48 @@ daemon can't see your filesystem:
 you don't have to repeat the flags.
 
 
+Organizing Runs into Groups
+===========================
+
+Runs live in a filesystem-like tree of **groups** (e.g.
+``vision/detr/lr-sweep``). A run is born into a group three ways, in
+precedence order ``NEBO_GROUP`` > ``start_run(group=)`` > ``init(group=)``:
+
+.. code-block:: python
+
+    nb.init(group="vision/detr")                      # process default
+    with nb.start_run(name="lr=3e-4", group="vision/detr/lr-sweep"):
+        ...
+
+For a sweep, set ``NEBO_GROUP`` per child process so the launcher places
+each run without touching the code:
+
+.. code-block:: bash
+
+    NEBO_GROUP=sweeps/lr/run-3 python train.py
+
+Reorganize and document groups from the CLI (or the MCP tools):
+
+.. code-block:: bash
+
+    nebo tree                                    # the whole tree
+    nebo runs mv run_1748_0 vision/detr/lr-sweep
+    nebo groups doc set vision/detr README.md --file findings.md
+
+Each group holds markdown docs (``README.md`` renders first in the UI).
+Docs support ``nebo://`` deep links — ``nebo://run/<id>``,
+``nebo://run/<id>?step=<n>``, and ``nebo://group/<path>`` — that become
+clickable navigation in the web UI. Groups are a *virtual* tree over
+run_ids; ``.nebo`` files never move. The tree persists in
+``<logdir>/meta/tree.json`` (outside the disposable cache, so it survives
+``nebo cache clear``). See :doc:`the CLI reference <cli>` for every command.
+
+
 MCP Integration for AI Agents
 ===============================
 
-Nebo includes 21 MCP tools that allow AI agents (like Claude) to
-run, monitor, debug, query, and *push data into* pipelines. To set
+Nebo includes 23 MCP tools that allow AI agents (like Claude) to
+monitor, debug, query, organize, and *push data into* pipelines. To set
 up MCP:
 
 1. Start the daemon:

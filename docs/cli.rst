@@ -79,20 +79,50 @@ WebSocket.
 
 .. option:: --logdir <dir>
 
-    Directory the daemon watches for ``.nebo`` files written by SDK
-    file-mode runs (default: ``./.nebo``). Files are ingested as they
-    grow, and progress survives daemon restarts.
+    The daemon's **workspace root** (default: ``./.nebo``) in every mode:
+    it anchors the SQLite cache, the run-tree ``meta/`` directory, and the
+    default ``--remote`` directory. It is also the directory the watcher
+    tails for ``.nebo`` files written by SDK file-mode runs (ingested as
+    they grow, resuming across restarts).
+
+**Daemon modes.** By default (plain ``nebo serve``) the daemon is
+**local**: it only ingests ``.nebo`` files from ``--logdir`` and *rejects*
+runs pushed over the network (the SDK fails fast with a clear error). To
+accept network runs, pick one:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Invocation
+     - Network runs
+     - Persistence
+   * - ``nebo serve``
+     - rejected
+     - — (local file watcher only)
+   * - ``nebo serve --remote [DIR]``
+     - accepted
+     - daemon writes ``.nebo`` files to ``DIR``
+   * - ``nebo serve --remote-ephemeral``
+     - accepted
+     - none (RAM + cache only; CI, demos, tests)
+
+.. option:: --remote [<dir>]
+
+    Accept runs over the network and persist them as ``.nebo`` files in
+    ``<dir>`` (default ``<logdir>/remote/``). Mutually exclusive with
+    ``--remote-ephemeral``; the directory may not equal ``--logdir`` but
+    may nest under it.
+
+.. option:: --remote-ephemeral
+
+    Accept network runs but do **not** persist them (RAM + disposable
+    cache only). For CI, demos, and tests.
 
 .. option:: --no-local
 
-    Disable the directory watcher; the daemon listens for network
-    events only.
-
-.. option:: --save-files <dir>
-
-    Persist network-mode events to ``.nebo`` files at this path. Off by
-    default. Cannot be the same directory as ``--logdir`` (the watcher
-    would re-ingest the daemon's own output).
+    Disable the directory watcher (the logdir still anchors the cache and
+    ``meta/``). Requires ``--remote`` or ``--remote-ephemeral`` — with the
+    watcher off and no network intake the daemon would ingest nothing.
 
 .. option:: --api-token <token>
 
@@ -126,9 +156,9 @@ WebSocket.
 .. option:: --ram-budget <mb>
 
     RAM budget for resident run data — metric points and log lines
-    across all runs (default: ``384``). Beyond it, idle
-    completed runs are evicted from RAM and oversized live runs are
-    served from the cache instead.
+    across all runs (default: ``384``). Beyond it, the idlest runs are
+    evicted from RAM (rehydrated from the cache if they resume) and a lone
+    oversized still-active run is served from the cache instead.
 
 .. option:: --media-lru <mb>
 
@@ -141,7 +171,8 @@ WebSocket.
     At startup, delete cache databases untouched for this many days
     (default: ``30``).
 
-Environment mirrors for the cache flags: ``NEBO_CACHE_PATH``,
+Environment mirrors: ``NEBO_REMOTE`` (a path, or ``1`` for the default
+dir), ``NEBO_REMOTE_EPHEMERAL``, plus the cache flags ``NEBO_CACHE_PATH``,
 ``NEBO_NO_CACHE``, ``NEBO_RAM_BUDGET_MB``, ``NEBO_MEDIA_LRU_MB``,
 ``NEBO_CACHE_RETENTION_DAYS``.
 
@@ -152,9 +183,10 @@ nebo cache
 
 Inspect or delete the daemon's SQLite cache databases. Pure file
 operations — no daemon required. Deleting a cache is safe for runs
-backed by ``.nebo`` files (it rebuilds on the next ``serve``); runs
-received over the network **without** ``--save-files`` live only in the
-cache and are deleted with it.
+backed by ``.nebo`` files (it rebuilds on the next ``serve``); runs from
+a ``--remote-ephemeral`` daemon live only in the cache and are deleted
+with it. The run tree (``meta/tree.json``) lives under ``--logdir``, not
+the cache, so ``cache clear`` never touches your run organization.
 
 .. code-block:: bash
 
@@ -335,6 +367,41 @@ nebo runs
     (default ``300``). Prints ``{"status": "alert", ...}`` or
     ``{"status": "timeout"}`` — the building block for "tell me when
     the loss spikes" agent loops, paired with ``nebo alerts set``.
+
+.. option:: mv <run_id> [<group> | --root]
+
+    Move a run into a group (auto-created if needed), or ``--root`` to
+    place it at the top level. See :doc:`nebo tree <cli>` below.
+
+nebo tree / nebo groups
+=======================
+
+.. program:: nebo tree
+
+Runs organize into a filesystem-like tree of **groups** (e.g.
+``vision/detr/lr-sweep``). A run is born into a group via
+``nb.init(group=...)`` / ``nb.start_run(group=...)`` / the ``NEBO_GROUP``
+env var; reorganize afterward from here. Each group can hold markdown docs
+(``README.md`` is rendered first in the UI).
+
+.. code-block:: bash
+
+    nebo tree                                   # render the whole tree
+    nebo groups add vision/detr/lr-sweep        # create (with ancestors)
+    nebo groups ls vision/detr                  # subgroups, runs, docs
+    nebo groups mv vision/detr vision/detr-v2   # rename/move a subtree
+    nebo groups rm vision/old                    # delete an EMPTY group
+    nebo runs mv run_1748_0 vision/detr/lr-sweep
+    nebo groups doc set vision/detr README.md --file findings.md
+    nebo groups doc get vision/detr README.md
+
+``nebo tree [--json]`` prints ``{groups: {path: {docs: [...]}}, runs:
+{run_id: group}}`` (runs absent from ``runs`` are at the root).
+``groups rm`` refuses if the group still has member runs or subgroups —
+move them out first (nebo has no run deletion). Group docs support
+``nebo://run/<id>``, ``nebo://run/<id>?step=<n>``, and
+``nebo://group/<path>`` deep links that the web UI turns into clickable
+navigation.
 
 nebo graph
 ==========

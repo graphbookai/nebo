@@ -75,7 +75,66 @@ rely on the human-formatted columns.
 `nebo runs show --json` keys worth knowing: `run_config` (the dict passed
 to `nb.start_run(config=...)`), `metrics_index` ({loggable: [metric
 names]}), `metric_series_count`, `latest_step`, `node_count`,
-`log_count`, `error_count`, `started_at`/`ended_at`.
+`log_count`, `started_at`, `last_event_at` (epoch seconds of the most
+recent event — there is no end time; a run is never known to be "done").
+
+## Organizing runs into groups
+
+Runs live in a filesystem-like tree of **groups** (e.g. `vision/detr/lr-sweep`).
+A run is born into a group via `nb.init(group=...)`, `nb.start_run(group=...)`,
+or the `NEBO_GROUP` env var; you can reorganize afterward from the CLI. Each
+group can hold markdown docs.
+
+| Intent | Command |
+|---|---|
+| Render the whole tree | `nebo tree --json` |
+| List a group (subgroups, runs, docs) | `nebo groups ls <path> --json` |
+| Create a group (with ancestors) | `nebo groups add <path>` |
+| Rename/move a group subtree | `nebo groups mv <path> <new-path>` |
+| Delete an empty group | `nebo groups rm <path>` |
+| Move a run into a group | `nebo runs mv <run_id> <group>` |
+| Move a run back to the root | `nebo runs mv <run_id> --root` |
+| List a group's docs | `nebo groups doc ls <path>` |
+| Read a doc | `nebo groups doc get <path> <name>` |
+| Write a doc | `nebo groups doc set <path> <name> --file F` (or `--text T`) |
+| Delete a doc | `nebo groups doc rm <path> <name>` |
+
+`nebo tree --json` returns `{groups: {path: {docs: [...]}}, runs: {run_id:
+group_path}}`; runs absent from `runs` are at the root. `groups rm` refuses
+(exit non-zero) if the group still has member runs or subgroups — move them out
+first (nebo has no run deletion).
+
+### The curation contract (do this — it's the point)
+
+When you create a group or finish a batch of work inside one, **write or update
+that group's `README.md`**. Cover, in order:
+
+1. **What** this group represents (one or two sentences).
+2. **Why** the experiments were run — the question or hypothesis.
+3. **How** they were run — commands, configs, data, the `NEBO_GROUP` used —
+   enough for someone to reproduce them.
+4. **Findings** — the conclusive impressions and results, updated as results
+   land, each citing the specific run(s)/step(s) they came from.
+
+Docs are living documents: update `README.md` when conclusions change, and add
+extra named docs (`ablations.md`, `failures.md`) rather than letting the README
+sprawl. Write it with `nebo groups doc set <path> README.md --file <file>`.
+
+### Linking to runs and steps (`nebo://`)
+
+Inside a doc, cite specific runs and moments with `nebo://` links — clicking
+them in the UI jumps straight there:
+
+```markdown
+The [baseline](nebo://run/a3f8c2d1) plateaued, but
+[lr=3e-4 diverged at step 1200](nebo://run/9b04e7aa?step=1200).
+See the earlier [detr experiments](nebo://group/vision/detr).
+```
+
+- `nebo://run/<run_id>` — open that run.
+- `nebo://run/<run_id>?step=<int>` — open the run **and** jump to that step
+  (prefer this whenever a claim is about a specific moment in training).
+- `nebo://group/<path>` — open that group's page.
 
 ### `metrics get` response schema
 
@@ -269,4 +328,11 @@ are available without spawning subprocesses. Both transports are parallel
 | `nebo images log` | `nebo_log_image` |
 | `nebo audio log` | `nebo_log_audio` |
 | `nebo runs wait` | `nebo_wait_for_alert` |
+| `nebo tree` | `nebo_get_tree` |
+| `nebo groups add` | `nebo_create_group` |
+| `nebo groups mv` | `nebo_move_group` |
+| `nebo groups rm` | `nebo_delete_group` |
+| `nebo runs mv` | `nebo_move_run` |
+| `nebo groups doc get` | `nebo_get_group_doc` |
+| `nebo groups doc set` | `nebo_set_group_doc` |
 | `nebo load` | `nebo_load_file` |

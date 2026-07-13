@@ -10,6 +10,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import logging
 import os
 import time
 import uuid
@@ -26,6 +27,8 @@ from nebo.server.cache import (
     media_id_for,
 )
 from nebo.server.protocol import MessageType, decode_batch
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -78,7 +81,6 @@ class Run:
     script_path: str
     args: list[str] = field(default_factory=list)
     started_at: Optional[datetime] = None
-    ended_at: Optional[datetime] = None
     loggables: dict[str, "LoggableState"] = field(default_factory=dict)
     edges: list[dict[str, str]] = field(default_factory=list)
     _edge_set: set[tuple[str, str]] = field(default_factory=set, repr=False)
@@ -159,7 +161,7 @@ class Run:
             "script_path": self.script_path,
             "args": self.args,
             "started_at": self.started_at.isoformat() if self.started_at else None,
-            "ended_at": self.ended_at.isoformat() if self.ended_at else None,
+            "last_event_at": self.last_event_at or None,
             "node_count": sum(1 for l in self.loggables.values() if l.kind == "node"),
             "edge_count": len(self.edges),
             "log_count": len(self.logs),
@@ -182,6 +184,17 @@ ALERT_CONDITION_OPS = {
 }
 
 _ALERT_LEVEL_NAMES = {10: "DEBUG", 20: "INFO", 30: "WARN", 40: "ERROR"}
+
+# Returned (HTTP 409) when a network client tries to create a run on a
+# local-only daemon. The copy names both flags so the fix is self-evident.
+_LOCAL_ONLY_ERROR = {
+    "error": "daemon_local_only",
+    "detail": (
+        "This daemon does not accept network runs. Restart it with "
+        "`nebo serve --remote [dir]` to persist incoming runs, or "
+        "`--remote-ephemeral` to accept them without persistence."
+    ),
+}
 
 
 def _sniff_mime(data: bytes) -> str:
@@ -285,8 +298,23 @@ class DaemonState:
             else MediaLRU(DEFAULT_MEDIA_LRU_MB * 1024 * 1024)
         )
         self._media_fallback: dict[str, bytes] = {}
-        self._save_files_path: Optional[Path] = None
+        # Persistence mode. A bare DaemonState() (tests, embedders) defaults
+        # to "remote-ephemeral" so direct network ingest works without flags;
+        # the real server (`create_daemon_app(state=None)`) starts "local" and
+        # env resolves the rest. "local" rejects network runs; "remote" writes
+        # them to `_remote_dir`; "remote-ephemeral" accepts without persisting.
+        self.mode: str = "remote-ephemeral"
+        self._remote_dir: Optional[Path] = None
         self._logdir: Optional[Path] = None
+        # Set by the lifespan when the directory watcher starts. Read-access
+        # deep-ingest of shallow (header-only) runs delegates to it.
+        self._watcher: Optional[Any] = None
+        # Run tree (groups + placements over meta/tree.json). None on a daemon
+        # with no workspace root (a bare DaemonState in tests). `_tree_dirty`
+        # is set when an ingest seeds a group, so ingest_events broadcasts a
+        # tree_updated after the batch.
+        self.tree: Optional[Any] = None
+        self._tree_dirty: bool = False
         # RAM budget for resident point entries (metric points + log lines),
         # enforced by the janitor. Converted from MB at BYTES_PER_POINT.
         from nebo.server.cache import BYTES_PER_POINT, DEFAULT_RAM_BUDGET_MB
@@ -312,18 +340,29 @@ class DaemonState:
 
     # -- eviction janitor ------------------------------------------------
     #
-    # RAM is a bounded working set; the SQL cache holds everything. Rules
-    # (in order, whichever fires first):
-    #   1. completed (ended_at set) and idle > 10 min  -> evict
-    #   2. no ended_at but idle > 60 min (crashed)     -> evict
-    #   3. resident points over budget                 -> evict completed,
-    #      oldest last_event_at first
-    #   4. a single LIVE run alone over budget         -> demote (drop
-    #      read-state, keep ingest-state; reads switch to SQL)
+    # RAM is a bounded working set; the SQL cache holds everything. There
+    # are no run states (a run is never known to be "done"), so liveness is
+    # approximated by recency of the last observed event. Rules, in order:
+    #   1. idle > EVICT_IDLE_S           -> evict (a run that resumes just
+    #                                       rehydrates cheaply from the cache)
+    #   2. resident points over budget   -> evict runs idlest-first until
+    #                                       under budget
+    #   3. a lone recently-active run    -> demote (drop read-state, keep
+    #      alone over budget                ingest-state; reads switch to
+    #                                       SQL) instead of evicting it
     # A no-op without a cache — eviction would otherwise lose data.
 
-    COMPLETED_IDLE_S = 600.0
-    CRASHED_IDLE_S = 3600.0
+    EVICT_IDLE_S = 1800.0
+
+    def _demotable(self, run: "Run", now: float) -> bool:
+        """A lone oversized run still receiving events: keep its ingest-state
+        (type locks, counters, edge dedup) resident so it doesn't thrash
+        rehydrate, dropping only the point history."""
+        return (
+            run.ram_complete
+            and (now - (run.last_event_at or 0.0)) < self.EVICT_IDLE_S
+            and run.resident_points > self.ram_budget_points
+        )
 
     def janitor_pass(self, *, now: Optional[float] = None) -> dict:
         result: dict[str, list[str]] = {"evicted": [], "demoted": []}
@@ -332,41 +371,51 @@ class DaemonState:
         if now is None:
             now = time.time()
 
+        # 1. Idle eviction.
         for rid, run in list(self.runs.items()):
-            idle = now - (run.last_event_at or 0.0)
-            if run.ended_at is not None and idle > self.COMPLETED_IDLE_S:
-                self._evict_run(rid)
-                result["evicted"].append(rid)
-            elif run.ended_at is None and idle > self.CRASHED_IDLE_S:
+            if (now - (run.last_event_at or 0.0)) > self.EVICT_IDLE_S:
                 self._evict_run(rid)
                 result["evicted"].append(rid)
 
+        # 2. Budget eviction: idlest (oldest last_event_at) first. A lone
+        #    recently-active run that alone exceeds budget is demoted below,
+        #    not evicted, so skip it here.
         total = sum(r.resident_points for r in self.runs.values())
         if total > self.ram_budget_points:
-            completed = sorted(
-                (r for r in self.runs.values() if r.ended_at is not None),
-                key=lambda r: r.last_event_at,
-            )
-            for run in completed:
+            for run in sorted(self.runs.values(), key=lambda r: r.last_event_at):
                 if total <= self.ram_budget_points:
                     break
+                if self._demotable(run, now):
+                    continue
                 total -= run.resident_points
                 self._evict_run(run.id)
                 result["evicted"].append(run.id)
 
+        # 3. Demote any lone oversized recently-active run.
         for rid, run in list(self.runs.items()):
-            if (
-                run.ended_at is None
-                and run.ram_complete
-                and run.resident_points > self.ram_budget_points
-            ):
+            if self._demotable(run, now):
                 self._demote_run(rid)
                 result["demoted"].append(rid)
+
+        # Keep SQL "last active" honest for demoted/rehydrated runs that read
+        # from the cache while still ingesting (their RAM value runs ahead).
+        for rid, run in self.runs.items():
+            if not run.ram_complete:
+                self._cache_put(
+                    ("run_upsert", rid, {"last_event_at": run.last_event_at})
+                )
 
         return result
 
     def _evict_run(self, run_id: str) -> None:
         """Drop a run from RAM entirely; its state lives in the cache."""
+        run = self.runs.get(run_id)
+        if run is not None:
+            # Persist final recency before the barrier so the run's
+            # cache-served summary shows the right "last active".
+            self._cache_put(
+                ("run_upsert", run_id, {"last_event_at": run.last_event_at})
+            )
         self.cache.flush()  # barrier: SQL must be complete before the drop
         self.runs.pop(run_id, None)
         if self.active_run_id == run_id:
@@ -377,6 +426,9 @@ class DaemonState:
         run = self.runs.get(run_id)
         if run is None:
             return
+        self._cache_put(
+            ("run_upsert", run_id, {"last_event_at": run.last_event_at})
+        )
         self.cache.flush()
         for lg in run.loggables.values():
             for series in lg.metrics.values():
@@ -562,6 +614,61 @@ class DaemonState:
             return True
         return self.cache is not None and self.cache.has_run(run_id)
 
+    def _tree_payload(self) -> dict:
+        """The GET /tree / tree_updated body, filtered to known runs."""
+        if self.tree is None:
+            return {"groups": {}, "runs": {}}
+        return self.tree.to_payload(set(self.known_run_ids()))
+
+    def _enqueue_tree_update(self) -> None:
+        """Broadcast the full tree to WS subscribers (idempotent snapshot).
+        Sync — enqueue never blocks — so both async endpoints and the ingest
+        seed path can call it."""
+        if not self._ws_clients:
+            return
+        msg = json.dumps({"type": "tree_updated", "data": self._tree_payload()})
+        for client in self._ws_clients[:]:
+            client.enqueue(msg)
+
+    async def ensure_deep(self, run_id: str) -> None:
+        """Deep-ingest a shallow (header-only) run before a detail read.
+
+        No-op unless a directory watcher is running and the run is still
+        shallow. The watcher owns the file read + per-run locking so two
+        concurrent requests don't double-ingest. Cheap after the first call.
+        """
+        watcher = self._watcher
+        if watcher is not None:
+            await watcher.ensure_deep(run_id)
+
+    def set_recency(self, run_id: str, ts: Optional[float]) -> None:
+        """Override a run's last_event_at (e.g. a shallow run's file mtime,
+        which is a better "last active" than the header-registration time)."""
+        if not ts:
+            return
+        run = self.runs.get(run_id)
+        if run is not None:
+            run.last_event_at = ts
+        self._cache_put(("run_upsert", run_id, {"last_event_at": ts}))
+
+    def local_mode_rejects(
+        self, events: list[dict], run_id: Optional[str],
+    ) -> bool:
+        """True when a network batch would CREATE a run on a local-only daemon.
+
+        Local mode accepts annotations of runs it already knows (discovered by
+        the directory watcher) but refuses to materialize *new* runs over the
+        network — those belong to a `--remote`/`--remote-ephemeral` daemon. A
+        `run_start`, or any event for an unknown run_id, would create one.
+        """
+        if self.mode != "local":
+            return False
+        for e in events:
+            if e.get("type") == "run_start":
+                return True
+        rid = run_id or self.active_run_id
+        return rid is None or not self.has_run_anywhere(rid)
+
     def create_run(
         self,
         script_path: str,
@@ -591,6 +698,7 @@ class DaemonState:
             "script_path": script_path,
             "args_json": json.dumps(args or []),
             "started_at": run.started_at.timestamp(),
+            "last_event_at": run.last_event_at,
             "source": run.source,
         }))
         # Seed implicit loggables so events that arrive without a node
@@ -605,12 +713,15 @@ class DaemonState:
         self.runs[run_id] = run
         self.active_run_id = run_id
 
-        if self._save_files_path is not None:
+        # Only network-originated runs get a remote-mode writer. Watcher and
+        # loaded runs (source != "network") already exist on disk.
+        if self._remote_dir is not None and source == "network":
             from nebo.core.fileformat import NeboFileWriter
-            self._save_files_path.mkdir(parents=True, exist_ok=True)
+            self._remote_dir.mkdir(parents=True, exist_ok=True)
             timestamp = time.strftime("%Y-%m-%d_%H%M%S")
-            filepath = self._save_files_path / f"{timestamp}_{run_id}.nebo"
+            filepath = self._remote_dir / f"{timestamp}_{run_id}.nebo"
             run._file_stream = filepath.open("wb")
+            run._file_path = str(filepath)
             run._file_writer = NeboFileWriter(
                 run._file_stream, run_id=run_id, script_path=script_path,
                 args=args or [],
@@ -618,6 +729,7 @@ class DaemonState:
             run._file_writer.write_header()
         else:
             run._file_stream = None
+            run._file_path = None
             run._file_writer = None
 
         return run
@@ -644,6 +756,7 @@ class DaemonState:
                 meta["script_path"],
                 meta.get("args", []),
                 run_id,
+                source="watcher",  # file-originated: never open a writer
             )
 
             events = list(reader.read_entries())
@@ -707,6 +820,12 @@ class DaemonState:
             for client in self._ws_clients[:]:
                 client.enqueue(message)
 
+        # An ingested run_start may have seeded a new group — broadcast the
+        # updated tree once per batch.
+        if self._tree_dirty:
+            self._tree_dirty = False
+            self._enqueue_tree_update()
+
         # Notify any waiters of new significant events
         async with self._event_notify:
             self._event_notify.notify_all()
@@ -751,7 +870,6 @@ class DaemonState:
             script_path=row.get("script_path") or "direct",
             args=json.loads(row["args_json"]) if row.get("args_json") else [],
             started_at=_dt(row.get("started_at")),
-            ended_at=_dt(row.get("ended_at")),
             run_name=row.get("run_name"),
             workflow_description=row.get("workflow_description"),
             source=row.get("source") or "network",
@@ -816,13 +934,27 @@ class DaemonState:
     def _process_event(self, run: Run, event: dict) -> None:
         """Process a single event into run state."""
         # Watcher-annotated media source ref (path, offset, length). Internal —
-        # popped before the save-files writer or the WS broadcast can see it.
+        # popped before the remote-mode writer or the WS broadcast can see it.
         media_src = event.pop("_media_src", None)
-        # Write to .nebo file if storage is enabled
+        # In remote mode, persist every event to the run's .nebo file. For
+        # media the daemon writes itself, capture the on-disk frame span so
+        # the cache stores a (path, offset, length) reference instead of a
+        # duplicate blob — the same scheme watcher runs use. Flush right after
+        # a media frame so a GET /media arriving before the next flush can
+        # still resolve the reference off disk.
         writer = getattr(run, "_file_writer", None)
         if writer is not None:
             entry_type = event.get("type", "log")
-            writer.write_entry(entry_type, dict(event))
+            span = writer.write_entry(entry_type, dict(event))
+            if (
+                media_src is None
+                and entry_type in ("image", "audio")
+                and span is not None
+                and getattr(run, "_file_path", None)
+            ):
+                start, length = span
+                media_src = (run._file_path, start, length)
+                run._file_stream.flush()
 
         etype = event.get("type", "")
         loggable_id = event.get("loggable_id")
@@ -1115,16 +1247,42 @@ class DaemonState:
             run_name = data.get("run_name")
             if run_name is not None:
                 run.run_name = run_name
+            # Watcher-synthesized run_starts (shallow header registration)
+            # carry the file's real started_at and args so a header-only run
+            # lists correctly. SDK run_starts omit these — no behavior change.
+            started_at = data.get("started_at")
+            if started_at is not None:
+                run.started_at = datetime.fromtimestamp(started_at)
+            args = data.get("args")
+            if args:
+                run.args = list(args)
             self._cache_put(("run_upsert", run.id, {
                 "script_path": run.script_path,
                 "run_name": run.run_name,
+                "args_json": json.dumps(run.args),
                 "started_at": (
                     run.started_at.timestamp() if run.started_at else None
                 ),
+                "last_event_at": run.last_event_at,
                 "source": run.source,
             }))
-            if self.active_run_id is None:
+            # A shallow registration is not "the live run" — don't hijack
+            # active_run_id with a historical file discovered on disk. The
+            # real run_start in the file body (read when the run deepens) sets
+            # it if the run is actually live.
+            if not data.get("_shallow") and self.active_run_id is None:
                 self.active_run_id = run.id
+            # Seed the run tree from the run's birth group (seed-once: a run
+            # already placed in tree.json is not re-placed). Broadcast happens
+            # after the batch, in ingest_events.
+            group = data.get("group")
+            if group and self.tree is not None:
+                try:
+                    if self.tree.seed_run(run.id, group):
+                        self._tree_dirty = True
+                except ValueError:
+                    logger.warning("ignoring invalid group %r on run %s",
+                                   group, run.id)
             # Seed implicit loggables — __global__ for user logs outside an
             # @nb.fn context, __agent__ for MCP-authored entries from an agent.
             run.loggables.setdefault(
@@ -1135,19 +1293,31 @@ class DaemonState:
                 "__agent__",
                 LoggableState(loggable_id="__agent__", kind="agent"),
             )
-            if self._save_files_path is not None and not getattr(run, "_file_writer", None):
+            # Open a remote-mode writer only for runs that arrived over the
+            # network. Watcher/loaded runs (source != "network") already exist
+            # on disk — writing them again would duplicate the file.
+            if (
+                self._remote_dir is not None
+                and run.source == "network"
+                and not getattr(run, "_file_writer", None)
+            ):
                 from nebo.core.fileformat import NeboFileWriter
-                self._save_files_path.mkdir(parents=True, exist_ok=True)
+                self._remote_dir.mkdir(parents=True, exist_ok=True)
                 timestamp = time.strftime("%Y-%m-%d_%H%M%S")
-                filepath = self._save_files_path / f"{timestamp}_{run.id}.nebo"
+                filepath = self._remote_dir / f"{timestamp}_{run.id}.nebo"
                 run._file_stream = filepath.open("wb")
+                run._file_path = str(filepath)
                 run._file_writer = NeboFileWriter(
                     run._file_stream, run_id=run.id, script_path=script_path,
                 )
                 run._file_writer.write_header()
 
         elif etype == "run_completed":
-            run.ended_at = datetime.now()
+            # A writer-finalization marker only — it carries no lifecycle
+            # semantics. There is no ended_at; recency is last_event_at
+            # (updated at the top of this method). Clearing active_run_id
+            # keeps get_active_run() honest, and the significant event still
+            # lets /events/wait fire on completion.
             if self.active_run_id == run.id:
                 self.active_run_id = None
             sig = {
@@ -1156,7 +1326,7 @@ class DaemonState:
             }
             run.significant_events.append(sig)
             self._cache_put(("run_upsert", run.id, {
-                "ended_at": run.ended_at.timestamp(),
+                "last_event_at": run.last_event_at,
             }))
             self._cache_put(("sig_event", run.id, sig["timestamp"],
                              "run_completed", json.dumps(sig)))
@@ -1237,15 +1407,39 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
 
     if state is None:
         state = DaemonState()
+        # The real server starts "local" — network runs are rejected unless
+        # env opts into a remote mode below. A test-provided state keeps its
+        # own default ("remote-ephemeral"), so direct ingest works flag-free.
+        state.mode = "local"
 
     logdir = os.environ.get("NEBO_LOGDIR")
-    save_files = os.environ.get("NEBO_SAVE_FILES")
+    remote = os.environ.get("NEBO_REMOTE")
+    remote_ephemeral = bool(os.environ.get("NEBO_REMOTE_EPHEMERAL"))
     no_local = bool(os.environ.get("NEBO_NO_LOCAL"))
 
-    if state._save_files_path is None and save_files:
-        state._save_files_path = Path(save_files)
+    if remote and remote_ephemeral:
+        raise RuntimeError(
+            "nebo serve: --remote and --remote-ephemeral are mutually exclusive"
+        )
+    if remote:
+        state.mode = "remote"
+        if state._remote_dir is None:
+            if remote.strip().lower() in ("1", "true", "yes"):
+                base = Path(logdir) if logdir else Path(".nebo")
+                state._remote_dir = base / "remote"
+            else:
+                state._remote_dir = Path(remote)
+    elif remote_ephemeral:
+        state.mode = "remote-ephemeral"
+
     if state._logdir is None and logdir and not no_local:
         state._logdir = Path(logdir)
+
+    # The run tree lives under the workspace root (the logdir) in *every* mode
+    # — it anchors meta/, so --no-local and remote daemons still have one.
+    if state.tree is None and logdir:
+        from nebo.server.tree import TreeStore
+        state.tree = TreeStore(Path(logdir) / "meta")
 
     # SQLite cache: opt-in via NEBO_CACHE_PATH (set by `nebo serve` unless
     # --no-cache). Directly-constructed DaemonStates (tests, embedders)
@@ -1289,6 +1483,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         watcher_task = None
         if state._logdir is not None:
             watcher = DirectoryWatcher(state, logdir=state._logdir)
+            state._watcher = watcher
             watcher_task = asyncio.create_task(watcher.run())
         janitor_task = None
         if state.cache is not None:
@@ -1370,7 +1565,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
     _GATED_PREFIXES = (
         "/events", "/ingest", "/run", "/runs",
         "/logs", "/loggables", "/load",
-        "/graph", "/alerts",
+        "/graph", "/alerts", "/tree", "/groups",
     )
 
     def _is_read(method: str) -> bool:
@@ -1406,6 +1601,9 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
             "timestamp": time.time(),
             "active_run": state.active_run_id,
             "total_runs": len(state.runs),
+            # "local" | "remote" | "remote-ephemeral" — lets the SDK fail fast
+            # at connect time instead of after a rejected run_start.
+            "mode": state.mode,
         }
 
     @app.post("/events")
@@ -1424,12 +1622,16 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         else:
             parsed = json.loads(body) if body else []
             events = parsed if isinstance(parsed, list) else []
+        if state.local_mode_rejects(events, run_id):
+            return JSONResponse(status_code=409, content=_LOCAL_ONLY_ERROR)
         await state.ingest_events(events, run_id)
         return {"status": "ok", "count": len(events)}
 
     # Legacy endpoint for backward compat
     @app.post("/ingest")
     async def ingest_legacy(events: list[dict[str, Any]]):
+        if state.local_mode_rejects(events, None):
+            return JSONResponse(status_code=409, content=_LOCAL_ONLY_ERROR)
         await state.ingest_events(events)
         return {"status": "ok", "count": len(events)}
 
@@ -1442,6 +1644,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
 
     @app.get("/runs/{run_id}")
     async def get_run(run_id: str):
+        await state.ensure_deep(run_id)
         summary = state.run_summary(run_id)
         if summary is None:
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
@@ -1449,6 +1652,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
 
     @app.get("/runs/{run_id}/graph")
     async def get_run_graph(run_id: str):
+        await state.ensure_deep(run_id)
         graph = state.run_graph(run_id)
         if graph is None:
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
@@ -1456,6 +1660,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
 
     @app.get("/runs/{run_id}/logs")
     async def get_run_logs(run_id: str, loggable_id: str | None = None, limit: int = 100):
+        await state.ensure_deep(run_id)
         logs = state.run_logs(run_id, loggable_id=loggable_id, limit=limit)
         if logs is None:
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
@@ -1463,6 +1668,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
 
     @app.get("/runs/{run_id}/metrics")
     async def get_run_metrics(run_id: str):
+        await state.ensure_deep(run_id)
         metrics = state.run_metrics(run_id)
         if metrics is None:
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
@@ -1470,6 +1676,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
 
     @app.get("/runs/{run_id}/images")
     async def get_run_images(run_id: str):
+        await state.ensure_deep(run_id)
         images = state.run_media_listing(run_id, "image")
         if images is None:
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
@@ -1477,6 +1684,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
 
     @app.get("/runs/{run_id}/audio")
     async def get_run_audio(run_id: str):
+        await state.ensure_deep(run_id)
         audio = state.run_media_listing(run_id, "audio")
         if audio is None:
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
@@ -1484,6 +1692,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
 
     @app.get("/runs/{run_id}/media/{media_id}")
     async def get_media(run_id: str, media_id: str, request: Request):
+        await state.ensure_deep(run_id)
         raw = state.media_bytes(run_id, media_id)
         if raw is None:
             return JSONResponse(status_code=404, content={"error": f"Media '{media_id}' not found"})
@@ -1509,6 +1718,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
     ):
         if not state.has_run_anywhere(run_id):
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
+        await state.ensure_deep(run_id)
         payload = state.run_loggable(run_id, loggable_id)
         if payload is None:
             return JSONResponse(status_code=404, content={"error": f"Loggable '{loggable_id}' not found"})
@@ -1549,6 +1759,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
     ):
         if not state.has_run_anywhere(run_id):
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
+        await state.ensure_deep(run_id)
 
         wanted = set(t.strip() for t in types.split(","))
         deadline = asyncio.get_event_loop().time() + timeout
@@ -1592,6 +1803,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
     ) -> dict:
         if not state.has_run_anywhere(run_id):
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
+        await state.ensure_deep(run_id)
 
         deadline = asyncio.get_event_loop().time() + max(0.0, float(timeout))
 
@@ -1705,6 +1917,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         run = state.get_latest_run()
         if not run:
             return {"nodes": {}, "edges": [], "workflow_description": None}
+        await state.ensure_deep(run.id)
         return state.run_graph(run.id) or {
             "nodes": {}, "edges": [], "workflow_description": None,
         }
@@ -1714,6 +1927,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         run = state.get_latest_run()
         if not run:
             return {"logs": []}
+        await state.ensure_deep(run.id)
         logs = state.run_logs(run.id, loggable_id=loggable_id, limit=limit) or []
         return {"logs": [
             {
@@ -1730,6 +1944,7 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         run = state.get_latest_run()
         if not run:
             return JSONResponse(status_code=404, content={"error": "No runs"})
+        await state.ensure_deep(run.id)
         payload = state.run_loggable(run.id, loggable_id)
         if payload is None:
             return JSONResponse(status_code=404, content={"error": f"Loggable '{loggable_id}' not found"})
@@ -1746,6 +1961,117 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
             return {"status": "loaded", "filepath": filepath}
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": str(e)})
+
+    # --- Run tree (groups + placements + docs) ---
+    #
+    # NOTE on route order: the doc routes (`/groups/{path:path}/docs/{name}`)
+    # MUST be declared before the group catch-alls (`/groups/{path:path}`),
+    # because `{path:path}` is greedy and would otherwise swallow a doc path.
+    from nebo.server.tree import TreeConflict
+
+    _NO_TREE = JSONResponse(
+        status_code=503,
+        content={"error": "the run tree needs a workspace (a --logdir)"},
+    )
+
+    @app.get("/tree")
+    async def get_tree():
+        return state._tree_payload()
+
+    @app.post("/groups")
+    async def create_group(body: dict[str, Any]):
+        if state.tree is None:
+            return _NO_TREE
+        try:
+            created = state.tree.create_group(body.get("path", ""))
+        except ValueError as e:
+            return JSONResponse(status_code=422, content={"error": str(e)})
+        state._enqueue_tree_update()
+        return JSONResponse(
+            status_code=201 if created else 200, content=state._tree_payload()
+        )
+
+    @app.get("/groups/{path:path}/docs/{name}")
+    async def get_group_doc(path: str, name: str):
+        if state.tree is None:
+            return _NO_TREE
+        try:
+            content = state.tree.get_doc(path, name)
+        except ValueError as e:
+            return JSONResponse(status_code=422, content={"error": str(e)})
+        if content is None:
+            return JSONResponse(
+                status_code=404, content={"error": f"doc '{name}' not found"}
+            )
+        return Response(content=content, media_type="text/markdown")
+
+    @app.put("/groups/{path:path}/docs/{name}")
+    async def set_group_doc(path: str, name: str, request: Request):
+        if state.tree is None:
+            return _NO_TREE
+        body = await request.body()
+        if len(body) > 1_048_576:
+            return JSONResponse(
+                status_code=413, content={"error": "doc exceeds 1 MB"}
+            )
+        try:
+            created = state.tree.set_doc(path, name, body.decode("utf-8"))
+        except ValueError as e:
+            return JSONResponse(status_code=422, content={"error": str(e)})
+        state._enqueue_tree_update()
+        return JSONResponse(status_code=201 if created else 200, content={"ok": True})
+
+    @app.delete("/groups/{path:path}/docs/{name}")
+    async def delete_group_doc(path: str, name: str):
+        if state.tree is None:
+            return _NO_TREE
+        try:
+            deleted = state.tree.delete_doc(path, name)
+        except ValueError as e:
+            return JSONResponse(status_code=422, content={"error": str(e)})
+        if not deleted:
+            return JSONResponse(
+                status_code=404, content={"error": f"doc '{name}' not found"}
+            )
+        state._enqueue_tree_update()
+        return Response(status_code=204)
+
+    @app.patch("/groups/{path:path}")
+    async def move_group(path: str, body: dict[str, Any]):
+        if state.tree is None:
+            return _NO_TREE
+        try:
+            state.tree.move_group(path, body.get("new_path", ""))
+        except TreeConflict as e:
+            return JSONResponse(status_code=409, content={"error": str(e)})
+        except ValueError as e:
+            return JSONResponse(status_code=422, content={"error": str(e)})
+        state._enqueue_tree_update()
+        return state._tree_payload()
+
+    @app.delete("/groups/{path:path}")
+    async def delete_group(path: str):
+        if state.tree is None:
+            return _NO_TREE
+        try:
+            state.tree.delete_group(path, set(state.known_run_ids()))
+        except TreeConflict as e:
+            return JSONResponse(status_code=409, content={"error": str(e)})
+        except ValueError as e:
+            return JSONResponse(status_code=422, content={"error": str(e)})
+        state._enqueue_tree_update()
+        return state._tree_payload()
+
+    @app.put("/runs/{run_id}/group")
+    async def set_run_group(run_id: str, body: dict[str, Any]):
+        if state.tree is None:
+            return _NO_TREE
+        try:
+            gp = state.tree.set_run_group(run_id, body.get("group", ""))
+        except ValueError as e:
+            return JSONResponse(status_code=422, content={"error": str(e)})
+        state._enqueue_tree_update()
+        return {"run_id": run_id, "group": gp}
 
     @app.websocket("/stream")
     async def websocket_endpoint(ws: WebSocket):
@@ -1774,6 +2100,9 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
                 if expected_token and _write_private and not client_authed:
                     continue
                 events = decode_batch(data)
+                # Local-only daemons don't create runs from network input.
+                if state.local_mode_rejects(events, None):
+                    continue
                 await state.ingest_events(events)
         except (WebSocketDisconnect, Exception):
             pass

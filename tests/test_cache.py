@@ -153,7 +153,7 @@ class TestOpsAndAccessors:
             assert s["run_name"] == "exp-1"
             assert s["args"] == ["--fast"]
             assert s["started_at"] is not None
-            assert s["ended_at"] is None
+            assert s["last_event_at"] is None  # not seeded here; no ended_at
             assert s["node_count"] == 2
             assert s["edge_count"] == 1
             assert s["log_count"] == 2
@@ -247,12 +247,13 @@ class TestOpsAndAccessors:
     def test_watch_files_roundtrip(self, tmp_path):
         c = _mk(tmp_path)
         try:
-            c.enqueue(("watch_file", "/tmp/a.nebo", "r1", 100, 120, 5.0))
-            c.enqueue(("watch_file", "/tmp/a.nebo", "r1", 200, 220, 6.0))
+            c.enqueue(("watch_file", "/tmp/a.nebo", "r1", 100, 120, 5.0, True))
+            c.enqueue(("watch_file", "/tmp/a.nebo", "r1", 200, 220, 6.0, False))
             assert c.flush()
             wf = c.get_watch_files()
             assert wf["/tmp/a.nebo"]["offset"] == 200
             assert wf["/tmp/a.nebo"]["run_id"] == "r1"
+            assert wf["/tmp/a.nebo"]["shallow"] is False
         finally:
             c.close()
 
@@ -518,15 +519,17 @@ class TestDaemonCacheIngest:
 
 
 def _norm_summary(s: dict) -> dict:
-    """Timestamps roundtrip through epoch floats; compare them coarsely."""
+    """started_at is an ISO string, last_event_at is epoch seconds; compare
+    both coarsely so RAM/SQL float roundtrips don't cause spurious diffs."""
     from datetime import datetime
 
     out = dict(s)
-    for key in ("started_at", "ended_at"):
-        v = out.pop(key, None)
-        out[f"_{key}_s"] = (
-            round(datetime.fromisoformat(v).timestamp(), 2) if v else None
-        )
+    v = out.pop("started_at", None)
+    out["_started_at_s"] = (
+        round(datetime.fromisoformat(v).timestamp(), 2) if v else None
+    )
+    le = out.pop("last_event_at", None)
+    out["_last_event_at_s"] = round(le, 2) if le is not None else None
     return out
 
 
@@ -561,7 +564,9 @@ class TestSqlReadParity:
             before_runs = client.get("/runs").json()
 
             assert c.flush()
-            del state.runs["r1"]
+            # Use the real eviction path (not a bare `del`) so the run's
+            # final last_event_at is flushed to SQL and parity holds.
+            state._evict_run("r1")
 
             after = {ep: client.get(ep).json() for ep in self.ENDPOINTS}
             after_runs = client.get("/runs").json()
@@ -629,11 +634,11 @@ class TestJanitor:
         return state, c
 
     @pytest.mark.asyncio
-    async def test_rule1_completed_idle_evicts(self, tmp_path):
+    async def test_idle_run_evicts_after_threshold(self, tmp_path):
         state, c = await self._seed(tmp_path, completed=True)
         try:
             now = state.runs["r1"].last_event_at
-            result = state.janitor_pass(now=now + 601)
+            result = state.janitor_pass(now=now + state.EVICT_IDLE_S + 1)
             assert result["evicted"] == ["r1"]
             assert "r1" not in state.runs
             # Reads still served from SQL.
@@ -642,41 +647,44 @@ class TestJanitor:
             c.close()
 
     @pytest.mark.asyncio
-    async def test_rule1_not_before_window(self, tmp_path):
+    async def test_idle_run_survives_within_window(self, tmp_path):
         state, c = await self._seed(tmp_path, completed=True)
         try:
             now = state.runs["r1"].last_event_at
-            result = state.janitor_pass(now=now + 599)
+            result = state.janitor_pass(now=now + state.EVICT_IDLE_S - 1)
             assert result["evicted"] == []
             assert "r1" in state.runs
         finally:
             c.close()
 
     @pytest.mark.asyncio
-    async def test_rule2_crashed_idle_evicts_and_clears_active(self, tmp_path):
+    async def test_idle_eviction_clears_active_run(self, tmp_path):
+        # A run without run_completed is treated identically — there is no
+        # crashed/completed distinction, just a single idle threshold.
         state, c = await self._seed(tmp_path, completed=False)
         try:
             assert state.active_run_id == "r1"
             now = state.runs["r1"].last_event_at
-            assert state.janitor_pass(now=now + 3599)["evicted"] == []
-            result = state.janitor_pass(now=now + 3601)
+            assert (
+                state.janitor_pass(now=now + state.EVICT_IDLE_S - 1)["evicted"]
+                == []
+            )
+            result = state.janitor_pass(now=now + state.EVICT_IDLE_S + 1)
             assert result["evicted"] == ["r1"]
             assert state.active_run_id is None
         finally:
             c.close()
 
     @pytest.mark.asyncio
-    async def test_rule3_budget_evicts_completed_lru_first(self, tmp_path):
+    async def test_budget_evicts_idlest_first(self, tmp_path):
         state, c = _mk_state(tmp_path)
         try:
             for rid in ("r1", "r2", "r3"):
                 _, events = _events_small_run()
                 await state.ingest_events(events, run_id=rid)
-            # r1, r2 completed; r3 live.
-            for rid in ("r1", "r2"):
-                await state.ingest_events(
-                    [{"type": "run_completed", "data": {}}], run_id=rid
-                )
+            # All three are recently active (small idle); eviction order is by
+            # recency, idlest first. No run alone exceeds budget, so none is
+            # demoted.
             state.runs["r1"].last_event_at = 100.0
             state.runs["r2"].last_event_at = 200.0
             state.runs["r3"].last_event_at = 300.0
@@ -685,15 +693,15 @@ class TestJanitor:
             state.runs["r2"].resident_points = 6
             state.runs["r3"].resident_points = 6
             result = state.janitor_pass(now=400.0)
-            # Oldest completed (r1) evicted brings total 18 -> 12; still
-            # over, so r2 goes too; r3 is live and stays resident.
+            # Idlest (r1) evicted brings total 18 -> 12; still over, so r2
+            # goes too; r3 is the most recent and stays resident.
             assert result["evicted"] == ["r1", "r2"]
             assert "r3" in state.runs
         finally:
             c.close()
 
     @pytest.mark.asyncio
-    async def test_rule4_oversized_live_run_demoted(self, tmp_path):
+    async def test_lone_oversized_active_run_demoted(self, tmp_path):
         state, c = await self._seed(tmp_path, completed=False)
         try:
             state.ram_budget_points = 3

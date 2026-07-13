@@ -41,6 +41,8 @@ class FileTransport:
         run_id: str,
         script_path: str,
         flush_interval: float = 0.1,
+        run_name: Optional[str] = None,
+        group: str = "",
     ) -> None:
         self._logdir = Path(logdir)
         self._logdir.mkdir(parents=True, exist_ok=True)
@@ -49,6 +51,7 @@ class FileTransport:
         self._stream = self._filepath.open("wb")
         self._writer = NeboFileWriter(
             self._stream, run_id=run_id, script_path=script_path,
+            run_name=run_name, group=group,
         )
         self._writer.write_header()
         # Seed implicit loggables exactly like the daemon does on run_start.

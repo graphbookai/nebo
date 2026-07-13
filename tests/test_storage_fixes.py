@@ -11,8 +11,9 @@ def test_load_endpoint_exists():
     assert "/load" in routes, f"/load not found in routes: {routes}"
 
 
-def test_no_save_files_path_creates_no_writer():
-    """When _save_files_path is None (the default), create_run must not open any file writer."""
+def test_no_remote_dir_creates_no_writer():
+    """A default DaemonState (remote-ephemeral, _remote_dir None) must not open
+    any file writer on create_run."""
     from nebo.server.daemon import DaemonState
     state = DaemonState()
     run = state.create_run("test.py", [], "test-run")

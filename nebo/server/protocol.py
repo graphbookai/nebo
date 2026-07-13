@@ -24,6 +24,7 @@ class MessageType(str, Enum):
     HEALTH = "health"
     CONFIG = "config"
     DESCRIPTION = "description"
+    TREE_UPDATED = "tree_updated"
 
 
 @dataclass

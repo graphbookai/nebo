@@ -515,7 +515,7 @@ def _run_cli_with_stderr(argv: list[str]) -> tuple[int, str]:
     return code, err.getvalue()
 
 
-def test_serve_refuses_same_logdir_and_save_files(tmp_path, monkeypatch):
+def test_serve_refuses_remote_equal_to_logdir(tmp_path, monkeypatch):
     # Stub out the "is a daemon already running" probe so this test isn't
     # affected by a developer who happens to have `nebo serve` running on
     # the default port — cmd_serve short-circuits with "already running"
@@ -524,10 +524,28 @@ def test_serve_refuses_same_logdir_and_save_files(tmp_path, monkeypatch):
     code, err = _run_cli_with_stderr([
         "serve",
         "--logdir", str(tmp_path),
-        "--save-files", str(tmp_path),
+        "--remote", str(tmp_path),
     ])
     assert code == 2
-    assert "cannot be the same directory" in err
+    assert "cannot be the watched --logdir" in err
+
+
+def test_serve_no_local_without_remote_errors(tmp_path, monkeypatch):
+    monkeypatch.setattr("nebo.cli._is_alive", lambda port: False)
+    code, err = _run_cli_with_stderr([
+        "serve", "--logdir", str(tmp_path), "--no-local",
+    ])
+    assert code == 2
+    assert "needs --remote" in err
+
+
+def test_serve_remote_and_ephemeral_mutually_exclusive(tmp_path, monkeypatch):
+    monkeypatch.setattr("nebo.cli._is_alive", lambda port: False)
+    code, err = _run_cli_with_stderr([
+        "serve", "--logdir", str(tmp_path),
+        "--remote", str(tmp_path / "r"), "--remote-ephemeral",
+    ])
+    assert code == 2  # argparse mutually-exclusive group
 
 
 def test_serve_rejects_removed_no_store():

@@ -57,10 +57,42 @@ first `nb.*` call, so pipelines never need an explicit `nb.init()`.
 
 Daemon side: `nebo serve` watches `--logdir` (default `./.nebo`) for
 files written by SDK file-mode runs and ingests them as they grow
-(`nebo/server/watcher.py:DirectoryWatcher`). With `--save-files PATH`,
-network-received runs are also persisted to disk. The watcher and the
-writer can't share a directory — the daemon refuses to start when
-`--logdir` and `--save-files` resolve to the same path.
+(`nebo/server/watcher.py:DirectoryWatcher`). `--logdir` is the
+**workspace root** in every mode — it anchors the cache identity, the
+`meta/` tree, and the default remote dir. `--no-local` only disables the
+watcher (the logdir still anchors everything); it errors unless a remote
+flag is also given, since the daemon would then ingest nothing.
+
+**Daemon persistence modes** (`DaemonState.mode`, reported on `/health`):
+
+- **local** (default, plain `nebo serve`): watcher only. Network run
+  creation is **rejected** — `POST /events` for a `run_start` or an
+  unknown run_id returns `409 {"error": "daemon_local_only"}` whose
+  detail names both remote flags (`_LOCAL_ONLY_ERROR`). Annotating a run
+  the watcher already knows is still accepted.
+- **remote** (`--remote [DIR]`, default `<logdir>/remote/`): accepts
+  network runs and the daemon writes them as `.nebo` files in `DIR`
+  (per-run `NeboFileWriter`, opened on `run_start`, closed on
+  `run_completed`/shutdown). Media the daemon writes is stored by
+  `(src_path, offset, length)` reference into that file — blob rows are
+  now an ephemeral-only fallback.
+- **remote-ephemeral** (`--remote-ephemeral`): accepts network runs but
+  persists nothing (RAM + disposable cache only) — for CI, demos, tests.
+  A bare `DaemonState()` (tests, embedders) defaults to this mode.
+
+`--remote` and `--remote-ephemeral` are mutually exclusive; a remote dir
+may not equal `--logdir` (watcher/writer feedback), though nesting under
+it is fine (the watcher is non-recursive). Env mirrors: `NEBO_REMOTE`
+(path, or `1` for the default dir), `NEBO_REMOTE_EPHEMERAL`. There is no
+`--save-files` (removed).
+
+**SDK fail-fast**: `NetworkTransport.connect()` reads `/health.mode`; a
+`"local"` daemon makes `nb.init()` (or the first `nb.*` emit) raise
+`nb.DaemonLocalOnlyError` immediately instead of buffering events that
+will never be accepted. A mid-run `409 daemon_local_only` (daemon
+restarted into local mode) is treated as fatal — the transport stops
+retrying, drops its buffer, and logs once — whereas ordinary connection
+failures keep the retry-forever-with-backoff behavior.
 
 ### Daemon SQLite cache & RAM eviction
 
@@ -75,12 +107,14 @@ writes stay synchronous; the cache interaction is a `queue.put`.
   accessors. RAM serves a run only while it is resident with
   `Run.ram_complete=True`; evicted/demoted runs read from SQL. Never read
   `state.runs` directly in an endpoint.
-- **Eviction janitor** (60 s lifespan task, no-op without a cache):
-  completed+idle 10 min or no-`ended_at`+idle 60 min → evict from RAM;
-  resident points over budget (`--ram-budget`, default 384 MB at 372
-  B/point) → evict completed runs oldest-`last_event_at` first; a single
-  oversized **live** run is *demoted* — read-state dropped, ingest-state
-  (type locks, counters, edge dedup) kept, `ram_complete=False`, one-way.
+- **Eviction janitor** (60 s lifespan task, no-op without a cache): a
+  single idle threshold — idle > `EVICT_IDLE_S` (30 min) → evict from RAM
+  (there is no completed/crashed distinction; a resumed run just rehydrates
+  from the cache); resident points over budget (`--ram-budget`, default
+  384 MB at 372 B/point) → evict runs idlest-`last_event_at` first; a
+  single recently-active run that alone exceeds budget is *demoted* —
+  read-state dropped, ingest-state (type locks, counters, edge dedup)
+  kept, `ram_complete=False`, one-way.
 - **Rehydration**: ingest for a run_id absent from RAM but present in the
   cache rebuilds ingest-state only (`_rehydrate_run`) — no duplicate runs
   after restarts, reads stay on SQL.
@@ -88,10 +122,23 @@ writes stay synchronous; the cache interaction is a `queue.put`.
   sha256(bytes)[:16]` (content-addressed, stable across restarts). Bytes
   live in a byte-budgeted LRU (`--media-lru`, default 256 MB) and durably
   either as `(src_path, offset, length)` refs into the `.nebo` file
-  (watcher runs) or blob rows (network runs without `--save-files`).
+  (watcher runs, and remote-mode runs that the daemon writes itself) or
+  blob rows (`--remote-ephemeral` runs, which have no file to reference).
   `GET /runs/{id}/media/{media_id}` returns **raw bytes** with sniffed
   Content-Type, `ETag: media_id`, `Cache-Control: immutable` (304 on
   If-None-Match); the UI points `<img>/<audio>` straight at it.
+- **Shallow ingest**: the watcher registers an unknown file by reading only
+  its **header** (synthesizing a `run_start` so the run lists via the normal
+  ingest/cache/WS path), then freezes the file's size as a baseline. A static
+  historical file **stays shallow** (its body is never read) — cold-starting on
+  1000 runs costs ~1 KB each, not a full replay. The body is deep-ingested
+  lazily: when the file grows (a live run — `_deepen`) or on the first detail
+  read of that run (`DaemonState.ensure_deep` → the watcher, under a per-run
+  lock, called by every run-scoped read endpoint but **never** the run list).
+  Deep ingest is chunked (`_INGEST_CHUNK`) so a huge file isn't buffered whole.
+  The `shallow` flag lives in `watch_files`, so restarts keep shallow files
+  shallow. This is possible with no file-format change because there is no
+  `ended_at` — the header alone fully populates a run-list row.
 - **Watcher offsets persist** in the cache (`watch_files` table): daemon
   restarts resume tailing instead of replaying. Reads use
   `NeboFileReader.read_entries_incremental`, which parks at a torn tail
@@ -112,8 +159,54 @@ Env vars: `NEBO_URI` overrides the constructor arg.
 Two process-wide escape hatches let headless contexts (CI, embedders,
 tests) suppress side-effects:
 - `NEBO_NO_STORE=1` — SDK file mode opens no file; events are dropped.
-- The daemon's `--save-files` flag is opt-in, so no daemon-side
-  persistence happens by default.
+- A `--remote-ephemeral` daemon accepts network runs but persists none of
+  them (RAM + disposable cache only).
+
+### Run tree (groups)
+
+Runs organize into a filesystem-like hierarchy of **groups** — a *virtual*
+tree over run_ids (`.nebo` files never move; the physical layout stays flat).
+`nebo/server/tree.py:TreeStore` owns it, persisted to `<logdir>/meta/tree.json`
+(the workspace root's `meta/`, **outside** the disposable cache, so it survives
+`nebo cache clear`). The daemon holds it in RAM and rewrites the whole tiny JSON
+atomically (tmp + fsync + `os.replace`) on every mutation, guarded by a
+`threading.Lock` (mutations come from both async endpoints and the sync ingest
+seed). Group docs are real markdown files under `meta/docs/<group-path>/`.
+
+- **Single placement store, seed-once.** `tree.json`'s `runs` map (run_id →
+  group) is the *only* placement store — no birth-placement fallback, no
+  override layer. The `group` recorded at run start (SDK `run_start` data, and
+  the `.nebo` header for shallow watcher runs) only *seeds* the map **if the
+  run_id is absent** (`TreeStore.seed_run`). Because `tree.json` survives cache
+  clears, a moved run stays moved when its file is re-scanned — the header never
+  re-wins. This is the load-bearing invariant (`test_move_survives_rescan`).
+- **Group paths** (`nebo/core/groups.py:validate_group_path`, shared SDK+daemon)
+  are `/`-delimited, no `.`/`..`/reserved chars, depth ≤ 16. SDK: `nb.init(group=)`
+  / `nb.start_run(group=)` / `NEBO_GROUP` (env > start_run > init), validated at
+  the call site.
+- **HTTP**: `GET /tree` (payload filtered to known runs — dangling placements
+  and placements to deleted groups read as root), `POST /groups`, `PATCH/DELETE
+  /groups/{path:path}` (docs routes declared **before** the catch-all so
+  `{path:path}` doesn't swallow them), `PUT /runs/{id}/group`, and
+  `GET/PUT/DELETE /groups/{path:path}/docs/{name}`. `MessageType.TREE_UPDATED`
+  broadcasts the full tree over WS after every mutation (and after an ingest
+  seeds a group). Deleting a group with known member runs or subgroups → 409
+  (`TreeConflict`); nebo has no run deletion, so groups can't sneak one in.
+- **Surfaces**: CLI `nebo tree` / `groups add|ls|mv|rm` / `groups doc
+  ls|get|set|rm` / `runs mv`; MCP `nebo_get_tree` / `nebo_{create,move,delete}_group`
+  / `nebo_move_run` / `nebo_{get,set}_group_doc`. Group docs support `nebo://`
+  deep links (`nebo://run/<id>?step=<n>`, `nebo://group/<path>`) that the UI
+  intercepts. Agents are the primary doc authors — the skills carry the
+  what/why/how/findings curation contract.
+- **UI is read-only** for the tree (no write-access model for UI users): the
+  sidebar renders a collapsible group tree (`ui/src/components/runs/RunTree.tsx`)
+  over the store's `runTree` slice (`{groups, runs}`), hydrated from `GET /tree`
+  and replaced wholesale on `tree_updated`. A group page
+  (`components/layout/GroupPage.tsx`, shown when `selectedGroup` is set) renders
+  the group's docs (README first) then member runs. `nebo://` links are handled
+  by `components/shared/NeboMarkdown.tsx` (a `urlTransform` that passes `nebo:`
+  through the v10 sanitizer + a custom `a` renderer → `store.navigateNebo`).
+  Reorganization happens through the CLI/MCP, never the UI.
 
 ### DAG inference
 
@@ -271,10 +364,10 @@ Smoothed values are rendered, not persisted: raw entries in the store remain unt
 
 ### Package layout
 
-- `nebo/core/` — decorators, DAG builder, session state, `DaemonClient`, config, tracker, `.nebo` file format.
+- `nebo/core/` — decorators, DAG builder, session state, `DaemonClient`, config, tracker, `.nebo` file format, `groups.py` (`validate_group_path` — shared SDK/daemon group-path validation).
 - `nebo/logging/` — user-facing `log`/`log_line`/`log_bar`/`log_pie`/`log_scatter`/`log_histogram`/`log_image`/`log_audio`/`md`, plus the serializer/queue that batches events to the daemon.
 - `nebo/labels.py` — public dataclasses (`Points`, `Boxes`, `Circles`, `Polygons`, `Bitmasks`) for `nb.log_image` overlays. Re-exported as `nb.labels`.
-- `nebo/server/` — `daemon.py` (FastAPI app, created via `create_daemon_app` factory), `cache.py` (`RunCache` write-behind SQLite cache, `MediaLRU`, `media_id_for`, cache-path/sweep helpers), `watcher.py` (directory watcher with persisted offsets), `runner.py` (vestigial subprocess manager; the agent surface no longer launches pipelines, but the daemon's `POST /run` route still uses it), `protocol.py` (`MessageType` enum + `decode_batch`).
+- `nebo/server/` — `daemon.py` (FastAPI app, created via `create_daemon_app` factory), `cache.py` (`RunCache` write-behind SQLite cache, `MediaLRU`, `media_id_for`, cache-path/sweep helpers), `watcher.py` (directory watcher with persisted offsets + shallow header-only registration), `tree.py` (`TreeStore` — run-tree groups/placements/docs over `meta/tree.json`), `runner.py` (vestigial subprocess manager), `protocol.py` (`MessageType` enum + `decode_batch`).
 - `nebo/mcp/` — MCP tools (`tools.py`) and stdio/server entry points. Split into observation (graph, logs, metrics, description, run summary/history), alerts (`wait_for_alert`, `list_alerts`, `set_alert`, `delete_alert`), utility (`load_file`), and write (`log_metric/text/image/audio`). Run lifecycle is NOT exposed — pipelines start/stop via the user's shell.
 - `nebo/client.py` — single HTTP client shared by `nebo/mcp/tools.py` and `nebo/cli.py`. Owns all daemon-bound `urllib` traffic; resolves `--url`/`--port`/`--api-token` from kwargs → `NEBO_URL`/`NEBO_PORT`/`NEBO_API_TOKEN` → defaults.
 - `nebo/core/transport.py` — `Transport` Protocol shared by the two SDK transports. `FileTransport` (this module) writes append-only `.nebo` files in file mode; `NetworkTransport` (in `nebo/core/client.py`) POSTs events to a daemon in network mode.
@@ -297,7 +390,7 @@ Plain `pytest` + `pytest-asyncio`. Tests are self-contained and exercise the pub
 
 - **Auto-init is load-bearing.** Any new public SDK function that touches state must call `_ensure_init()` before reading/writing it (see `ui()` and `start_run()` for examples). Breaking this makes nebo require an explicit `nb.init()`, which it is explicitly designed not to need.
 - **Run lifecycle flows through events.** The daemon only opens a `.nebo` writer after receiving a `run_start` event — so any code path that connects a client in network mode must also emit `run_start` (see the comment block in `init()` around `script_name`).
-- **No run states.** There is no `status` (running/crashed/completed) anywhere — a logging SDK can't keep it in sync. Liveness is derived from facts: `started_at` set and `ended_at` unset. `run_completed` is only a lifecycle marker (sets `ended_at`, finalizes the `.nebo` writer) and carries no exit-code semantics. Don't reintroduce derived state fields.
+- **No run states, no end times.** There is no `status` (running/crashed/completed) anywhere, and no `ended_at` either — a logging SDK can't keep either in sync (a crashed run never reports it). The only temporal facts are `started_at` and `last_event_at` (max observed event timestamp); recency is the sole liveness signal (the UI shows "last active Xs ago", not a completed/duration verdict). `run_completed` survives as a **writer-finalization marker only** — the SDK's `FileTransport` writes its final frame on it and the remote-mode daemon closes its per-run writer on it; it sets no field and has no read-side meaning. Don't reintroduce `ended_at`, run status, or any derived lifecycle field.
 - **No error reporting, period.** `@nb.fn()` lets exceptions propagate untouched — no error event, no excepthook. There is no `error` event type anywhere: incoming `error` wire events are silently ignored by the daemon, entry code 6 is retired in the file format, and there are no error read paths (no `/errors`, no `nebo errors`, no UI error panel). Don't reintroduce any of it.
 - **`MessageType` is the source of truth for protocol events.** Add new event kinds to `nebo/server/protocol.py` and handle them in the daemon, not ad-hoc strings.
 - **The Global loggable is always present.** `SessionState.loggables["__global__"]` is seeded on init/reset/clear. `nb.log*` calls outside any `@nb.fn()` context route there. Any code that iterates loggables and assumes node-only fields (`func_name`, `exec_count`, etc.) must filter by `isinstance(l, NodeInfo)` or `kind == "node"`.

@@ -5,7 +5,10 @@ File structure:
       magic: b"nebo" (4 bytes)
       version: u16 big-endian (currently 3)
       metadata_size: u32 big-endian
-      metadata: msgpack map {run_id, script_path, started_at, nebo_version, args}
+      metadata: msgpack map {run_id, script_path, started_at, nebo_version,
+                args, and optionally run_name, group} — the header is an open
+                map; run_name/group are additive and may be absent on older
+                files (the shallow watcher reads them to list a header-only run)
 
     [Entry]*
       type_byte: u8 (entry type index)
@@ -48,6 +51,12 @@ Format versions:
         * Image/audio ``data`` is raw bytes (msgpack bin) instead of a
           base64 ASCII string. Consumers accept both; base64 encoding now
           only happens at the JSON wire boundary (network transport).
+
+Event semantics note: ``run_completed`` (code 16) is a *writer-finalization
+marker* only — it flushes the file's final frame and, on the daemon, closes
+the per-run writer. It carries no lifecycle state: there is no ``ended_at``
+and no notion of *when* or *whether* a run ended (a crashed run simply never
+gets one). Recency is derived from the last event's timestamp instead.
 """
 
 from __future__ import annotations
@@ -152,11 +161,15 @@ class NeboFileWriter:
         run_id: str,
         script_path: str,
         args: Optional[list[str]] = None,
+        run_name: Optional[str] = None,
+        group: str = "",
     ) -> None:
         self._stream = stream
         self._run_id = run_id
         self._script_path = script_path
         self._args = args or []
+        self._run_name = run_name
+        self._group = group
         self._started_at = time.time()
 
     def write_header(self) -> None:
@@ -171,26 +184,42 @@ class NeboFileWriter:
             "nebo_version": "0.1.0",
             "args": self._args,
         }
+        # Optional additive keys (no format-version bump): the shallow watcher
+        # reads these from the header so a header-only run lists with its name
+        # and group. Absent on older files — readers treat the header as an
+        # open map.
+        if self._run_name is not None:
+            metadata["run_name"] = self._run_name
+        if self._group:
+            metadata["group"] = self._group
         meta_bytes = msgpack.packb(metadata, use_bin_type=True)
         self._stream.write(struct.pack(">I", len(meta_bytes)))
         self._stream.write(meta_bytes)
         self._stream.flush()
 
-    def write_entry(self, entry_type: str, payload: dict[str, Any]) -> None:
-        """Write a single log entry.
+    def write_entry(self, entry_type: str, payload: dict[str, Any]) -> tuple[int, int]:
+        """Write a single log entry; return its ``(frame_start, frame_length)``.
 
         v2 is passthrough: the in-memory event dict is serialized as-is, so
         ``loggable_id`` / ``loggable_register`` / ``data.loggable_id`` land on
         disk verbatim. Labels (e.g. on image events) pass through unchanged.
+
+        The returned span brackets the whole ``[type][u32 size][payload]``
+        frame on the stream, so a media event's bytes can later be read back
+        by reference (``RunCache._read_media_ref``) instead of duplicated into
+        a blob row. Callers that don't need it (the SDK's FileTransport)
+        simply ignore the return value.
         """
         type_byte = ENTRY_TYPES.get(entry_type, 255)
         payload_bytes = msgpack.packb(payload, use_bin_type=True)
 
+        start = self._stream.tell()
         self._stream.write(struct.pack(">B", type_byte))
         self._stream.write(struct.pack(">I", len(payload_bytes)))
         self._stream.write(payload_bytes)
         # No flush here — callers own flush cadence (FileTransport flushes
         # once per drain tick instead of once per entry).
+        return start, 5 + len(payload_bytes)
 
     def close(self) -> None:
         """Flush the stream."""

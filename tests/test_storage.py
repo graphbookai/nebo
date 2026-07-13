@@ -1,4 +1,4 @@
-"""Tests for daemon-side --save-files persistence."""
+"""Tests for daemon-side --remote persistence."""
 from __future__ import annotations
 
 import asyncio
@@ -11,9 +11,10 @@ from nebo.server.daemon import DaemonState
 
 
 @pytest.mark.asyncio
-async def test_save_files_writes_nebo_file(tmp_path):
+async def test_remote_mode_writes_nebo_file(tmp_path):
     state = DaemonState()
-    state._save_files_path = tmp_path
+    state.mode = "remote"
+    state._remote_dir = tmp_path
     run = state.create_run("test.py", [], "run-1")
     assert run._file_writer is not None
     await state.ingest_events(
@@ -36,9 +37,8 @@ async def test_save_files_writes_nebo_file(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_no_save_files_writes_nothing(tmp_path):
-    state = DaemonState()
-    # _save_files_path stays None.
+async def test_ephemeral_writes_nothing(tmp_path):
+    state = DaemonState()  # default mode is remote-ephemeral; _remote_dir None
     run = state.create_run("test.py", [], "run-2")
     assert run._file_writer is None
     assert not list(tmp_path.glob("*.nebo"))
