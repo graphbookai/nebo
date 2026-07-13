@@ -4,6 +4,7 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/nebo.svg)](https://pypi.org/project/nebo/)
 [![CI](https://github.com/graphbookai/nebo/actions/workflows/ci.yml/badge.svg)](https://github.com/graphbookai/nebo/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/github/license/graphbookai/nebo.svg)](LICENSE)
+![tokens](https://img.shields.io/endpoint?url=https://gittokens.rsamf.com/badge/graphbookai/nebo)
 
 Nebo is a modern logging SDK that lets you track experiments containing multi-modal data (text, images, audio) and inspect metrics with function-level granularity.
 

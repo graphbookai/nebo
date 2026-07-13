@@ -9,6 +9,11 @@ description = "A modern logging SDK for multi-modal data"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
     "fastapi>=0.100.0",
     "httpx>=0.24.0",
