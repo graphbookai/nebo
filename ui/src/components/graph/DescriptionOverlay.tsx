@@ -1,6 +1,5 @@
 import { useState } from 'react'
-import Markdown from 'react-markdown'
-import remarkBreaks from 'remark-breaks'
+import { NeboMarkdown } from '@/components/shared/NeboMarkdown'
 import { useStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { FileText, Settings2, ChevronDown } from 'lucide-react'
@@ -58,7 +57,7 @@ export function DescriptionOverlay({ runId }: DescriptionOverlayProps) {
       'prose-code:text-xs prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded',
       'prose-pre:bg-muted prose-pre:text-xs prose-pre:my-2',
     )}>
-      <Markdown remarkPlugins={[remarkBreaks]}>{description}</Markdown>
+      <NeboMarkdown>{description}</NeboMarkdown>
     </div>
   ) : null
 

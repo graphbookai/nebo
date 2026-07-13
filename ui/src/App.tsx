@@ -6,8 +6,10 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { MobileNav } from '@/components/layout/MobileNav'
 import { RunDetailView } from '@/components/layout/RunDetailView'
+import { GroupPage } from '@/components/layout/GroupPage'
 import { RightPanel } from '@/components/layout/RightPanel'
 import { RunList } from '@/components/runs/RunList'
+import { Notice } from '@/components/shared/Notice'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useEmbeddedView } from '@/hooks/useEmbeddedView'
 import { EmbeddedView } from '@/components/embedded/EmbeddedView'
@@ -20,6 +22,7 @@ export default function App() {
   useWebSocket()
   const isDesktop = useIsDesktop()
   const selectedRunId = useStore(s => s.selectedRunId)
+  const selectedGroup = useStore(s => s.selectedGroup)
   const reconnecting = useStore(s => s.reconnecting)
   const connected = useStore(s => s.connected)
   const rightPanelOpen = useStore(s => s.rightPanelOpen)
@@ -74,7 +77,11 @@ export default function App() {
               <ErrorBoundary label="Sidebar"><Sidebar /></ErrorBoundary>
             </div>
             <div className="flex-1 overflow-hidden">
-              <ErrorBoundary label="RunDetailView"><RunDetailView /></ErrorBoundary>
+              {selectedGroup ? (
+                <ErrorBoundary label="GroupPage"><GroupPage path={selectedGroup} /></ErrorBoundary>
+              ) : (
+                <ErrorBoundary label="RunDetailView"><RunDetailView /></ErrorBoundary>
+              )}
             </div>
             {selectedRunId && rightPanelOpen && (
               <div className="w-80 shrink-0 overflow-hidden">
@@ -92,7 +99,7 @@ export default function App() {
           <MobileNav />
           <div className="flex-1 overflow-hidden flex flex-col">
             <ErrorBoundary label="MainContent">
-              {selectedRunId ? <RunDetailView /> : <RunList />}
+              {selectedGroup ? <GroupPage path={selectedGroup} /> : selectedRunId ? <RunDetailView /> : <RunList />}
             </ErrorBoundary>
           </div>
           {selectedRunId && (
@@ -102,6 +109,7 @@ export default function App() {
       )}
     </div>
     <ChartTooltip />
+    <Notice />
     </TooltipProvider>
   )
 }

@@ -23,12 +23,27 @@ async function get<T>(path: string): Promise<T> {
   return res.json()
 }
 
+async function getText(path: string): Promise<string | null> {
+  const res = await fetch(`${BASE}${path}`, { headers: { ...authHeaders() } })
+  noteAuthStatus(res.status)
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error(`GET ${path}: ${res.status}`)
+  return res.text()
+}
+
+/** Encode a group path for a URL, keeping `/` separators intact. */
+export function encodeGroupPath(path: string): string {
+  return path.split('/').map(encodeURIComponent).join('/')
+}
+
 export interface RunSummary {
   id: string
   script_path: string
   args: string[]
   started_at: string | null
-  ended_at: string | null
+  // Epoch seconds of the most recent observed event. There is no ended_at:
+  // a run is never known to be "done", so recency is the only liveness fact.
+  last_event_at: number | null
   node_count: number
   edge_count: number
   log_count: number
@@ -36,6 +51,58 @@ export interface RunSummary {
   run_config?: Record<string, unknown>
   metric_series_count?: number
   latest_step?: number | null
+}
+
+/** Seconds of quiet after which a run stops reading as "live". */
+export const LIVE_RECENCY_S = 60
+
+/** A run reads as live when it emitted an event within the last minute.
+ *  Presentational only — there is no completed/crashed state to key off. */
+export function isRunLive(
+  summary: { last_event_at?: number | null } | null | undefined,
+): boolean {
+  const t = summary?.last_event_at
+  return typeof t === 'number' && Date.now() / 1000 - t < LIVE_RECENCY_S
+}
+
+// ── Run tree (groups) ────────────────────────────────────────────────
+
+export interface TreeData {
+  // group path -> { docs: [filename, ...] } (README.md first)
+  groups: Record<string, { docs: string[] }>
+  // run_id -> group path; runs absent from this map are at the root.
+  runs: Record<string, string>
+}
+
+export const EMPTY_TREE: TreeData = { groups: {}, runs: {} }
+
+/** A parsed `nebo://` deep link (used in group docs). */
+export type NeboLink =
+  | { kind: 'run'; runId: string; step: number | null }
+  | { kind: 'group'; path: string }
+
+/** Parse a `nebo://run/<id>[?step=<n>]` or `nebo://group/<path>` href, or
+ *  null if it isn't a recognized nebo link. */
+export function parseNeboLink(href: string): NeboLink | null {
+  if (!href.startsWith('nebo://')) return null
+  const [pathPart, query] = href.slice('nebo://'.length).split('?')
+  if (pathPart.startsWith('run/')) {
+    const runId = pathPart.slice('run/'.length)
+    if (!runId) return null
+    let step: number | null = null
+    if (query) {
+      const raw = new URLSearchParams(query).get('step')
+      if (raw !== null && raw !== '' && Number.isFinite(Number(raw))) {
+        step = Number(raw)
+      }
+    }
+    return { kind: 'run', runId, step }
+  }
+  if (pathPart.startsWith('group/')) {
+    const path = pathPart.slice('group/'.length).replace(/\/+$/, '')
+    return path ? { kind: 'group', path } : null
+  }
+  return null
 }
 
 export interface GraphData {
@@ -173,4 +240,7 @@ export const api = {
     const qs = token ? `?token=${encodeURIComponent(token)}` : ''
     return `${BASE}/runs/${runId}/media/${mediaId}${qs}`
   },
+  getTree: () => get<TreeData>('/tree'),
+  getGroupDoc: (path: string, name: string) =>
+    getText(`/groups/${encodeGroupPath(path)}/docs/${encodeURIComponent(name)}`),
 }

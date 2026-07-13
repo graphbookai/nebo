@@ -8,6 +8,7 @@ export function useWebSocket() {
   const processWsEvents = useStore(s => s.processWsEvents)
   const setConnectionStatus = useStore(s => s.setConnectionStatus)
   const setRuns = useStore(s => s.setRuns)
+  const setRunTree = useStore(s => s.setRunTree)
 
   useEffect(() => {
     const ws = new WebSocketManager()
@@ -17,6 +18,8 @@ export function useWebSocket() {
     const unsub = ws.subscribe((batch) => {
       if (batch.type === 'batch' && batch.run_id && batch.events) {
         processWsEvents(batch.run_id, batch.events)
+      } else if (batch.type === 'tree_updated') {
+        setRunTree(batch.data)
       }
     })
 
@@ -27,10 +30,15 @@ export function useWebSocket() {
       setConnectionStatus(ws.connected, ws.reconnecting)
     }, 500)
 
-    // Initial data load
+    // Initial data load (run list + run tree). The tree also arrives live
+    // over the WS as tree_updated; this hydrates it on connect.
+    const refreshTree = () => {
+      api.getTree().then(setRunTree).catch(() => { /* ignore */ })
+    }
     api.listRuns()
       .then(data => setRuns(data.runs, data.active_run))
       .catch(() => { /* daemon not running */ })
+    refreshTree()
 
     // Periodic refresh of run list; paused while hidden, refreshed
     // immediately when the tab becomes visible again.
@@ -43,7 +51,7 @@ export function useWebSocket() {
       if (document.hidden) return
       refreshRuns()
     }, 5000)
-    const onVisible = () => { if (!document.hidden) refreshRuns() }
+    const onVisible = () => { if (!document.hidden) { refreshRuns(); refreshTree() } }
     document.addEventListener('visibilitychange', onVisible)
 
     ws.connect()
@@ -55,5 +63,5 @@ export function useWebSocket() {
       document.removeEventListener('visibilitychange', onVisible)
       ws.disconnect()
     }
-  }, [processWsEvents, setConnectionStatus, setRuns])
+  }, [processWsEvents, setConnectionStatus, setRuns, setRunTree])
 }

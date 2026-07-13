@@ -8,6 +8,7 @@ import {
   type NodeProps,
 } from '@xyflow/react'
 import { useStore } from '@/store'
+import { isRunLive } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Maximize2, ChevronsDownUp, ChevronsUpDown, Link as LinkIcon } from 'lucide-react'
 import { LoggableTabContainer } from '@/components/node-tabs/LoggableTabContainer'
@@ -33,11 +34,9 @@ export const NeboNode = memo(function NeboNode({ data, id }: NodeProps) {
 
   // Granular selectors — only re-render when THIS node's data changes, not on every log/metric append
   const nodeInfo = useStore(s => s.runs.get(runId)?.graph?.nodes[nodeId] ?? null)
-  // "Live" derives from timestamps: started but no run_completed yet.
-  const runIsLive = useStore(s => {
-    const summary = s.runs.get(runId)?.summary
-    return Boolean(summary?.started_at && !summary?.ended_at)
-  })
+  // "Live" is a recency accent — the run emitted an event recently. There
+  // is no run_completed/ended state to key off.
+  const runIsLive = useStore(s => isRunLive(s.runs.get(runId)?.summary))
   const dagDirection = useStore(s => s.dagDirection)
   const updateNodeInternals = useUpdateNodeInternals()
   useEffect(() => { updateNodeInternals(id) }, [dagDirection, id, updateNodeInternals])

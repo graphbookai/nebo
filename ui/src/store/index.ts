@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import type { RunSummary, GraphData, LogEntry, LabelsPayload, MetricType, MetricEntry, LoggableMetricSeries } from '@/lib/api'
+import type { RunSummary, GraphData, LogEntry, LabelsPayload, MetricType, MetricEntry, LoggableMetricSeries, TreeData } from '@/lib/api'
+import { EMPTY_TREE, parseNeboLink } from '@/lib/api'
 import type { WsEvent } from '@/lib/ws'
 import { assignColor } from '@/lib/colors'
 
@@ -172,6 +173,22 @@ interface NeboStore {
   toggleSelectForCompare: (runId: string) => void
   createComparisonGroup: (runIds: string[]) => string
   removeComparisonGroup: (groupId: string) => void
+
+  // Run tree (groups) — a read-only view over the daemon's group hierarchy.
+  // Distinct from GraphData.nodes[].group (intra-run node clustering).
+  runTree: TreeData
+  setRunTree: (tree: TreeData) => void
+  // A group page is shown when selectedGroup is set; it and selectedRunId are
+  // mutually exclusive (selecting one clears the other).
+  selectedGroup: string | null
+  selectGroup: (path: string | null) => void
+  expandedGroups: Set<string>
+  toggleGroupExpanded: (path: string) => void
+  // Handle a nebo:// deep link clicked in a group doc.
+  navigateNebo: (href: string) => void
+  // Ephemeral notice (e.g. a nebo:// target that no longer exists).
+  notice: string | null
+  setNotice: (msg: string | null) => void
 
   // Node interaction (graph view)
   layoutTrigger: number
@@ -404,6 +421,40 @@ export const useStore = create<NeboStore>((set, get) => ({
   setTimelineStep: (step) => set(state => ({ timeline: { ...state.timeline, step } })),
   setTimelineTime: (time) => set(state => ({ timeline: { ...state.timeline, time } })),
   setSelectedStream: (path) => set(state => ({ timeline: { ...state.timeline, selectedStream: path } })),
+
+  runTree: EMPTY_TREE,
+  setRunTree: (tree) => set({ runTree: tree }),
+  selectedGroup: null,
+  selectGroup: (path) => set({ selectedGroup: path, selectedRunId: null }),
+  expandedGroups: new Set<string>(),
+  toggleGroupExpanded: (path) => set(state => {
+    const next = new Set(state.expandedGroups)
+    if (next.has(path)) next.delete(path)
+    else next.add(path)
+    return { expandedGroups: next }
+  }),
+  navigateNebo: (href) => {
+    const link = parseNeboLink(href)
+    if (!link) return
+    if (link.kind === 'run') {
+      if (!get().runs.has(link.runId)) {
+        set({ notice: `Run ${link.runId} isn't loaded on this daemon.` })
+        return
+      }
+      set({ selectedRunId: link.runId, selectedGroup: null })
+      if (link.step !== null) {
+        set(state => ({ timeline: { ...state.timeline, mode: 'step', step: link.step } }))
+      }
+    } else {
+      if (!(link.path in get().runTree.groups)) {
+        set({ notice: `Group ${link.path} no longer exists.` })
+        return
+      }
+      set({ selectedGroup: link.path, selectedRunId: null })
+    }
+  },
+  notice: null,
+  setNotice: (msg) => set({ notice: msg }),
 
   settings: initialSettings,
 
@@ -659,7 +710,7 @@ export const useStore = create<NeboStore>((set, get) => ({
     return { runs }
   }),
 
-  selectRun: (runId) => set({ selectedRunId: runId }),
+  selectRun: (runId) => set({ selectedRunId: runId, selectedGroup: null }),
   requestLayout: () => set(state => ({ layoutTrigger: state.layoutTrigger + 1 })),
 
   updateNodePosition: (runId, nodeId, pos) => set(state => {
@@ -698,7 +749,7 @@ export const useStore = create<NeboStore>((set, get) => ({
             script_path: 'direct',
             args: [],
             started_at: new Date().toISOString(),
-            ended_at: null,
+            last_event_at: Date.now() / 1000,
             node_count: 0,
             edge_count: 0,
             log_count: 0,
@@ -715,6 +766,10 @@ export const useStore = create<NeboStore>((set, get) => ({
       }
       // Clone run so selectors see a new reference
       run = { ...run } as RunState
+      // Any event in this batch means the run is active now — refresh
+      // recency so the "live" accent stays lit while events stream (it
+      // decays LIVE_RECENCY_S after the last one). There is no ended_at.
+      run.summary = { ...run.summary, last_event_at: Date.now() / 1000 }
       runs.set(runId, run)
 
       // Accumulate new logs so we can spread once at the end
@@ -980,13 +1035,8 @@ export const useStore = create<NeboStore>((set, get) => ({
             break
           }
 
-          case 'run_completed': {
-            run.summary = {
-              ...run.summary,
-              ended_at: new Date().toISOString(),
-            }
-            break
-          }
+          // run_completed carries no read-side meaning — it's a writer
+          // finalization marker. Recency is refreshed for the batch above.
         }
       }
 

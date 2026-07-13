@@ -1,11 +1,19 @@
 import { getAuthToken } from './auth'
+import type { TreeData } from './api'
 
-export type WsEventHandler = (event: WsBatchEvent) => void
+export type WsMessage = WsBatchEvent | WsTreeUpdatedEvent
+export type WsEventHandler = (event: WsMessage) => void
 
 export interface WsBatchEvent {
   type: 'batch'
   run_id: string
   events: WsEvent[]
+}
+
+// Broadcast after any run-tree mutation (or an ingest that seeds a group).
+export interface WsTreeUpdatedEvent {
+  type: 'tree_updated'
+  data: TreeData
 }
 
 export interface WsEvent {
@@ -65,7 +73,7 @@ export class WebSocketManager {
 
       this.ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data) as WsBatchEvent
+          const data = JSON.parse(event.data) as WsMessage
           this.handlers.forEach(h => h(data))
         } catch {
           // Ignore malformed messages
