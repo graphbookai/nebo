@@ -797,3 +797,137 @@ class TestCachePathAndSweep:
 
     def test_sweep_missing_dir_is_noop(self, tmp_path):
         assert sweep_cache_dir(tmp_path / "nope", 30) == []
+
+    def test_sweep_removes_lock_side_file(self, tmp_path):
+        old = tmp_path / "old.db"
+        old.write_bytes(b"")
+        (tmp_path / "old.db.lock").write_text("{}")
+        stale = time.time() - 40 * 86400
+        os.utime(old, (stale, stale))
+        sweep_cache_dir(tmp_path, 30)
+        assert not old.exists()
+        assert not (tmp_path / "old.db.lock").exists()
+
+
+class TestSingleOwnerLock:
+    """Two live processes must never share one cache db — the second opener
+    fails fast instead of racing duplicate rows into it."""
+
+    def test_second_opener_fails_fast(self, tmp_path):
+        from nebo.server.cache import CacheLockedError
+
+        c = _mk(tmp_path)
+        try:
+            c2 = RunCache(tmp_path / "cache.db", logdir=tmp_path / "logs")
+            with pytest.raises(CacheLockedError) as ei:
+                c2.start()
+            # The error names the holder recorded in the lockfile.
+            assert str(os.getpid()) in str(ei.value)
+        finally:
+            c.close()
+
+    def test_lock_released_on_close(self, tmp_path):
+        c = _mk(tmp_path)
+        c.close()
+        c2 = _mk(tmp_path)  # must not raise
+        c2.close()
+
+    def test_lock_holder_probe(self, tmp_path):
+        from nebo.server.cache import cache_lock_holder
+
+        db = tmp_path / "cache.db"
+        assert cache_lock_holder(db) is None  # no lockfile yet
+        c = _mk(tmp_path)
+        try:
+            holder = cache_lock_holder(db)
+            assert holder is not None
+            assert holder.get("pid") == os.getpid()
+        finally:
+            c.close()
+        assert cache_lock_holder(db) is None  # released with close()
+
+
+class TestReingestIdempotence:
+    """Re-applying an identical history op is a no-op (unique index + INSERT
+    OR IGNORE) — the layer that keeps a re-scanned file or replayed batch
+    from doubling cached rows."""
+
+    @staticmethod
+    def _count(c, table):
+        return c._read_conn().execute(
+            f"SELECT COUNT(*) FROM {table}"
+        ).fetchone()[0]
+
+    def test_media_row_deduped_including_null_step(self, tmp_path):
+        c = _mk(tmp_path)
+        try:
+            # step=None exercises the COALESCE sentinel: NULLs are distinct
+            # in SQLite unique indexes, so a bare column key wouldn't dedup.
+            op = ("media_occurrence", "r1", "a", "f" * 16, "image", "frame",
+                  None, 5.0, None, None, None, None, None)
+            c.enqueue(op)
+            c.enqueue(op)
+            assert c.flush()
+            assert self._count(c, "media") == 1
+        finally:
+            c.close()
+
+    def test_metric_row_deduped(self, tmp_path):
+        c = _mk(tmp_path)
+        try:
+            op = ("metric_row", "r1", "a", "loss", "line",
+                  0, 1.0, "0.5", "[]", None)
+            c.enqueue(op)
+            c.enqueue(op)
+            # A genuinely new point (different ts) still lands.
+            c.enqueue(("metric_row", "r1", "a", "loss", "line",
+                       1, 2.0, "0.4", "[]", None))
+            assert c.flush()
+            assert self._count(c, "metrics") == 2
+        finally:
+            c.close()
+
+    def test_log_row_deduped(self, tmp_path):
+        c = _mk(tmp_path)
+        try:
+            op = ("log_row", "r1", "a", "text", 1.0, None, "info", "hi")
+            c.enqueue(op)
+            c.enqueue(op)
+            # Same instant, different message: distinct row.
+            c.enqueue(("log_row", "r1", "a", "text", 1.0, None, "info", "yo"))
+            assert c.flush()
+            assert self._count(c, "logs") == 2
+        finally:
+            c.close()
+
+    def test_alert_and_sig_rows_deduped(self, tmp_path):
+        c = _mk(tmp_path)
+        try:
+            c.enqueue(("alert_row", "r1", 1.0, '{"title": "t"}'))
+            c.enqueue(("alert_row", "r1", 1.0, '{"title": "t"}'))
+            c.enqueue(("sig_event", "r1", 2.0, "run_completed", "{}"))
+            c.enqueue(("sig_event", "r1", 2.0, "run_completed", "{}"))
+            assert c.flush()
+            assert self._count(c, "alerts") == 1
+            assert self._count(c, "significant_events") == 1
+        finally:
+            c.close()
+
+    @pytest.mark.asyncio
+    async def test_full_reingest_adds_no_rows(self, tmp_path):
+        """The end-to-end shape of the two-daemons-one-cache incident: the
+        same run's events applied twice must leave SQL row counts unchanged."""
+        state, c = _mk_state(tmp_path)
+        try:
+            _, events = _events_small_run()
+            await state.ingest_events(events, run_id="r1")
+            assert c.flush()
+            tables = ("logs", "metrics", "media")
+            counts = {t: self._count(c, t) for t in tables}
+            assert counts["media"] == 1
+            _, again = _events_small_run()
+            await state.ingest_events(again, run_id="r1")
+            assert c.flush()
+            assert {t: self._count(c, t) for t in tables} == counts
+        finally:
+            c.close()

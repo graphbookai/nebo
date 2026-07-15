@@ -309,6 +309,9 @@ class DaemonState:
         # Set by the lifespan when the directory watcher starts. Read-access
         # deep-ingest of shallow (header-only) runs delegates to it.
         self._watcher: Optional[Any] = None
+        # Run ids whose watcher events were dropped as aliases of a
+        # network-owned run — remembered only to warn once per run.
+        self._alias_dropped: set[str] = set()
         # Run tree (groups + placements over meta/tree.json). None on a daemon
         # with no workspace root (a bare DaemonState in tests). `_tree_dirty`
         # is set when an ingest seeds a group, so ingest_events broadcasts a
@@ -764,7 +767,11 @@ class DaemonState:
                 {"type": e["type"], **e["payload"]}
                 for e in events
             ]
-            await self.ingest_events(event_dicts, run_id=run_id)
+            # File-originated, like the run itself: never write these events
+            # back out through a remote-mode writer.
+            await self.ingest_events(
+                event_dicts, run_id=run_id, source="watcher",
+            )
 
     def get_active_run(self) -> Optional[Run]:
         """Return the currently active run, if any.
@@ -807,8 +814,23 @@ class DaemonState:
                 rid = run.id
 
             run = self.runs[rid]
+            # A watched file claiming a run this daemon owns over the network
+            # is an alias (e.g. a stray copy of the daemon's own remote-mode
+            # file placed in the logdir): its contents were already ingested
+            # once, so appending them again would double RAM state. The SQL
+            # layer would dedup identical rows (INSERT OR IGNORE); RAM
+            # appends would not.
+            if source == "watcher" and run.source == "network":
+                if rid not in self._alias_dropped:
+                    self._alias_dropped.add(rid)
+                    logger.warning(
+                        "ignoring watcher events for run %s: it is owned by "
+                        "a network client — a .nebo file in the watched "
+                        "logdir aliases it", rid,
+                    )
+                return
             for event in events:
-                self._process_event(run, event)
+                self._process_event(run, event, source)
 
         # Broadcast to WebSocket clients: serialize ONCE, enqueue per
         # client, never await a socket here.
@@ -931,18 +953,26 @@ class DaemonState:
             self._cache_put(("loggable_upsert", run.id, lid, {"kind": "node"}))
         return lg
 
-    def _process_event(self, run: Run, event: dict) -> None:
+    def _process_event(
+        self, run: Run, event: dict, source: str = "network",
+    ) -> None:
         """Process a single event into run state."""
         # Watcher-annotated media source ref (path, offset, length). Internal —
         # popped before the remote-mode writer or the WS broadcast can see it.
         media_src = event.pop("_media_src", None)
-        # In remote mode, persist every event to the run's .nebo file. For
-        # media the daemon writes itself, capture the on-disk frame span so
-        # the cache stores a (path, offset, length) reference instead of a
-        # duplicate blob — the same scheme watcher runs use. Flush right after
-        # a media frame so a GET /media arriving before the next flush can
-        # still resolve the reference off disk.
-        writer = getattr(run, "_file_writer", None)
+        # In remote mode, persist every *network* event to the run's .nebo
+        # file. Never watcher/loaded events — they came FROM a file, and
+        # re-writing them would duplicate entries; worse, if the remote dir
+        # ever aliases the watched logdir, the watcher would re-ingest the
+        # daemon's own output in an unbounded loop. For media the daemon
+        # writes itself, capture the on-disk frame span so the cache stores
+        # a (path, offset, length) reference instead of a duplicate blob —
+        # the same scheme watcher runs use. Flush right after a media frame
+        # so a GET /media arriving before the next flush can still resolve
+        # the reference off disk.
+        writer = (
+            getattr(run, "_file_writer", None) if source == "network" else None
+        )
         if writer is not None:
             entry_type = event.get("type", "log")
             span = writer.write_entry(entry_type, dict(event))
@@ -1295,9 +1325,13 @@ class DaemonState:
             )
             # Open a remote-mode writer only for runs that arrived over the
             # network. Watcher/loaded runs (source != "network") already exist
-            # on disk — writing them again would duplicate the file.
+            # on disk — writing them again would duplicate the file. The event
+            # source is gated too: a watcher-discovered run_start for a run
+            # the daemon itself wrote (its file placed where the watcher sees
+            # it) must not open a second writer for the same run_id.
             if (
                 self._remote_dir is not None
+                and source == "network"
                 and run.source == "network"
                 and not getattr(run, "_file_writer", None)
             ):
@@ -1320,9 +1354,12 @@ class DaemonState:
             # lets /events/wait fire on completion.
             if self.active_run_id == run.id:
                 self.active_run_id = None
+            # Prefer the event's own timestamp: a daemon-stamped time would
+            # make the same run_completed produce a distinct sig row on every
+            # re-ingest, defeating the cache's OR IGNORE dedup.
             sig = {
                 "type": "run_completed",
-                "timestamp": time.time(),
+                "timestamp": event.get("timestamp") or time.time(),
             }
             run.significant_events.append(sig)
             self._cache_put(("run_upsert", run.id, {
@@ -1434,6 +1471,24 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
 
     if state._logdir is None and logdir and not no_local:
         state._logdir = Path(logdir)
+
+    # Backstop for launches that bypass `nebo serve` (uvicorn --factory as in
+    # the Dockerfile, embedders, env-only config): a remote writer dir that
+    # aliases the watched logdir feeds the watcher the daemon's own files —
+    # every event re-ingests in a loop. cli.py validates the flag form; this
+    # guards NEBO_REMOTE and directly-configured states. Nesting under the
+    # logdir stays fine (the watcher is non-recursive).
+    if (
+        state._remote_dir is not None
+        and state._logdir is not None
+        and Path(state._remote_dir).resolve() == Path(state._logdir).resolve()
+    ):
+        raise RuntimeError(
+            "nebo daemon: the remote dir cannot be the watched logdir "
+            f"({Path(state._logdir).resolve()}) — the watcher would re-ingest "
+            "the daemon's own files. Use a subdirectory (the default "
+            "<logdir>/remote/) or disable the watcher (NEBO_NO_LOCAL=1)."
+        )
 
     # The run tree lives under the workspace root (the logdir) in *every* mode
     # — it anchors meta/, so --no-local and remote daemons still have one.

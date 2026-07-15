@@ -146,6 +146,23 @@ def cmd_serve(args: argparse.Namespace) -> None:
             from nebo.server.cache import resolve_cache_path
             cache_path = resolve_cache_path(logdir_abs)
         os.environ["NEBO_CACHE_PATH"] = str(cache_path)
+        # Friendly pre-check of the cache's single-owner lock so the common
+        # mistake (a second daemon on the same logdir) fails here with a
+        # clear message instead of inside uvicorn. Advisory only — RunCache
+        # re-checks authoritatively at startup (CacheLockedError).
+        from nebo.server.cache import cache_lock_holder
+        holder = cache_lock_holder(cache_path)
+        if holder is not None:
+            pid = holder.get("pid")
+            print(
+                "nebo serve: another daemon is already serving this logdir's "
+                f"cache ({cache_path})"
+                + (f" — pid {pid}" if pid else "") + ".\n"
+                "  Stop it first (nebo stop), or use a different "
+                "--logdir/--cache-path.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
     if getattr(args, "ram_budget", None):
         os.environ["NEBO_RAM_BUDGET_MB"] = str(args.ram_budget)
     if getattr(args, "media_lru", None):

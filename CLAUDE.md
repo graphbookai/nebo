@@ -82,9 +82,22 @@ flag is also given, since the daemon would then ingest nothing.
 
 `--remote` and `--remote-ephemeral` are mutually exclusive; a remote dir
 may not equal `--logdir` (watcher/writer feedback), though nesting under
-it is fine (the watcher is non-recursive). Env mirrors: `NEBO_REMOTE`
-(path, or `1` for the default dir), `NEBO_REMOTE_EPHEMERAL`. There is no
-`--save-files` (removed).
+it is fine (the watcher is non-recursive). The equality check is enforced
+in **both** `cli.py:cmd_serve` (flag form) and `create_daemon_app` (env
+form — covers the Dockerfile's `uvicorn --factory` launch and embedders);
+with the watcher off (`--no-local`) the combination is allowed. Env
+mirrors: `NEBO_REMOTE` (path, or `1` for the default dir),
+`NEBO_REMOTE_EPHEMERAL`. There is no `--save-files` (removed).
+
+**Ingest source gating**: `ingest_events`/`_process_event` carry the batch
+source (`"network"` vs `"watcher"`). Only network events pass through a
+remote-mode `_file_writer` (watcher/loaded events came *from* a file —
+re-writing them would duplicate entries or feed the watcher its own
+output), a non-network `run_start` never opens a writer, and a watcher
+batch for a run whose `source == "network"` is dropped with a once-per-run
+warning (a `.nebo` file in the watched logdir that aliases a network run —
+e.g. a stray copy — must not double RAM state). `POST /load` ingests with
+`source="watcher"`.
 
 **SDK fail-fast**: `NetworkTransport.connect()` reads `/health.mode`; a
 `"local"` daemon makes `nb.init()` (or the first `nb.*` emit) raise
@@ -143,6 +156,18 @@ writes stay synchronous; the cache interaction is a `queue.put`.
   restarts resume tailing instead of replaying. Reads use
   `NeboFileReader.read_entries_incremental`, which parks at a torn tail
   frame — offsets only advance past complete entries.
+- **Single owner**: `RunCache.start()` takes an exclusive flock on
+  `<db>.lock` and raises `CacheLockedError` if another live process holds
+  it — two daemons sharing one cache duplicate history rows and clobber
+  each other's `watch_files` offsets. `nebo serve` pre-probes the lock
+  (`cache_lock_holder`) for a friendly error naming the holder pid. The
+  kernel drops a flock on process death, so crashes never wedge a restart.
+- **Idempotent history inserts**: `logs`/`metrics`/`media`/`alerts`/
+  `significant_events` carry unique indexes over one event's identity
+  (COALESCE sentinels for nullable step/ts — NULLs are distinct in SQLite
+  unique indexes) and insert with `OR IGNORE`, so re-ingesting
+  already-cached events (re-scanned file, replayed batch) is a no-op —
+  matching the upsert semantics of `runs`/`loggables`/`media_blobs`.
 - **Escape hatches**: `--no-cache` (pure-RAM daemon, janitor disabled) and
   `--cache-path`. A `DaemonState()` constructed directly (tests) has
   `cache=None` and behaves exactly like the pre-cache daemon. Stale cache

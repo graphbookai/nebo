@@ -19,12 +19,23 @@ The cache lives at ``~/.nebo/cache/<sha1(logdir)[:16]>.db`` (see
 `resolve_cache_path`). `meta` rows record the schema version and the
 logdir the db was built for; a mismatch on open drops and recreates the
 database (it is a cache — rebuild is always safe).
+
+Single ownership: `start()` takes an exclusive flock on ``<db>.lock`` and
+raises `CacheLockedError` if another live process holds it — two daemons
+sharing one cache would duplicate history rows and clobber each other's
+watcher offsets. The kernel releases the flock on process death, so a
+crashed daemon never blocks a restart. As defense-in-depth, the history
+tables (logs, metrics, media, alerts, significant_events) carry unique
+indexes over one event's identity and insert with OR IGNORE, so re-ingest
+of already-cached events is a no-op.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+import os
 import queue
 import sqlite3
 import threading
@@ -32,9 +43,14 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+try:
+    import fcntl
+except ImportError:  # Windows: no flock — the single-owner guard degrades
+    fcntl = None      # to best-effort (SQLite WAL still serializes writes).
+
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = "4"
+SCHEMA_VERSION = "5"
 
 DEFAULT_RAM_BUDGET_MB = 384
 BYTES_PER_POINT = 372  # measured: dict-per-point daemon entry overhead
@@ -75,6 +91,28 @@ CREATE TABLE media (
 );
 CREATE INDEX idx_media_run ON media(run_id, loggable_id);
 CREATE INDEX idx_media_mid ON media(media_id);
+
+-- Re-ingest idempotence. History tables pair with INSERT OR IGNORE so
+-- replaying events that are already cached (a re-scanned file, a replayed
+-- wire batch) is a no-op, matching the upsert semantics of runs/loggables
+-- and the content-addressed media_blobs. Keys cover one event's identity;
+-- NULLs are distinct in SQLite unique indexes, so nullable columns go
+-- through COALESCE sentinels.
+CREATE UNIQUE INDEX ux_logs_row ON logs(
+  run_id, COALESCE(loggable_id, ''), name, ts, COALESCE(step, -1),
+  level, message
+);
+CREATE UNIQUE INDEX ux_metrics_row ON metrics(
+  run_id, loggable_id, name, COALESCE(step, -1), COALESCE(ts, -1), value_json
+);
+CREATE UNIQUE INDEX ux_media_row ON media(
+  run_id, loggable_id, kind, media_id, name, COALESCE(step, -1),
+  COALESCE(ts, -1)
+);
+CREATE UNIQUE INDEX ux_alerts_row ON alerts(run_id, ts, json);
+CREATE UNIQUE INDEX ux_sig_events_row ON significant_events(
+  run_id, ts, type, json
+);
 CREATE TABLE media_blobs (media_id TEXT PRIMARY KEY, blob BLOB);
 CREATE TABLE watch_files (
   path TEXT PRIMARY KEY, run_id TEXT, offset INTEGER, size INTEGER, mtime REAL,
@@ -88,6 +126,57 @@ def resolve_cache_path(logdir: Optional[Path | str]) -> Path:
     key = str(Path(logdir).resolve()) if logdir is not None else ""
     digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
     return Path.home() / ".nebo" / "cache" / f"{digest}.db"
+
+
+class CacheLockedError(RuntimeError):
+    """Another live process holds this cache database.
+
+    Two daemons sharing one cache corrupt derived state (duplicate history
+    rows, clobbered watcher offsets), so the second opener fails fast."""
+
+    def __init__(self, path: Path | str, holder: Optional[dict] = None) -> None:
+        self.path = Path(path)
+        self.holder = holder or {}
+        detail = ""
+        if self.holder.get("pid"):
+            detail = f" (pid {self.holder['pid']})"
+        super().__init__(
+            f"cache database {path} is already in use by another nebo "
+            f"daemon{detail}. Two daemons must not share a logdir — stop the "
+            "other daemon, or serve a different --logdir/--cache-path."
+        )
+
+
+def _lock_path(db_path: Path) -> Path:
+    return db_path.with_name(db_path.name + ".lock")
+
+
+def cache_lock_holder(db_path: Path | str) -> Optional[dict]:
+    """Probe a cache db's single-owner lock without taking ownership.
+
+    Returns the holder-info dict ({} if unreadable) when a live process
+    holds the lock, else None. Advisory only — the authoritative check is
+    `RunCache.start()`, which raises `CacheLockedError`; this exists so
+    `nebo serve` can fail with a friendly message before spawning uvicorn.
+    """
+    if fcntl is None:
+        return None
+    try:
+        f = open(_lock_path(Path(db_path)), "r")
+    except OSError:
+        return None
+    try:
+        try:
+            fcntl.flock(f, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except OSError:
+            try:
+                return json.loads(f.read() or "{}") or {}
+            except ValueError:
+                return {}
+        fcntl.flock(f, fcntl.LOCK_UN)
+        return None
+    finally:
+        f.close()
 
 
 def sweep_cache_dir(
@@ -113,7 +202,7 @@ def sweep_cache_dir(
         try:
             if path.stat().st_mtime < cutoff:
                 path.unlink()
-                for suffix in ("-wal", "-shm"):
+                for suffix in ("-wal", "-shm", ".lock"):
                     side = path.with_name(path.name + suffix)
                     if side.exists():
                         side.unlink()
@@ -182,13 +271,17 @@ class RunCache:
         self._thread: Optional[threading.Thread] = None
         self._running = False
         self._local = threading.local()
+        self._lock_file: Optional[Any] = None
         self.media_lru = MediaLRU(media_lru_mb * 1024 * 1024)
 
     # -- lifecycle -----------------------------------------------------
 
     def start(self) -> None:
-        """Open (or recreate) the database and start the writer thread."""
+        """Open (or recreate) the database and start the writer thread.
+
+        Raises `CacheLockedError` if another live process owns this db."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._acquire_lock()
         if self._path.exists() and not self._meta_matches():
             self._delete_db_files()
         if not self._path.exists():
@@ -201,16 +294,57 @@ class RunCache:
 
     def close(self) -> None:
         """Flush pending ops, stop the writer thread, close connections."""
-        if not self._running:
+        if self._running:
+            self._running = False
+            self._queue.put(None)  # poison pill; writer drains the rest first
+            if self._thread is not None:
+                self._thread.join(timeout=10.0)
+            conn = getattr(self._local, "conn", None)
+            if conn is not None:
+                conn.close()
+                self._local.conn = None
+        self._release_lock()
+
+    def _acquire_lock(self) -> None:
+        """Take the single-owner flock for this db, failing fast if held.
+
+        The kernel drops a flock when its holder dies, so a crashed daemon
+        never wedges a restart — the lockfile itself is inert; only the
+        held lock matters. Holder info (pid, logdir) is written into the
+        file purely for the error message on the losing side. No-op where
+        flock is unavailable (Windows)."""
+        if fcntl is None or self._lock_file is not None:
             return
-        self._running = False
-        self._queue.put(None)  # poison pill; writer drains the rest first
-        if self._thread is not None:
-            self._thread.join(timeout=10.0)
-        conn = getattr(self._local, "conn", None)
-        if conn is not None:
-            conn.close()
-            self._local.conn = None
+        lock_file = open(_lock_path(self._path), "a+")
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            lock_file.seek(0)
+            try:
+                holder = json.loads(lock_file.read() or "{}")
+            except ValueError:
+                holder = {}
+            lock_file.close()
+            raise CacheLockedError(self._path, holder) from None
+        lock_file.seek(0)
+        lock_file.truncate()
+        json.dump(
+            {"pid": os.getpid(), "logdir": self._logdir,
+             "acquired_at": time.time()},
+            lock_file,
+        )
+        lock_file.flush()
+        self._lock_file = lock_file
+
+    def _release_lock(self) -> None:
+        if self._lock_file is None:
+            return
+        try:
+            fcntl.flock(self._lock_file, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        self._lock_file.close()
+        self._lock_file = None
 
     def _meta_matches(self) -> bool:
         try:
@@ -345,19 +479,23 @@ class RunCache:
     })
 
     def _apply_op(self, conn: sqlite3.Connection, op: tuple) -> None:
+        # History-row inserts are OR IGNORE against the ux_* unique indexes:
+        # a row identical to one already cached is a re-ingest by
+        # construction (re-scanned file, replayed batch), never new data.
         kind = op[0]
         if kind == "log_row":
             _, run_id, lid, name, ts, step, level, message = op
             conn.execute(
-                "INSERT INTO logs (run_id, loggable_id, name, ts, step, level, message)"
+                "INSERT OR IGNORE INTO logs"
+                " (run_id, loggable_id, name, ts, step, level, message)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (run_id, lid, name, ts, step, level, message),
             )
         elif kind == "metric_row":
             _, run_id, lid, name, mtype, step, ts, value_json, tags_json, colors = op
             conn.execute(
-                "INSERT INTO metrics (run_id, loggable_id, name, metric_type,"
-                " step, ts, value_json, tags_json, colors)"
+                "INSERT OR IGNORE INTO metrics (run_id, loggable_id, name,"
+                " metric_type, step, ts, value_json, tags_json, colors)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (run_id, lid, name, mtype, step, ts, value_json, tags_json, colors),
             )
@@ -368,8 +506,8 @@ class RunCache:
                 (run_id, lid, name),
             )
             conn.execute(
-                "INSERT INTO metrics (run_id, loggable_id, name, metric_type,"
-                " step, ts, value_json, tags_json, colors)"
+                "INSERT OR IGNORE INTO metrics (run_id, loggable_id, name,"
+                " metric_type, step, ts, value_json, tags_json, colors)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (run_id, lid, name, mtype, step, ts, value_json, tags_json, colors),
             )
@@ -404,13 +542,13 @@ class RunCache:
         elif kind == "alert_row":
             _, run_id, ts, json_str = op
             conn.execute(
-                "INSERT INTO alerts (run_id, ts, json) VALUES (?, ?, ?)",
+                "INSERT OR IGNORE INTO alerts (run_id, ts, json) VALUES (?, ?, ?)",
                 (run_id, ts, json_str),
             )
         elif kind == "sig_event":
             _, run_id, ts, etype, json_str = op
             conn.execute(
-                "INSERT INTO significant_events (run_id, ts, type, json)"
+                "INSERT OR IGNORE INTO significant_events (run_id, ts, type, json)"
                 " VALUES (?, ?, ?, ?)",
                 (run_id, ts, etype, json_str),
             )
@@ -418,7 +556,8 @@ class RunCache:
             (_, run_id, lid, media_id, mkind, name, step, ts, sr,
              labels_json, src_path, src_offset, src_length) = op
             conn.execute(
-                "INSERT INTO media (run_id, loggable_id, media_id, kind, name,"
+                "INSERT OR IGNORE INTO media"
+                " (run_id, loggable_id, media_id, kind, name,"
                 " step, ts, sr, labels_json, src_path, src_offset, src_length)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (run_id, lid, media_id, mkind, name, step, ts, sr,

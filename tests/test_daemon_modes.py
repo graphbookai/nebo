@@ -115,6 +115,104 @@ class TestModeResolution:
         assert state.mode == "remote"
         assert state._remote_dir == tmp_path / "remote"
 
+    def test_remote_env_equal_logdir_rejected(self, monkeypatch, tmp_path):
+        # cli.py validates the flag form; env-only launches (Dockerfile's
+        # uvicorn --factory, embedders) must be caught here too — the remote
+        # writer feeding the watched logdir re-ingests its own output.
+        monkeypatch.delenv("NEBO_REMOTE_EPHEMERAL", raising=False)
+        monkeypatch.delenv("NEBO_NO_LOCAL", raising=False)
+        monkeypatch.delenv("NEBO_CACHE_PATH", raising=False)
+        monkeypatch.setenv("NEBO_LOGDIR", str(tmp_path))
+        monkeypatch.setenv("NEBO_REMOTE", str(tmp_path))
+        with pytest.raises(RuntimeError, match="remote dir"):
+            create_daemon_app(None)
+
+    def test_remote_env_equal_logdir_ok_without_watcher(self, monkeypatch, tmp_path):
+        # With the watcher off there is no feedback path — mirrors the CLI,
+        # which only rejects the combination when --no-local is absent.
+        monkeypatch.delenv("NEBO_REMOTE_EPHEMERAL", raising=False)
+        monkeypatch.delenv("NEBO_CACHE_PATH", raising=False)
+        monkeypatch.setenv("NEBO_NO_LOCAL", "1")
+        monkeypatch.setenv("NEBO_LOGDIR", str(tmp_path))
+        monkeypatch.setenv("NEBO_REMOTE", str(tmp_path))
+        state = create_daemon_app(None).state.daemon
+        assert state.mode == "remote"
+
+
+class TestWriterSourceGating:
+    """Watcher/loaded events never pass through the remote-mode writer —
+    they came FROM a file, so re-writing them would duplicate entries (and,
+    with a remote dir aliasing the watched logdir, feed the watcher its own
+    output in a loop)."""
+
+    @pytest.mark.asyncio
+    async def test_watcher_events_not_rewritten_to_file(self, tmp_path):
+        state = DaemonState()
+        state.mode = "remote"
+        state._remote_dir = tmp_path
+        await state.ingest_events(
+            [RUN_START, A_LOG], run_id="r1", source="network",
+        )
+        await state.ingest_events(
+            [{"type": "log", "loggable_id": "__global__",
+              "message": "from-file"}],
+            run_id="r1", source="watcher",
+        )
+        await state.ingest_events(
+            [{"type": "run_completed", "data": {}}],
+            run_id="r1", source="network",
+        )
+        # The alias guard drops the watcher batch before RAM, and the writer
+        # gate keeps the file to network entries only.
+        assert [l.message for l in state.runs["r1"].logs] == ["hi"]
+        files = list(tmp_path.glob("*.nebo"))
+        assert len(files) == 1
+        with files[0].open("rb") as f:
+            reader = NeboFileReader(f)
+            reader.read_header()
+            msgs = [
+                e["payload"].get("message")
+                for e in reader.read_entries()
+                if e["type"] == "log"
+            ]
+        assert msgs == ["hi"]
+
+    @pytest.mark.asyncio
+    async def test_watcher_batch_for_network_run_dropped(self, tmp_path):
+        # A .nebo file in the watched logdir that claims a network-owned
+        # run_id is an alias (stray copy) — its events must not append a
+        # second copy of everything into RAM.
+        state = DaemonState()
+        state.mode = "remote"
+        state._remote_dir = tmp_path
+        await state.ingest_events(
+            [RUN_START, A_LOG], run_id="r1", source="network",
+        )
+        await state.ingest_events([A_LOG], run_id="r1", source="watcher")
+        assert [l.message for l in state.runs["r1"].logs] == ["hi"]
+        # Watcher-owned runs keep accepting watcher events as before.
+        await state.ingest_events(
+            [RUN_START, A_LOG], run_id="r2", source="watcher",
+        )
+        await state.ingest_events([A_LOG], run_id="r2", source="watcher")
+        assert [l.message for l in state.runs["r2"].logs] == ["hi", "hi"]
+
+    @pytest.mark.asyncio
+    async def test_watcher_run_start_does_not_reopen_writer(self, tmp_path):
+        state = DaemonState()
+        state.mode = "remote"
+        state._remote_dir = tmp_path
+        await state.ingest_events([RUN_START], run_id="r1", source="network")
+        await state.ingest_events(
+            [{"type": "run_completed", "data": {}}],
+            run_id="r1", source="network",
+        )
+        assert getattr(state.runs["r1"], "_file_writer", None) is None
+        # The watcher later re-discovers the daemon's own (closed) file and
+        # replays its run_start — that must not open a fresh writer.
+        await state.ingest_events([RUN_START], run_id="r1", source="watcher")
+        assert getattr(state.runs["r1"], "_file_writer", None) is None
+
 
 def _fake_urlopen(mode):
     """A urllib.request.urlopen stand-in returning /health with `mode`."""
