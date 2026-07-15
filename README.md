@@ -42,7 +42,7 @@ Agent skills are released in the package preparing coding agents to not only wri
 * Mobile-first web UI
 * Notebook embedding via `nb.show()` (Jupyter-renderable iframe of any slice of a run)
 * One-command deploy to a Hugging Face Space (`nebo deploy`) with public/private read+write modes
-
+* Organize runs into a tree with groups
 
 ## Architecture
 
