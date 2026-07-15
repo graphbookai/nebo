@@ -118,7 +118,12 @@ async def wait_for_alert(
     min_level: int = 20,
     server_url: str = _DEFAULT_URL,
 ) -> dict[str, Any]:
-    """Block until an alert at or above min_level fires, or timeout."""
+    """Block until an alert at or above min_level fires, or timeout.
+
+    To wait for a run to *finish*, first `set_alert` a heartbeat rule
+    (``"last_event > 60"`` scoped to the run), then wait here — it wakes
+    once the run has been idle that long (immediately if it already is).
+    """
     try:
         return _client.wait_for_alert(
             run_id, timeout=timeout, min_level=min_level, url=server_url,
@@ -159,6 +164,11 @@ async def set_alert(
 
     `condition` is a string like ``"train/loss > 5"`` (ops: > >= < <= == !=).
     The rule fires at most once per run; fired alerts wake `wait_for_alert`.
+
+    The metric name ``last_event`` is reserved for heartbeat rules:
+    ``"last_event > 60"`` fires once a run has been idle more than 60
+    seconds (ops > >= only, no loggable_id). Nebo has no run status —
+    pair with `wait_for_alert` to detect run completion.
     """
     try:
         parsed = _client.parse_condition(condition)

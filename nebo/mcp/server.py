@@ -85,7 +85,13 @@ MCP_TOOLS = [
     },
     {
         "name": "nebo_wait_for_alert",
-        "description": "Block until an alert at or above `min_level` fires (via `nb.alert(...)`), or timeout elapses.",
+        "description": (
+            "Block until an alert at or above `min_level` fires (via "
+            "`nb.alert(...)` or a rule set with nebo_set_alert), or timeout "
+            "elapses. To wait for a run to finish, first set a heartbeat "
+            "rule ('last_event > 60' scoped to the run) — this wakes once "
+            "the run has been idle that long (immediately if it already is)."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -116,13 +122,16 @@ MCP_TOOLS = [
             "Create an alert rule that fires when a metric satisfies a "
             "condition — no code changes needed. The rule fires at most once "
             "per run; fired alerts wake nebo_wait_for_alert. Condition is a "
-            "string like 'train/loss > 5' (ops: > >= < <= == !=)."
+            "string like 'train/loss > 5' (ops: > >= < <= == !=). The "
+            "reserved metric 'last_event' fires on idle seconds: "
+            "'last_event > 60' fires once a run has been quiet for 60s "
+            "(ops > >= only; nebo's run-completion signal)."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "title": {"type": "string", "description": "Alert headline."},
-                "condition": {"type": "string", "description": "Metric condition, e.g. 'train/loss > 5'."},
+                "condition": {"type": "string", "description": "Metric condition, e.g. 'train/loss > 5', or 'last_event > 60' to fire on run idleness."},
                 "text": {"type": "string", "description": "Optional body / details."},
                 "level": {"type": "integer", "description": "Severity: 10=DEBUG, 20=INFO, 30=WARN, 40=ERROR (default 20)."},
                 "loggable_id": {"type": "string", "description": "Only match the metric on this loggable."},

@@ -354,7 +354,7 @@ When the nebo daemon is running (`nebo serve`), 15 MCP tools are available for q
 ### Typical Workflow
 
 1. The user launches the script themselves: `uv run python my_script.py`. The SDK prints `Your run id is: <id>.` on connect.
-2. **Watch:** `nebo_wait_for_alert` to block until `nb.alert(...)` fires (or use the equivalent CLI: `nebo runs wait <id>`).
+2. **Watch:** `nebo_wait_for_alert` to block until `nb.alert(...)` fires (or use the equivalent CLI: `nebo runs wait <id>`). To be woken when the run *finishes*, set a heartbeat rule first — `nebo alerts set --title done --condition "last_event > 120" --run <id>` — nebo has no completed status; going idle is the completion signal.
 3. **Inspect:** `nebo_get_graph` for DAG overview, `nebo_get_logs` / `nebo_get_metrics` for detail.
 5. **Iterate:** Edit the source file directly with your normal file tools, then re-run from the shell.
 

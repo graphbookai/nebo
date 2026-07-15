@@ -366,7 +366,9 @@ nebo runs
     (default level ``20`` = INFO), or ``--timeout`` seconds pass
     (default ``300``). Prints ``{"status": "alert", ...}`` or
     ``{"status": "timeout"}`` — the building block for "tell me when
-    the loss spikes" agent loops, paired with ``nebo alerts set``.
+    the loss spikes" agent loops, paired with ``nebo alerts set``. To
+    wait for the run to *finish*, pair with a heartbeat rule
+    (``nebo alerts set --condition "last_event > 60" --run <id>``).
 
 .. option:: mv <run_id> [<group> | --root]
 
@@ -493,6 +495,7 @@ same listing.
 .. code-block:: bash
 
     nebo alerts set --title "loss spiked" --condition "train/loss > 5" --level WARN
+    nebo alerts set --title "run done" --condition "last_event > 60" --run 1f2e3d4c5b6a
     nebo alerts ls
     nebo alerts rm 1a2b3c4d
 
@@ -511,7 +514,12 @@ same listing.
 
     * ``--condition`` — ``'<metric> <op> <number>'``, e.g.
       ``'train/loss > 5'``. Ops: ``>``, ``>=``, ``<``, ``<=``, ``==``,
-      ``!=``.
+      ``!=``. The metric name ``last_event`` is reserved for heartbeat
+      rules: the value is seconds since the run's last event, checked
+      about once a second by the daemon (ops ``>``/``>=`` only,
+      ``--loggable`` doesn't apply). ``'last_event > 60'`` fires once a
+      run has been quiet for 60 seconds — nebo's run-completion signal,
+      since runs have no status or end time.
     * ``--level`` — ``DEBUG``/``INFO``/``WARN``/``ERROR`` or an integer
       (default ``INFO``).
     * ``--loggable`` — only match the metric on this loggable id.

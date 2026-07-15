@@ -183,6 +183,16 @@ ALERT_CONDITION_OPS = {
     "!=": lambda a, b: a != b,
 }
 
+# Reserved pseudo-metric for heartbeat rules: `last_event > 60` fires when a
+# run has been idle (now - last_event_at) more than 60 seconds. Nebo has no
+# run status or ended_at, so an idle heartbeat is *the* completion signal.
+# A real metric with this name never triggers such a rule (and vice versa).
+HEARTBEAT_METRIC = "last_event"
+
+# Cadence of the always-on heartbeat evaluator task (module-level so tests
+# can monkeypatch it down).
+HEARTBEAT_TICK_S = 1.0
+
 _ALERT_LEVEL_NAMES = {10: "DEBUG", 20: "INFO", 30: "WARN", 40: "ERROR"}
 
 # Returned (HTTP 409) when a network client tries to create a run on a
@@ -226,6 +236,14 @@ def validate_alert_condition(condition: Any) -> Optional[str]:
         condition.get("value"), bool
     ):
         return "condition.value must be a number"
+    if condition["metric"] == HEARTBEAT_METRIC:
+        # Idle-time rules: `<`/`<=`/`==`/`!=` would fire instantly or never.
+        if condition["op"] not in (">", ">="):
+            return "last_event rules fire on idle seconds and only support the > and >= operators"
+        if condition["value"] < 0:
+            return "last_event threshold must be a non-negative number of seconds"
+        if condition.get("loggable_id"):
+            return "loggable_id does not apply to last_event rules (idleness is run-wide)"
     return None
 
 
@@ -1386,6 +1404,8 @@ class DaemonState:
             return
         for rule in self.alert_rules.values():
             cond = rule["condition"]
+            if cond["metric"] == HEARTBEAT_METRIC:
+                continue  # reserved: evaluated by the heartbeat loop, never by metrics
             if cond["metric"] != name:
                 continue
             if cond.get("loggable_id") and cond["loggable_id"] != loggable_id:
@@ -1396,34 +1416,108 @@ class DaemonState:
                 continue  # fire once per run
             if not ALERT_CONDITION_OPS[cond["op"]](value, cond["value"]):
                 continue
+            self._fire_rule_alert(
+                rule, run.id, value=value,
+                loggable_id=loggable_id, step=entry.get("step"),
+            )
+
+    def _fire_rule_alert(
+        self, rule: dict, run_id: str, *, value: Any,
+        loggable_id: Optional[str], step: Optional[int],
+        ts: Optional[float] = None,
+    ) -> None:
+        """Record a rule firing: mark the rule, append the alert to the run
+        (when RAM-resident), and persist alert + significant-event rows to
+        the cache so evicted/restarted reads still see it."""
+        if ts is None:
             ts = time.time()
-            rule["fired"].append({
-                "run_id": run.id,
-                "value": value,
-                "step": entry.get("step"),
-                "timestamp": ts,
-            })
-            level = int(rule.get("level") or 20)
-            alert = {
-                "title": rule.get("title", ""),
-                "text": rule.get("text", ""),
-                "level": level,
-                "level_name": _ALERT_LEVEL_NAMES.get(level, str(level)),
-                "triggered_by": "cli",
-                "condition": format_alert_condition(cond),
-                "rule_id": rule["id"],
-                "loggable_id": loggable_id,
-                "value": value,
-                "step": entry.get("step"),
-                "timestamp": ts,
-            }
+        rule["fired"].append({
+            "run_id": run_id,
+            "value": value,
+            "step": step,
+            "timestamp": ts,
+        })
+        level = int(rule.get("level") or 20)
+        alert = {
+            "title": rule.get("title", ""),
+            "text": rule.get("text", ""),
+            "level": level,
+            "level_name": _ALERT_LEVEL_NAMES.get(level, str(level)),
+            "triggered_by": "cli",
+            "condition": format_alert_condition(rule["condition"]),
+            "rule_id": rule["id"],
+            "loggable_id": loggable_id,
+            "value": value,
+            "step": step,
+            "timestamp": ts,
+        }
+        sig = {
+            "type": "alert",
+            "timestamp": ts,
+            "loggable_id": loggable_id,
+            "message": alert["title"],
+        }
+        run = self.runs.get(run_id)
+        if run is not None:
             run.alerts.append(alert)
-            run.significant_events.append({
-                "type": "alert",
-                "timestamp": ts,
-                "loggable_id": loggable_id,
-                "message": alert["title"],
-            })
+            run.significant_events.append(sig)
+        self._cache_put(("alert_row", run_id, ts, json.dumps(alert)))
+        self._cache_put(("sig_event", run_id, ts, "alert", json.dumps(sig)))
+
+    def evaluate_heartbeat_rules(self, now: Optional[float] = None) -> bool:
+        """Fire heartbeat (``last_event``) rules for runs idle past threshold.
+
+        Called every ``HEARTBEAT_TICK_S`` by the always-on lifespan task
+        (under the ingest lock), and directly by tests with an injected
+        ``now``. Idle time is ``now - last_event_at``.
+
+        Run-scoped rules evaluate regardless of when the rule was created —
+        a run that already went quiet fires on the first tick, so waiting on
+        an already-finished run returns immediately — and fall back to the
+        cache when the run has been evicted from RAM (long-idle is exactly
+        the evicted regime). Global rules scan RAM-resident runs only and
+        skip runs whose last activity precedes the rule's creation, so dusty
+        historical runs never insta-fire; the flip side is they can miss
+        already-evicted runs — scope with run_id for reliable completion
+        detection.
+
+        Returns True if anything fired; the caller must then notify
+        ``_event_notify`` itself — the run is quiet, so no ingest will.
+        """
+        if now is None:
+            now = time.time()
+        fired_any = False
+        for rule in self.alert_rules.values():
+            cond = rule["condition"]
+            if cond["metric"] != HEARTBEAT_METRIC:
+                continue
+            op = ALERT_CONDITION_OPS[cond["op"]]
+            if rule.get("run_id"):
+                candidates = [rule["run_id"]]
+            else:
+                candidates = [
+                    rid for rid, run in self.runs.items()
+                    if run.last_event_at
+                    and run.last_event_at >= rule["created_at"]
+                ]
+            for rid in candidates:
+                if any(f["run_id"] == rid for f in rule["fired"]):
+                    continue  # fire once per run
+                run = self.runs.get(rid)
+                last = run.last_event_at if run is not None else None
+                if not last and self.cache is not None and self.cache.has_run(rid):
+                    last = self.cache.run_recency(rid)
+                if not last:
+                    continue
+                idle = now - last
+                if not op(idle, cond["value"]):
+                    continue
+                self._fire_rule_alert(
+                    rule, rid, value=round(idle, 3),
+                    loggable_id=None, step=None, ts=now,
+                )
+                fired_any = True
+        return fired_any
 
 
 def create_daemon_app(state: DaemonState | None = None, port: int | None = None) -> Any:
@@ -1557,9 +1651,39 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
                     except Exception:
                         pass  # the janitor must never die
             janitor_task = asyncio.create_task(_janitor_loop())
+
+        # Always-on (unlike the cache-gated janitor): heartbeat rules must
+        # work on --no-cache daemons too.
+        async def _heartbeat_loop():
+            while True:
+                await asyncio.sleep(HEARTBEAT_TICK_S)
+                try:
+                    if not any(
+                        r["condition"].get("metric") == HEARTBEAT_METRIC
+                        for r in state.alert_rules.values()
+                    ):
+                        continue
+                    async with state._lock:
+                        fired = state.evaluate_heartbeat_rules()
+                    if fired:
+                        # The run went quiet, so no ingest will ever wake
+                        # /runs/{id}/alerts/wait — notify explicitly.
+                        async with state._event_notify:
+                            state._event_notify.notify_all()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    pass  # must never die
+
+        heartbeat_task = asyncio.create_task(_heartbeat_loop())
         try:
             yield
         finally:
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except asyncio.CancelledError:
+                pass
             if janitor_task is not None:
                 janitor_task.cancel()
                 try:
@@ -1930,7 +2054,9 @@ def create_daemon_app(state: DaemonState | None = None, port: int | None = None)
         if isinstance(level, bool) or not isinstance(level, int):
             return JSONResponse(status_code=422, content={"error": "level must be an integer"})
         run_id = body.get("run_id")
-        if run_id is not None and run_id not in state.runs:
+        # Anywhere, not RAM-only: heartbeat rules target long-idle runs,
+        # which are exactly the ones evicted from RAM into the cache.
+        if run_id is not None and not state.has_run_anywhere(run_id):
             return JSONResponse(status_code=404, content={"error": f"Run '{run_id}' not found"})
         condition = body["condition"]
         rule = {

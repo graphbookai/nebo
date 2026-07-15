@@ -1324,7 +1324,12 @@ def main() -> None:
     p_alset.add_argument("--text", help="Optional body / details")
     p_alset.add_argument(
         "--condition", required=True,
-        help="Metric condition, e.g. 'train/loss > 5'. Ops: > >= < <= == !=",
+        help=(
+            "Metric condition, e.g. 'train/loss > 5'. Ops: > >= < <= == !=. "
+            "The reserved metric 'last_event' fires on idle seconds — "
+            "'last_event > 60' fires once a run has been quiet for 60s "
+            "(ops > >= only; nebo's completion signal)"
+        ),
     )
     p_alset.add_argument(
         "--level", type=_parse_alert_level, default=20,

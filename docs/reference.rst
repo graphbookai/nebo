@@ -550,7 +550,10 @@ Run & Alert Tools
 
     :param title: Alert headline (required).
     :param condition: Condition string, e.g. ``"train/loss > 5"``
-        (ops: ``> >= < <= == !=``) (required).
+        (ops: ``> >= < <= == !=``) (required). The reserved metric
+        ``last_event`` fires on idle seconds (``"last_event > 60"`` =
+        run quiet for 60s; ops ``>``/``>=`` only) — the way to detect
+        run completion.
     :param text: Optional body.
     :param level: 10/20/30/40 for DEBUG/INFO/WARN/ERROR (default: 20).
     :param loggable_id: Only match the metric on this loggable.

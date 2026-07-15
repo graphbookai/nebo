@@ -71,6 +71,7 @@ rely on the human-formatted columns.
 | Compare a metric across runs | `nebo metrics get <loggable> --name <M> --runs R1,R2,R3 --values-only --json` |
 | Wait for an alert | `nebo runs wait <R> --timeout 300 --min-level 20 --json` |
 | Set an alert on a metric | `nebo alerts set --title <T> --condition "<M> > 5" --json` |
+| Wait for a run to finish (go idle) | `nebo alerts set --title done --condition "last_event > 60" --run <R> --json` then `nebo runs wait <R> --json` |
 
 `nebo runs show --json` keys worth knowing: `run_config` (the dict passed
 to `nb.start_run(config=...)`), `metrics_index` ({loggable: [metric
@@ -167,9 +168,24 @@ metrics arrive; a rule fires at most once per run:
     nebo alerts set --title "solved" --condition "avg_return >= 200" --run <R> --json
 
 - `--condition` is `<metric> <op> <number>` with ops `> >= < <= == !=`.
+- The metric name `last_event` is **reserved** for heartbeat rules: the
+  value is seconds since the run's last event, evaluated ~every second
+  by the daemon (ops `>` `>=` only; `--loggable` doesn't apply).
 - `--loggable <L>` restricts matching to one loggable; default any.
 - `--run <R>` scopes the rule to one run; default all runs (right for sweeps).
 - `--level` takes DEBUG/INFO/WARN/ERROR or an integer (10/20/30/40).
+
+**Detecting run completion.** Nebo has no run status or end time — a
+quiet run is the only "done" signal. Set a heartbeat rule scoped to the
+run, then wait:
+
+    nebo alerts set --title done --condition "last_event > 60" --run <R> --json
+    nebo runs wait <R> --json
+
+The wait returns once the run has been idle 60s — immediately if it
+already is (so waiting on an already-finished run doesn't block). Pick
+the threshold from the run's cadence: longer than its slowest gap
+between events, or you'll get a false "done" mid-run.
 
 Manage rules with `nebo alerts ls [--run R]`, `nebo alerts get <id>`,
 `nebo alerts rm <id>`. `ls` also shows code-fired alerts. The watch

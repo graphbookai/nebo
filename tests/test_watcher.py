@@ -272,3 +272,40 @@ async def test_v4_file_end_to_end(tmp_path):
         assert n == 6
     finally:
         cache.close()
+
+
+@pytest.mark.asyncio
+async def test_alert_file_end_to_end(tmp_path):
+    """File-mode nb.alert survives its unregistered (byte 255) serialization.
+
+    Alert frames are intentionally NOT in ENTRY_TYPES — they land on disk as
+    unknown byte 255 with the full event dict as payload, and the watcher's
+    payload-type recovery (`{"type": ..., **entry["payload"]}`) is what
+    ingests them. Pins that recovery against anyone making the byte
+    authoritative.
+    """
+    from nebo.core.transport import FileTransport
+
+    logdir = tmp_path / "logs"
+    logdir.mkdir()
+    state = DaemonState()
+
+    t = FileTransport(logdir=logdir, run_id="alertfileee1", script_path="/x/s.py")
+    try:
+        t.send_event({
+            "type": "alert", "loggable_id": None,
+            "data": {"title": "probe", "text": "final check", "level": 30,
+                     "level_name": "WARN", "timestamp": 123.0},
+        })
+        assert t.flush(timeout=2.0)
+    finally:
+        t.close()
+
+    watcher = DirectoryWatcher(state, logdir=logdir, poll_interval=0.05)
+    await watcher._tick()
+    await watcher.ensure_deep("alertfileee1")
+
+    run = state.runs["alertfileee1"]
+    assert [a["title"] for a in run.alerts] == ["probe"]
+    assert run.alerts[0]["level"] == 30
+    assert run.significant_events[-1]["type"] == "alert"

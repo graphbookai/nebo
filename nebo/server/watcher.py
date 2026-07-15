@@ -240,6 +240,10 @@ class DirectoryWatcher:
             reader = NeboFileReader(f)
             batch: list[dict] = []
             for entry, entry_start, entry_end in reader.read_entries_incremental():
+                # The payload's own "type" key (spread second) deliberately
+                # wins over the byte-derived one: alert frames are written as
+                # unregistered byte 255 ("unknown_255") with the full event
+                # dict as payload, and this recovery is what ingests them.
                 event = {"type": entry["type"], **entry["payload"]}
                 if event.get("type") in ("image", "audio") and "data" in event:
                     event["_media_src"] = (

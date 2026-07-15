@@ -613,6 +613,12 @@ class RunCache:
             "SELECT * FROM runs WHERE run_id=?", (run_id,)
         ).fetchone()
 
+    def run_recency(self, run_id: str) -> Optional[float]:
+        """The run's ``last_event_at`` — heartbeat evaluation for runs
+        that have been evicted from RAM."""
+        row = self._run_row(run_id)
+        return row["last_event_at"] if row is not None else None
+
     def get_summary(self, run_id: str) -> Optional[dict]:
         """Mirror of Run.get_summary() built from SQL."""
         import json

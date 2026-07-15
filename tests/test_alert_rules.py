@@ -265,3 +265,218 @@ class TestConditionParsing:
             parse_condition("train/loss soars")
         with pytest.raises(ValueError):
             parse_condition("> 5")
+
+
+# ─── Heartbeat (last_event) rules ────────────────────────────────────────────
+
+
+def _heartbeat_rule(
+    rule_id: str = "hb1",
+    run_id: str | None = None,
+    value: float = 60.0,
+    op: str = ">",
+    created_at: float = 0.0,
+    level: int = 20,
+) -> dict:
+    """Hand-built rule dict (bypasses POST /alerts so created_at is exact)."""
+    return {
+        "id": rule_id,
+        "title": "run done",
+        "text": "",
+        "level": level,
+        "triggered_by": "cli",
+        "condition": {
+            "metric": "last_event", "op": op, "value": value,
+            "loggable_id": None,
+        },
+        "run_id": run_id,
+        "created_at": created_at,
+        "fired": [],
+    }
+
+
+class TestHeartbeatValidation:
+    def test_accepts_gt_and_ge(self) -> None:
+        for op in (">", ">="):
+            assert validate_alert_condition(
+                {"metric": "last_event", "op": op, "value": 60}
+            ) is None
+
+    def test_rejects_instant_or_never_ops(self) -> None:
+        for op in ("<", "<=", "==", "!="):
+            assert validate_alert_condition(
+                {"metric": "last_event", "op": op, "value": 60}
+            ) is not None
+
+    def test_rejects_negative_value(self) -> None:
+        assert validate_alert_condition(
+            {"metric": "last_event", "op": ">", "value": -1}
+        ) is not None
+
+    def test_rejects_loggable_scope(self) -> None:
+        assert validate_alert_condition(
+            {"metric": "last_event", "op": ">", "value": 60,
+             "loggable_id": "train"}
+        ) is not None
+
+    def test_endpoint_rejects_bad_heartbeat(self) -> None:
+        _, client = _make_client()
+        resp = client.post("/alerts", json={
+            "title": "t",
+            "condition": {"metric": "last_event", "op": "<", "value": 60},
+        })
+        assert resp.status_code == 422
+
+
+class TestHeartbeatRules:
+    """evaluate_heartbeat_rules unit tests — injected `now`, no sleeps."""
+
+    def test_run_scoped_fires_when_idle(self) -> None:
+        state, _ = _make_client()
+        state.create_run("s.py", run_id="r1")
+        state.runs["r1"].last_event_at = 1000.0
+        state.alert_rules["hb1"] = _heartbeat_rule(run_id="r1", value=60.0)
+
+        assert state.evaluate_heartbeat_rules(now=1061.0) is True
+        (alert,) = state.runs["r1"].alerts
+        assert alert["triggered_by"] == "cli"
+        assert alert["condition"] == "last_event > 60"
+        assert alert["value"] == 61.0
+        assert alert["loggable_id"] is None
+        assert state.runs["r1"].significant_events[-1]["type"] == "alert"
+
+    def test_not_fired_while_active(self) -> None:
+        state, _ = _make_client()
+        state.create_run("s.py", run_id="r1")
+        state.runs["r1"].last_event_at = 1000.0
+        state.alert_rules["hb1"] = _heartbeat_rule(run_id="r1", value=60.0)
+
+        assert state.evaluate_heartbeat_rules(now=1059.0) is False
+        assert state.runs["r1"].alerts == []
+
+    def test_fires_once_per_run(self) -> None:
+        state, _ = _make_client()
+        state.create_run("s.py", run_id="r1")
+        state.runs["r1"].last_event_at = 1000.0
+        state.alert_rules["hb1"] = _heartbeat_rule(run_id="r1", value=60.0)
+
+        assert state.evaluate_heartbeat_rules(now=1061.0) is True
+        assert state.evaluate_heartbeat_rules(now=1100.0) is False
+        assert len(state.runs["r1"].alerts) == 1
+        assert len(state.alert_rules["hb1"]["fired"]) == 1
+
+    def test_run_scoped_fires_for_already_idle_run(self) -> None:
+        """A run quiet since before the rule existed fires on the first
+        tick — waiting on an already-finished run returns immediately."""
+        state, _ = _make_client()
+        state.create_run("s.py", run_id="r1")
+        state.runs["r1"].last_event_at = 1000.0
+        state.alert_rules["hb1"] = _heartbeat_rule(
+            run_id="r1", value=60.0, created_at=5000.0,
+        )
+
+        assert state.evaluate_heartbeat_rules(now=5001.0) is True
+
+    def test_global_rule_skips_stale_runs(self) -> None:
+        state, _ = _make_client()
+        state.create_run("s.py", run_id="stale")
+        state.create_run("s.py", run_id="live")
+        state.runs["stale"].last_event_at = 1000.0   # before created_at
+        state.runs["live"].last_event_at = 5010.0    # after created_at
+        state.alert_rules["hb1"] = _heartbeat_rule(
+            value=60.0, created_at=5000.0,
+        )
+
+        assert state.evaluate_heartbeat_rules(now=5100.0) is True
+        assert state.runs["stale"].alerts == []
+        assert len(state.runs["live"].alerts) == 1
+
+    def test_metric_named_last_event_does_not_trigger(self) -> None:
+        """The reserved name cuts both ways: a real metric called
+        last_event never fires the rule, and the heartbeat still does."""
+        state, client = _make_client()
+        state.create_run("s.py", run_id="r1")
+        state.alert_rules["hb1"] = _heartbeat_rule(run_id="r1", value=60.0)
+
+        client.post("/events?run_id=r1", json=[_metric_event("last_event", 999)])
+        assert state.runs["r1"].alerts == []
+
+        state.runs["r1"].last_event_at = 1000.0
+        assert state.evaluate_heartbeat_rules(now=1061.0) is True
+
+    def test_run_scoped_fires_for_evicted_run(self, tmp_path) -> None:
+        """A RAM-evicted run resolves recency from the cache — long-idle
+        is exactly the evicted regime."""
+        from nebo.server.cache import RunCache
+
+        cache = RunCache(tmp_path / "cache.db", logdir=tmp_path / "logs")
+        cache.start()
+        try:
+            state = DaemonState(cache=cache)
+            app = create_daemon_app(state=state)
+            client = TestClient(app)
+
+            state.create_run("s.py", run_id="r1")
+            state._cache_put(("run_upsert", "r1", {"last_event_at": 1000.0}))
+            assert cache.flush()
+            del state.runs["r1"]  # simulate eviction
+
+            # POST targets the evicted run — pins has_run_anywhere.
+            resp = client.post("/alerts", json={
+                "title": "run done", "run_id": "r1",
+                "condition": {"metric": "last_event", "op": ">", "value": 60},
+            })
+            assert resp.status_code == 200
+
+            assert state.evaluate_heartbeat_rules(now=1061.0) is True
+            assert cache.flush()
+            alerts = state.run_alerts("r1")
+            assert alerts and alerts[0]["title"] == "run done"
+        finally:
+            cache.close()
+
+    def test_metric_rule_alert_reaches_cache(self, tmp_path) -> None:
+        """Rule-fired alerts persist to SQL like code-fired ones."""
+        from nebo.server.cache import RunCache
+
+        cache = RunCache(tmp_path / "cache.db", logdir=tmp_path / "logs")
+        cache.start()
+        try:
+            state = DaemonState(cache=cache)
+            app = create_daemon_app(state=state)
+            client = TestClient(app)
+            state.create_run("s.py", run_id="r1")
+            client.post("/alerts", json={
+                "title": "threshold hit",
+                "condition": {"metric": "m", "op": ">", "value": 5},
+            })
+            client.post("/events?run_id=r1", json=[_metric_event("m", 6)])
+            assert cache.flush()
+            cached = cache.get_alerts("r1")
+            assert cached and cached[0]["title"] == "threshold hit"
+        finally:
+            cache.close()
+
+    def test_heartbeat_wakes_alert_waiter(self, monkeypatch) -> None:
+        """End-to-end: the always-on loop fires the rule and notifies the
+        waiter itself (no ingest happens — the run is quiet)."""
+        import time as _time
+
+        import nebo.server.daemon as daemon_mod
+
+        monkeypatch.setattr(daemon_mod, "HEARTBEAT_TICK_S", 0.02)
+        state = DaemonState()
+        app = create_daemon_app(state=state)
+        # Context manager: runs the lifespan, which starts the loop.
+        with TestClient(app) as client:
+            state.create_run("s.py", run_id="r1")
+            state.runs["r1"].last_event_at = _time.time() - 10.0
+            resp = client.post("/alerts", json={
+                "title": "run done", "run_id": "r1",
+                "condition": {"metric": "last_event", "op": ">", "value": 5},
+            })
+            assert resp.status_code == 200
+
+            body = client.get("/runs/r1/alerts/wait?timeout=2").json()
+            assert body["status"] == "alert"
+            assert body["alert"]["condition"] == "last_event > 5"

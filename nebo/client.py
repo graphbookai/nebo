@@ -203,6 +203,10 @@ _CONDITION_RE = re.compile(
 def parse_condition(expr: str) -> dict[str, Any]:
     """Parse a condition string into `{"metric", "op", "value"}`.
 
+    The metric name `last_event` is reserved for heartbeat rules
+    ("last_event > 60" fires once a run has been idle 60s); the daemon
+    validates its extra constraints (ops > >= only, no loggable_id).
+
     Raises ValueError with a usage hint on malformed input.
     """
     m = _CONDITION_RE.match(expr or "")
