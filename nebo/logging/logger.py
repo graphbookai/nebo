@@ -486,17 +486,33 @@ def log_audio(audio: Any, sr: int = 16000, *, name: Optional[str] = None, step: 
 def md(description: str) -> None:
     """Set or append to the workflow-level description.
 
-    This is distinct from node-level docstrings — it describes the overall workflow.
+    This is distinct from node-level docstrings — it describes the overall
+    workflow. Declarative scoping rule: called outside a run, the
+    description is script-level and applies to every run this process
+    opens (it does not materialize a run); called inside a run, it
+    applies to that run only.
 
     Args:
         description: Markdown description of the workflow.
     """
-    _ensure_initialized()
+    try:
+        from nebo import _ensure_init
+        _ensure_init()
+    except ImportError:
+        pass
     # Strip leading/trailing whitespace; otherwise an inline triple-quoted
     # block that begins on the next line drops its first line in the rendered
     # markdown.
     description = description.strip()
     state = get_state()
+    if not state.run_is_live():
+        # Declarative: script-level template, applied at every new-run
+        # materialization. No run, no file, no event.
+        if state._script_description is None:
+            state._script_description = description
+        else:
+            state._script_description += "\n\n" + description
+        return
     if state.workflow_description is None:
         state.workflow_description = description
     else:

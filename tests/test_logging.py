@@ -91,11 +91,28 @@ class TestLogging:
         assert isinstance(cursor, MetricCursor)
         assert cursor.type == "line"
 
-    def test_md_sets_workflow_description(self) -> None:
+    def test_md_outside_run_writes_script_template(self) -> None:
+        """md() with no live run is declarative: it fills the script-level
+        template and materializes nothing."""
+        md("This is a test workflow")
+        state = get_state()
+        assert state._script_description == "This is a test workflow"
+        assert state.workflow_description is None
+        assert state._run_materialized is False
+
+    def test_md_outside_run_appends_to_template(self) -> None:
+        md("Part 1")
+        md("Part 2")
+        tpl = get_state()._script_description
+        assert tpl is not None and "Part 1" in tpl and "Part 2" in tpl
+
+    def test_md_inside_live_run_sets_workflow_description(self) -> None:
+        log("materialize")  # first real event opens the run
         md("This is a test workflow")
         assert get_state().workflow_description == "This is a test workflow"
 
-    def test_md_appends(self) -> None:
+    def test_md_inside_live_run_appends(self) -> None:
+        log("materialize")
         md("Part 1")
         md("Part 2")
         wd = get_state().workflow_description

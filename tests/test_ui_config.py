@@ -14,28 +14,44 @@ def reset_state():
     SessionState.reset_singleton()
 
 
-def test_ui_sends_config_event(reset_state):
-    """nb.ui() should store config and send ui_config event."""
+def test_ui_outside_run_writes_script_template(reset_state):
+    """nb.ui() with no live run is declarative: script-level template,
+    no run materialized."""
     from nebo.core.state import get_state
 
     nb.ui(layout="horizontal", view="dag", minimap=True, theme="dark")
 
     state = get_state()
-    assert state.ui_config is not None
-    assert state.ui_config["layout"] == "horizontal"
-    assert state.ui_config["view"] == "dag"
-    assert state.ui_config["theme"] == "dark"
+    assert state.ui_config is None
+    assert state._run_materialized is False
+    assert state._script_ui_config == {
+        "layout": "horizontal", "view": "dag", "minimap": True,
+        "theme": "dark",
+    }
 
 
-def test_ui_overwrites_previous(reset_state):
-    """Calling nb.ui() again overwrites previous config."""
+def test_ui_outside_run_overwrites_template(reset_state):
+    """Repeat nb.ui() overwrites the template, matching live-run semantics."""
     from nebo.core.state import get_state
 
     nb.ui(layout="horizontal")
     nb.ui(layout="vertical")
 
+    assert get_state()._script_ui_config == {"layout": "vertical"}
+
+
+def test_ui_inside_live_run_stores_and_emits(capturing_client):
+    """nb.ui() with a live run keeps today's behavior: state + wire event."""
+    from nebo.core.state import get_state
+
+    nb.log("materialize")
+    nb.ui(layout="horizontal", theme="dark")
+
     state = get_state()
-    assert state.ui_config["layout"] == "vertical"
+    assert state.ui_config == {"layout": "horizontal", "theme": "dark"}
+    ui_events = [e for e in capturing_client.events if e.get("type") == "ui_config"]
+    assert len(ui_events) == 1
+    assert ui_events[0]["data"] == {"layout": "horizontal", "theme": "dark"}
 
 
 def test_fn_ui_parameter(reset_state):

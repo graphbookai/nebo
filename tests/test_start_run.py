@@ -407,6 +407,7 @@ class TestSessionStateSnapshots:
     def test_clear_run_state(self) -> None:
         """clear_run_state should reset all per-run fields."""
         state = get_state()
+        nb.log("materialize")  # md outside a live run is declarative
         nb.md("test description")
         assert state.workflow_description is not None
 

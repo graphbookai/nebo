@@ -198,7 +198,7 @@ Log audio data for playback and analysis.
 
 ### `nb.md(description)` -- Workflow description
 
-Set a workflow-level description (Markdown supported). Visible in MCP tools and the dashboard.
+Set a workflow-level description (Markdown supported). Visible in MCP tools and the dashboard. Declarative: outside a run it applies to every run the script opens (creating none); inside a run, to that run only.
 
 ```python
 nb.md("A pipeline that loads images, runs inference, and exports predictions.")
@@ -206,7 +206,7 @@ nb.md("A pipeline that loads images, runs inference, and exports predictions.")
 
 ### `nb.ui()` -- Run-level UI defaults
 
-Set default layout and display options for the web UI:
+Set default layout and display options for the web UI. Declarative, with the same scoping as `nb.md()`:
 
 ```python
 nb.ui(layout="horizontal", view="dag", minimap=True, theme="dark")

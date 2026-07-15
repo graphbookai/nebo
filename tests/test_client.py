@@ -681,10 +681,11 @@ class TestRunStartEmission:
 class TestUiConfigEmission:
     """Regression tests for `nb.ui()` UI-config forwarding.
 
-    `nb.ui(layout="horizontal", ...)` must both update SessionState.ui_config
-    AND send a `ui_config` event to the daemon client. Without the event, the
-    daemon never learns about the run-level UI defaults so the web UI can't
-    apply them.
+    `nb.ui(...)` is declarative: called before any run exists it writes
+    the script-level template, and the template must reach the daemon as
+    a `ui_config` event (after run_start) when the run materializes on
+    the first real emit. Without the event, the daemon never learns about
+    the run-level UI defaults so the web UI can't apply them.
     """
 
     def setup_method(self) -> None:
@@ -719,12 +720,14 @@ class TestUiConfigEmission:
         monkeypatch.setattr(client_mod, "NetworkTransport", TrackingFake)
 
     def test_ui_sends_ui_config_event(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """`nb.ui(...)` must emit a ui_config event to the client."""
+        """The declared template must be emitted as a ui_config event
+        (after run_start) once the run materializes."""
         self._install_fake_client(monkeypatch)
 
         import nebo as nb
         nb.init(uri="localhost:7861")
         nb.ui(layout="horizontal", view="dag", minimap=True, theme="dark")
+        nb.log("materialize")  # first real event opens the run
 
         assert len(self._captured) == 1
         client = self._captured[0]
@@ -737,9 +740,14 @@ class TestUiConfigEmission:
         assert data["view"] == "dag"
         assert data["minimap"] is True
         assert data["theme"] == "dark"
+        # Template application rides the normal event queue: after
+        # run_start, before the materializing log.
+        types = [e.get("type") for e in client.events]
+        assert types.index("run_start") < types.index("ui_config") < types.index("log")
 
     def test_ui_updates_session_state(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """`nb.ui(...)` must also write into SessionState.ui_config."""
+        """The template must land in SessionState.ui_config at
+        materialization."""
         self._install_fake_client(monkeypatch)
 
         import nebo as nb
@@ -747,6 +755,7 @@ class TestUiConfigEmission:
 
         nb.init(uri="localhost:7861")
         nb.ui(layout="vertical", theme="light")
+        nb.log("materialize")
 
         state = get_state()
         assert state.ui_config == {"layout": "vertical", "theme": "light"}
@@ -758,6 +767,7 @@ class TestUiConfigEmission:
         import nebo as nb
         nb.init(uri="localhost:7861")
         nb.ui(minimap=False)
+        nb.log("materialize")
 
         client = self._captured[0]
         ui_events = [e for e in client.events if e.get("type") == "ui_config"]

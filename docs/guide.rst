@@ -429,6 +429,11 @@ Workflow Description
 
 Calling ``nb.md()`` multiple times appends to the description.
 
+``nb.md()`` is declarative: called outside a run (e.g. at module level)
+it does not create a run — the description is script-level and applies
+to every run the script opens, including runs from ``nb.start_run()``.
+Called inside a run, it applies to that run only.
+
 
 UI Configuration from Code
 ============================
@@ -443,6 +448,10 @@ UI Configuration from Code
         minimap=True,            # show minimap
         theme="dark",            # or "light"
     )
+
+Like ``nb.md()``, ``nb.ui()`` is declarative: outside a run it sets
+script-level defaults applied to every run the script opens (no run is
+created); inside a run it applies to that run only.
 
 Per-node display hints can be set via ``@nb.fn(ui={})``. Supported keys:
 

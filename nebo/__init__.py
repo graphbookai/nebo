@@ -71,17 +71,20 @@ def _ensure_run() -> None:
     # Fast lock-free path: the common case after first emit.
     if state._run_materialized:
         return
-    # Tests that pre-attach a fake transport (e.g. the `capturing_client`
-    # fixture in conftest.py) treat that attachment as "the run is
-    # already live". Don't second-guess them — skip materialization.
-    if state._transport is not None:
-        state._run_materialized = True
-        return
     with state._lock_state:
         if state._run_materialized:
             return
+        # Tests that pre-attach a fake transport (e.g. the
+        # `capturing_client` fixture in conftest.py) treat that
+        # attachment as "the run is already live". Don't second-guess
+        # them — skip materialization, but record it as an implicit run
+        # with an id so start_run's adoption/roll logic sees it.
         if state._transport is not None:
             state._run_materialized = True
+            state._run_origin = "implicit"
+            if state._active_run_id is None:
+                state._active_run_id = state._pending_run_id or uuid.uuid4().hex[:12]
+                state._pending_run_id = None
             return
         state._run_materialized = True
         run_id = state._pending_run_id or uuid.uuid4().hex[:12]
@@ -223,6 +226,8 @@ def _create_run_transport(
     name: Optional[str] = None,
     config: Optional[dict] = None,
     group: Optional[str] = None,
+    origin: str = "implicit",
+    apply_template: bool = True,
 ) -> None:
     """Open the transport for a run, emit register + run_start, print banner.
 
@@ -231,6 +236,10 @@ def _create_run_transport(
     closing any prior transport BEFORE calling this — both call sites
     do (start_run via the close-old-run block, _ensure_run because
     `state._transport is None` is the precondition).
+
+    `apply_template` copies the script-level nb.md()/nb.ui() template
+    onto the new run (state + wire); start_run passes False on resume so
+    the appended description isn't doubled.
     """
     from nebo.core.uri import Mode, resolve_uri
     from nebo.core.transport import FileTransport
@@ -307,6 +316,8 @@ def _create_run_transport(
 
     state._transport = transport
     state._active_run_id = run_id
+    state._run_origin = origin
+    state._run_has_real_events = False
 
     if transport is not None:
         state._send_to_client({
@@ -330,6 +341,23 @@ def _create_run_transport(
             state._send_to_client({
                 "type": "run_config",
                 "data": config,
+            })
+
+    # Apply the script-level metadata template (outside the transport
+    # guard: state must update under NEBO_NO_STORE too — _send_to_client
+    # no-ops safely). The template is never cleared; every new run gets it.
+    if apply_template:
+        if state._script_description is not None:
+            state.workflow_description = state._script_description
+            state._send_to_client({
+                "type": "description",
+                "data": {"description": state._script_description},
+            })
+        if state._script_ui_config is not None:
+            state.ui_config = dict(state._script_ui_config)
+            state._send_to_client({
+                "type": "ui_config",
+                "data": state.ui_config,
             })
 
     if not quiet:
@@ -396,6 +424,11 @@ def ui(
     These are sent to the daemon and UI as defaults.
     The user can still override them in the UI.
 
+    Declarative scoping rule: called outside a run, the config is
+    script-level and applies to every run this process opens (it does
+    not materialize a run); called inside a run, it applies to that
+    run only. Repeat calls overwrite either way.
+
     Args:
         layout: DAG layout direction ("horizontal" or "vertical").
         view: Default view mode ("dag" or "flat").
@@ -403,7 +436,7 @@ def ui(
         theme: Color theme ("dark" or "light").
         tracker: Default timeline scrubber mode ("time" or "step").
     """
-    _ensure_run()
+    _ensure_init()
     state = get_state()
     config: dict[str, Any] = {}
     if layout is not None:
@@ -416,6 +449,12 @@ def ui(
         config["theme"] = theme
     if tracker is not None:
         config["tracker"] = tracker
+
+    if not state.run_is_live():
+        # Declarative: script-level template, applied at every new-run
+        # materialization. No run, no file, no event.
+        state._script_ui_config = config
+        return
 
     state.ui_config = config
     state._send_to_client({
@@ -498,6 +537,51 @@ def start_run(
     resolved_config = _resolve_config(config) if config is not None else None
     resuming = run_id is not None and run_id in state._run_snapshots
 
+    # Adopt a virgin implicit run instead of opening a sibling: if
+    # something materialized a run before us but it never carried a real
+    # event (nothing beyond run identity/metadata), this start_run is
+    # unambiguously describing THAT run — upgrade it in place, keep its
+    # id and transport. With declarative md/ui this is nearly unreachable
+    # via the public API (every _ensure_run caller emits a real event
+    # right after), so it's a cheap invariant, not a hot path. Runs with
+    # real events keep today's sibling semantics (interleaved runs), and
+    # an explicit run_id always means resume/interleave intent.
+    if (
+        run_id is None
+        and state._run_materialized
+        and state._run_origin == "implicit"
+        and not state._run_has_real_events
+        and state._active_run_id is not None
+    ):
+        adopted_id = state._active_run_id
+        run_start_data: dict[str, Any] = {
+            "script_path": os.path.abspath(sys.argv[0]) if sys.argv else "script",
+            "timestamp": time.time(),
+        }
+        if name is not None:
+            run_start_data["run_name"] = name
+        # Same group precedence as _create_run_transport: NEBO_GROUP >
+        # start_run(group=) > init(group=). The daemon's tree placement
+        # is seed-once, so a re-emit only wins if nothing seeded yet.
+        from nebo.core.groups import validate_group_path
+        env_group = os.environ.get("NEBO_GROUP")
+        resolved_group = validate_group_path(
+            env_group if env_group is not None
+            else (group if group is not None else state._pending_group)
+        )
+        if resolved_group:
+            run_start_data["group"] = resolved_group
+        # A repeat run_start updates run_name/script_path on the daemon.
+        # In file mode it's a body entry read at deep ingest — the
+        # already-written header lacks the name, so a shallow listing
+        # shows the run unnamed until deepened (accepted).
+        state._send_to_client({"type": "run_start", "data": run_start_data})
+        if resolved_config is not None:
+            state._send_to_client({"type": "run_config", "data": resolved_config})
+        state._run_origin = "explicit"
+        state._pending_run_id = None
+        return _RunContext(adopted_id, name, resolved_config)
+
     # Snapshot the prior run's in-memory state under its run_id so a
     # later `nb.start_run(run_id=<prior>)` can resume from it. This
     # happens regardless of whether a transport is live — NEBO_NO_STORE
@@ -534,7 +618,13 @@ def start_run(
     # accidentally re-consume the env override.
     state._pending_run_id = None
 
-    _create_run_transport(run_id, name=name, config=resolved_config, group=group)
+    _create_run_transport(
+        run_id, name=name, config=resolved_config, group=group,
+        origin="explicit",
+        # A resumed run already got the template at its original
+        # materialization — re-applying would double-append the md.
+        apply_template=not resuming,
+    )
     # Flip the materialized flag so _ensure_run is a no-op for the
     # remainder of the process: start_run takes ownership of the
     # run lifecycle.

@@ -9,7 +9,7 @@ description: Use when writing Python code that needs to be instrumented with neb
 
 Nebo is a modern logging SDK for multi-modal data. You decorate functions with `@nb.fn()`, call `nb.log()` inside them, and nebo automatically infers a DAG from data flow, captures metrics, tracks progress, and exposes everything via MCP tools and a web UI.
 
-**Core principle:** Decorate every meaningful step as `@nb.fn()`. Edges between nodes are inferred from data flow — no manual wiring. Call `nb.md()` and `nb.ui()` at module level before any decorated functions execute.
+**Core principle:** Decorate every meaningful step as `@nb.fn()`. Edges between nodes are inferred from data flow — no manual wiring. Call `nb.md()` and `nb.ui()` at module level before any decorated functions execute — they are declarative (no run is created until the first real log/metric event) and compose with `nb.start_run()`: metadata declared outside a run applies to every run the script opens; metadata called inside a run applies to that run only.
 
 ## Pattern Detection
 
@@ -365,7 +365,7 @@ When the nebo daemon is running (`nebo serve`), 15 MCP tools are available for q
 | Calling `nb.log()` outside `@nb.fn()` | All logging must be inside a decorated function |
 | Manual DAG wiring | Let data flow infer edges. Only use `depends_on` for implicit deps |
 | Forgetting `step=` in training metrics | Without step, metrics pile up without x-axis alignment |
-| Calling `nb.ui()` inside `@nb.fn()` | Call `nb.ui()` at module level, before any function runs |
+| Calling `nb.ui()` inside `@nb.fn()` | Call `nb.ui()` at module level, before any function runs — outside a run it describes every run the script opens |
 | Not using `nb.md()` | Always set a workflow description — it appears in MCP tools and the UI |
 | Using `nb.init()` unnecessarily | Nebo auto-detects mode. Only call `init()` to override defaults |
 | Decorating `__init__` explicitly | `@nb.fn()` on a class already wraps all methods |

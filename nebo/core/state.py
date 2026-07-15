@@ -110,6 +110,18 @@ class _RunSnapshot:
     metric_cursors: dict
 
 
+# Events that *describe* a run rather than carry run data. A run whose
+# transport has only ever seen these is "virgin" — start_run upgrades it
+# in place instead of opening a sibling. Distinct from
+# `nebo/core/client.py:STRUCTURAL_TYPES` (the backpressure whitelist,
+# which also includes edge/node_executed — those are real run data here);
+# do not merge the two.
+IDENTITY_EVENT_TYPES = frozenset({
+    "run_start", "run_completed", "description", "ui_config",
+    "run_config", "loggable_register",
+})
+
+
 class SessionState:
     """Global singleton managing all nebo state."""
 
@@ -180,10 +192,30 @@ class SessionState:
         # under NEBO_NO_STORE in file mode). Guards _ensure_run from
         # re-firing on every subsequent emit.
         self._run_materialized: bool = False
+        # Script-level metadata template: nb.md()/nb.ui() called OUTSIDE a
+        # live run land here instead of materializing one, and are applied
+        # to every run this process materializes (never cleared on run
+        # roll — only reset() clears them; resume never re-applies).
+        self._script_description: Optional[str] = None
+        self._script_ui_config: Optional[dict] = None
+        # Origin of the current run ("implicit" via _ensure_run, "explicit"
+        # via start_run) and whether it has carried any non-identity event —
+        # together they let start_run adopt a virgin implicit run in place
+        # instead of opening a sibling.
+        self._run_origin: Optional[str] = None
+        self._run_has_real_events: bool = False
+
+    def run_is_live(self) -> bool:
+        """True once a run is materialized. A pre-attached transport (e.g.
+        tests' capturing_client fixture) counts as live, mirroring
+        `_ensure_run`'s accommodation of it."""
+        return self._run_materialized or self._transport is not None
 
     def _send_to_client(self, event: dict) -> None:
         """Forward an event to the active transport (file or network)."""
         if self._transport is not None:
+            if event.get("type") not in IDENTITY_EVENT_TYPES:
+                self._run_has_real_events = True
             try:
                 self._transport.send_event(event)
             except Exception:
@@ -476,6 +508,9 @@ class SessionState:
             self.workflow_description = None
             self.ui_config = None
             self._linear_last = None
+            # _script_description/_script_ui_config are deliberately NOT
+            # cleared: the template is per-process, not per-run — every
+            # run the script opens gets it. Only reset() clears it.
 
     def reset(self) -> None:
         """Reset all state. Primarily for testing."""
@@ -509,6 +544,10 @@ class SessionState:
             self._pending_group = ""
             self._pending_transport = None
             self._run_materialized = False
+            self._script_description = None
+            self._script_ui_config = None
+            self._run_origin = None
+            self._run_has_real_events = False
 
     @classmethod
     def reset_singleton(cls) -> None:

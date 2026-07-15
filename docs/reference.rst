@@ -215,6 +215,8 @@ Workflow Description
 
     Set or append to the workflow-level Markdown description. Distinct from node docstrings — this describes the overall workflow.
 
+    Declarative: called outside a run it creates none — the description is script-level and applies to every run the script opens; called inside a run it applies to that run only.
+
     :param description: Markdown description text.
 
 
@@ -231,6 +233,8 @@ UI Configuration
     :param theme: Color theme: ``"dark"`` or ``"light"``.
 
     Calling ``nb.ui()`` again overwrites the previous defaults.
+
+    Declarative: called outside a run it creates none — the defaults are script-level and apply to every run the script opens; called inside a run they apply to that run only.
 
 
 Initialization
