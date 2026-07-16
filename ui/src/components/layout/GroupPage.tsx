@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useStore } from '@/store'
 import { api } from '@/lib/api'
 import type { RunSummary } from '@/lib/api'
+import { membersOf } from '@/lib/runTree'
 import { RunCard } from '@/components/runs/RunCard'
 import { NeboMarkdown } from '@/components/shared/NeboMarkdown'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -44,15 +45,7 @@ export function GroupPage({ path }: { path: string }) {
   const byId = new Map(
     Array.from(runs.values(), r => [r.summary.id, r.summary] as [string, RunSummary]),
   )
-  const members = Object.entries(runTree.runs)
-    .filter(([, g]) => g === path)
-    .map(([id]) => byId.get(id))
-    .filter((s): s is RunSummary => Boolean(s))
-    .sort((a, b) => {
-      const at = a.started_at ? new Date(a.started_at).getTime() : 0
-      const bt = b.started_at ? new Date(b.started_at).getTime() : 0
-      return bt - at
-    })
+  const members = membersOf(runTree.runs, path, byId)
 
   const exists = path in runTree.groups
 

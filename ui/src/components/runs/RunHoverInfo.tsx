@@ -8,12 +8,13 @@ interface RunHoverInfoProps {
 }
 
 /**
- * Hover card with a run's vitals: run id, node count, metric-series count.
- * Wraps its child as the hover trigger (the whole run card, the run-id
- * chip in the header, ...).
+ * Hover card with a run's vitals: run id, node count, metric-series count,
+ * start time. Wraps its child as the hover trigger (the whole run row, the
+ * run-id chip in the header, ...).
  */
 export function RunHoverInfo({ runId, side = 'right', children }: RunHoverInfoProps) {
   const nodeCount = useStore(s => s.runs.get(runId)?.summary.node_count ?? 0)
+  const started = useStore(s => s.runs.get(runId)?.summary.started_at)
   // Prefer the live per-loggable metric map (updates as WS events stream
   // in); fall back to the summary count for runs whose metrics haven't
   // been loaded into the store yet.
@@ -27,6 +28,12 @@ export function RunHoverInfo({ runId, side = 'right', children }: RunHoverInfoPr
     return n || (run.summary.metric_series_count ?? 0)
   })
 
+  const startedAt = started
+    ? new Date(started).toLocaleString(undefined, {
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+      })
+    : null
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
@@ -37,6 +44,7 @@ export function RunHoverInfo({ runId, side = 'right', children }: RunHoverInfoPr
           {' · '}
           {metricCount} metric{metricCount !== 1 ? 's' : ''}
         </div>
+        {startedAt && <div className="text-muted-foreground">{startedAt}</div>}
       </TooltipContent>
     </Tooltip>
   )
