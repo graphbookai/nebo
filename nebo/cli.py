@@ -26,6 +26,17 @@ from pathlib import Path
 _PID_DIR = Path.home() / ".nebo"
 _PID_FILE = _PID_DIR / "server.pid"
 
+
+def _get_version() -> str:
+    """Resolve the installed package version (git-tag-derived via hatch-vcs).
+    Falls back to "unknown" for an uninstalled source checkout."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("nebo")
+    except PackageNotFoundError:
+        return "unknown"
+
 # argparse `const` for a bare `--remote` (no dir): resolve to <logdir>/remote/
 # in cmd_serve, where the logdir is known.
 _REMOTE_DEFAULT = object()
@@ -1072,6 +1083,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="nebo",
         description="Nebo - Multi-modal logging for Python",
+    )
+    parser.add_argument(
+        "-v", "--version",
+        action="version",
+        version=f"nebo {_get_version()}",
+        help="Show the nebo version and exit",
     )
     parser.add_argument("--port", type=int, default=7861, help="Daemon port (default: 7861)")
     subparsers = parser.add_subparsers(dest="command")

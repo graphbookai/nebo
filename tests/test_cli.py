@@ -7,7 +7,28 @@ import json
 
 import pytest
 
-from nebo.cli import cmd_mcp
+from nebo.cli import _get_version, cmd_mcp, main
+
+
+class TestVersion:
+    """Tests for the -v/--version flag."""
+
+    def test_get_version_returns_string(self) -> None:
+        """The installed package version resolves to a non-empty string."""
+        v = _get_version()
+        assert isinstance(v, str) and v
+
+    @pytest.mark.parametrize("flag", ["--version", "-v"])
+    def test_version_flag_prints_and_exits(
+        self, flag: str, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`nebo --version` / `-v` prints `nebo <version>` and exits 0."""
+        monkeypatch.setattr("sys.argv", ["nebo", flag])
+        with pytest.raises(SystemExit) as exc:
+            main()
+        assert exc.value.code == 0
+        out = capsys.readouterr().out
+        assert out.strip() == f"nebo {_get_version()}"
 
 
 class TestCLI:
