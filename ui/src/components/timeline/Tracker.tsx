@@ -33,8 +33,17 @@ export function Tracker({ runId }: { runId: string }) {
   const [height, setHeight] = useState(loadHeight)
   const heightRef = useRef(height)
   const [collapsed, setCollapsed] = useState(false)
+  // A comparison group (`cmp:<ts>`) is not a key in `state.runs`, so
+  // useStreams can't resolve it and the tracker would show "No data". Mirror
+  // RunDetailView, which renders the first member run's graph/flat view in
+  // comparison mode — the tracker scrubs that same run. Resolve off the prop
+  // (not the store) so EmbeddedView, which passes a real run id, is unaffected.
+  const comparisonGroups = useStore(s => s.comparisonGroups)
+  const effectiveRunId = runId?.startsWith('cmp:')
+    ? comparisonGroups.get(runId)?.runIds[0] ?? runId
+    : runId
   // No stream-model work while collapsed — the rows aren't rendered.
-  const model = useStreams(runId, !collapsed)
+  const model = useStreams(effectiveRunId, !collapsed)
   const [touching, setTouching] = useState(false)
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(() => new Set())
   const [query, setQuery] = useState('')
