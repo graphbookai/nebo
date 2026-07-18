@@ -18,6 +18,8 @@ export default defineConfig({
       '/graph': 'http://localhost:7861',
       '/logs': 'http://localhost:7861',
       '/nodes': 'http://localhost:7861',
+      '/tree': 'http://localhost:7861',
+      '/groups': 'http://localhost:7861',
       '/stream': {
         target: 'http://localhost:7861',
         ws: true,
