@@ -170,6 +170,50 @@ class TestPreparePackedQuarantine:
         assert bad[0]["ui_hints"] == {"default_tab", "metrics"}
 
 
+class TestShutdownDrainsFallbackBuffer:
+    """Regression tests for silent fallback-buffer loss at shutdown.
+
+    Prior behaviour: `_flush_remaining` only drained `_queue` + `_buffer`.
+    Events parked in `_fallback_buffer` (queued while disconnected, or
+    moved there by `_handle_disconnect`) were discarded at exit with no
+    send attempt and no warning — `DrainResult.dropped` read 0.
+    """
+
+    def test_disconnect_attempts_to_send_fallback_buffer(self) -> None:
+        client = DaemonClient(port=19999)
+        client.send_event({"type": "log", "message": "parked1"})
+        client.send_event({"type": "log", "message": "parked2"})
+        assert len(client._fallback_buffer) == 2
+
+        sent: list[dict[str, Any]] = []
+
+        def fake_post(events, packed):
+            sent.extend(events)
+            return True, None
+
+        client._post_packed = fake_post  # type: ignore[method-assign]
+        client.disconnect()
+
+        msgs = [e.get("message") for e in sent]
+        assert msgs == ["parked1", "parked2"]
+        assert client._fallback_buffer == []
+
+    def test_disconnect_warns_when_fallback_undeliverable(self, capsys) -> None:
+        client = DaemonClient(port=19999)
+        client._shutdown_timeout = 0.3
+        client.send_event({"type": "log", "message": "doomed"})
+
+        def fake_post(events, packed):
+            return False, RuntimeError("still down")
+
+        client._post_packed = fake_post  # type: ignore[method-assign]
+        client.disconnect()
+
+        err = capsys.readouterr().err
+        assert "WARNING" in err
+        assert "dropped 1 event" in err
+
+
 class TestDoFlushQuarantine:
     """Regression tests for the poison-batch bug.
 

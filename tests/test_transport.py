@@ -1,8 +1,16 @@
+import threading
 import time
 from pathlib import Path
 
 from nebo.core.fileformat import NeboFileReader
 from nebo.core.transport import FileTransport, Transport
+
+
+def _read_entries(path: Path) -> list[dict]:
+    with path.open("rb") as f:
+        reader = NeboFileReader(f)
+        reader.read_header()
+        return list(reader.read_entries())
 
 
 def test_transport_is_protocol():
@@ -196,6 +204,88 @@ def test_file_transport_flush_means_on_disk(tmp_path):
         assert "x" in msgs
     finally:
         t.close()
+
+
+def test_file_transport_close_drains_slow_encode_backlog(tmp_path, monkeypatch):
+    """Regression (v0.3.0 deferred media encoding): close() must drain the
+    full queue even when per-event encoding makes the backlog outlive any
+    fixed join deadline. The old close() joined for 5 s and then closed the
+    stream under the still-encoding worker, silently truncating the run.
+
+    300 events x 20 ms simulated encode = ~6 s of drain work, deliberately
+    past the old 5 s join budget. Slow by design — it IS the repro.
+    """
+    import nebo.logging.serializers as serializers
+
+    real_resolve = serializers.resolve_media
+
+    def slow_resolve(event):
+        time.sleep(0.02)
+        return real_resolve(event)
+
+    # Patch before constructing the transport: the worker thread binds
+    # resolve_media when it starts.
+    monkeypatch.setattr(serializers, "resolve_media", slow_resolve)
+
+    t = FileTransport(logdir=tmp_path, run_id="slowencode01", script_path="/x/s.py")
+    n = 300
+    for i in range(n):
+        t.send_event({"type": "log", "loggable_id": "__global__", "message": f"m{i}"})
+    t.close()
+
+    (path,) = tmp_path.glob("*.nebo")
+    msgs = [e["payload"].get("message") for e in _read_entries(path) if e["type"] == "log"]
+    assert len(msgs) == n, f"close() truncated the backlog: {len(msgs)}/{n} written"
+
+
+def test_file_transport_close_sync_drains_when_worker_dead(tmp_path):
+    """If the writer thread died, close() must drain the queue synchronously
+    on the calling thread instead of silently discarding it."""
+    t = FileTransport(logdir=tmp_path, run_id="deadworker01", script_path="/x/s.py")
+    try:
+        # Simulate a crashed worker: swap in an already-finished thread while
+        # the transport still believes it is running.
+        dead = threading.Thread(target=lambda: None)
+        dead.start()
+        dead.join()
+        t._running = False
+        t._queue.put(None)
+        t._thread.join(timeout=5.0)
+        t._running = True
+        t._thread = dead
+
+        t._queue.put({"type": "log", "loggable_id": "__global__", "message": "orphan1"})
+        t._queue.put({"type": "log", "loggable_id": "__global__", "message": "orphan2"})
+    finally:
+        t.close()
+
+    (path,) = tmp_path.glob("*.nebo")
+    msgs = [e["payload"].get("message") for e in _read_entries(path) if e["type"] == "log"]
+    assert msgs == ["orphan1", "orphan2"]
+
+
+def test_file_transport_atexit_drains_after_context_exit(tmp_path):
+    """The atexit handler must still drain + close the transport when
+    start_run's __exit__ already sent run_completed (flag set). The old
+    guard early-returned entirely, so events logged after the with-block
+    could be lost and the file never finalized. Only the duplicate
+    run_completed emission should be suppressed."""
+    t = FileTransport(logdir=tmp_path, run_id="postblock001", script_path="/x/s.py")
+    # Mirror _RunContext.__exit__: run_completed sent, flag flipped.
+    t.send_event({"type": "run_completed", "data": {"timestamp": 1.0}})
+    assert t.flush(timeout=5.0)
+    t._run_completed_sent = True
+    # Events after the with-block, then process exit.
+    t.send_event({"type": "log", "loggable_id": "__global__", "message": "tail"})
+    t._emit_run_completed_atexit()
+
+    assert not t._running, "atexit must close the transport"
+    (path,) = tmp_path.glob("*.nebo")
+    entries = _read_entries(path)
+    completed = [e for e in entries if e["type"] == "run_completed"]
+    msgs = [e["payload"].get("message") for e in entries if e["type"] == "log"]
+    assert len(completed) == 1, "run_completed must not be duplicated"
+    assert msgs == ["tail"], "post-block events must be drained at exit"
 
 
 def test_file_transport_resolves_pending_media(tmp_path):
