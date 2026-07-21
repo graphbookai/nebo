@@ -14,7 +14,7 @@ Nebo
 .. raw:: html
 
     <iframe
-        src="https://graphbookai-nebo-demos.hf.space/?run=docs-index-hello-world&logs="
+        src="https://rsamf-nebo-demos.hf.space/?run=docs-index-hello-world&logs="
         width="100%" height="100"
         style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
         loading="lazy">
@@ -49,7 +49,7 @@ Nebo is a modern logging SDK that lets you track experiments containing multi-mo
 .. raw:: html
 
     <iframe
-        src="https://graphbookai-nebo-demos.hf.space/?run=docs-index-multi-modal"
+        src="https://rsamf-nebo-demos.hf.space/?run=docs-index-multi-modal"
         width="100%" height="500"
         style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
         loading="lazy">
@@ -97,7 +97,7 @@ Nebo also supports function-level logging which allows you to decorate functions
 .. raw:: html
 
     <iframe
-        src="https://graphbookai-nebo-demos.hf.space/?run=docs-index-pipeline"
+        src="https://rsamf-nebo-demos.hf.space/?run=docs-index-pipeline"
         width="100%" height="500"
         style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
         loading="lazy">

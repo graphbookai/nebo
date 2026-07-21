@@ -17,7 +17,7 @@ changes its run ID — fix the ``.rst`` to match.
 
 Usage::
 
-    NEBO_DEMOS_URL=https://graphbookai-nebo-demos.hf.space \\
+    NEBO_DEMOS_URL=https://rsamf-nebo-demos.hf.space \\
     NEBO_DEMOS_TOKEN=nb_xxx \\
     uv run python scripts/build_docs_demos.py
 

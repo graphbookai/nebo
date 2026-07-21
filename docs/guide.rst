@@ -28,7 +28,7 @@ Text Logs
 .. raw:: html
 
     <iframe
-        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-text-logs&logs"
+        src="https://rsamf-nebo-demos.hf.space/?run=docs-guide-text-logs&logs"
         width="100%" height="350"
         style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
         loading="lazy">
@@ -60,7 +60,7 @@ increment ``step`` per ``(loggable, name)`` when omitted:
 .. raw:: html
 
     <iframe
-        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-log-line&metrics"
+        src="https://rsamf-nebo-demos.hf.space/?run=docs-guide-log-line&metrics"
         width="100%" height="500"
         style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
         loading="lazy">
@@ -79,7 +79,7 @@ the auto-incrementing step:
 .. raw:: html
 
     <iframe
-        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-log-scatter&metric=embed_2d"
+        src="https://rsamf-nebo-demos.hf.space/?run=docs-guide-log-scatter&metric=embed_2d"
         width="100%" height="500"
         style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
         loading="lazy">
@@ -101,7 +101,7 @@ for run identity.
 .. raw:: html
 
     <iframe
-        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-snapshot-metrics&metrics"
+        src="https://rsamf-nebo-demos.hf.space/?run=docs-guide-snapshot-metrics&metrics"
         width="100%" height="500"
         style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
         loading="lazy">
@@ -133,7 +133,7 @@ Images
 .. raw:: html
 
     <iframe
-        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-images&node=augment"
+        src="https://rsamf-nebo-demos.hf.space/?run=docs-guide-images&node=augment"
         width="100%" height="450"
         style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
         loading="lazy">
@@ -154,7 +154,7 @@ Audio
 .. raw:: html
 
     <iframe
-        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-audio&audios"
+        src="https://rsamf-nebo-demos.hf.space/?run=docs-guide-audio&audios"
         width="100%" height="300"
         style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
         loading="lazy">
@@ -178,7 +178,7 @@ Configuration
 .. raw:: html
 
     <iframe
-        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-log-cfg&node=train"
+        src="https://rsamf-nebo-demos.hf.space/?run=docs-guide-log-cfg&node=train"
         width="100%" height="450"
         style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
         loading="lazy">
@@ -233,7 +233,7 @@ Example:
 .. raw:: html
 
     <iframe
-        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-global-scope&flat"
+        src="https://rsamf-nebo-demos.hf.space/?run=docs-guide-global-scope&flat"
         width="100%" height="500"
         style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
         loading="lazy">
@@ -285,7 +285,7 @@ The ``@nb.fn()`` decorator is a core primitive. It registers a function for scop
 .. raw:: html
 
     <iframe
-        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-fn-pipeline&dag"
+        src="https://rsamf-nebo-demos.hf.space/?run=docs-guide-fn-pipeline&dag"
         width="100%" height="450"
         style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
         loading="lazy">
@@ -322,7 +322,7 @@ fans out to both:
 .. raw:: html
 
     <iframe
-        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-dag-strategy-stack&dag"
+        src="https://rsamf-nebo-demos.hf.space/?run=docs-guide-dag-strategy-stack&dag"
         width="100%" height="450"
         style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
         loading="lazy">
@@ -349,7 +349,7 @@ Some dependencies cannot be detected automatically — shared mutable state, cla
 .. raw:: html
 
     <iframe
-        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-depends-on"
+        src="https://rsamf-nebo-demos.hf.space/?run=docs-guide-depends-on"
         width="100%" height="400"
         style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
         loading="lazy">
@@ -388,7 +388,7 @@ Decorating Classes
 .. raw:: html
 
     <iframe
-        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-class-grouping&dag"
+        src="https://rsamf-nebo-demos.hf.space/?run=docs-guide-class-grouping&dag"
         width="100%" height="450"
         style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
         loading="lazy">
@@ -421,7 +421,7 @@ Workflow Description
 .. raw:: html
 
     <iframe
-        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-workflow-md"
+        src="https://rsamf-nebo-demos.hf.space/?run=docs-guide-workflow-md"
         width="100%" height="450"
         style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
         loading="lazy">
@@ -478,7 +478,7 @@ future UI features.
 .. raw:: html
 
     <iframe
-        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-ui-hints&dag"
+        src="https://rsamf-nebo-demos.hf.space/?run=docs-guide-ui-hints&dag"
         width="100%" height="450"
         style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
         loading="lazy">
@@ -846,7 +846,7 @@ Complete Example: Data Processing Pipeline
 .. raw:: html
 
     <iframe
-        src="https://graphbookai-nebo-demos.hf.space/?run=docs-guide-complete-pipeline"
+        src="https://rsamf-nebo-demos.hf.space/?run=docs-guide-complete-pipeline"
         width="100%" height="550"
         style="margin-top: 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px;"
         loading="lazy">
