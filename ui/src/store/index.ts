@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { RunSummary, GraphData, LogEntry, LabelsPayload, MetricType, MetricEntry, LoggableMetricSeries, TreeData } from '@/lib/api'
+import type { RunSummary, GraphData, LogEntry, LabelsPayload, MetricType, MetricEntry, LoggableMetricSeries, TreeData, AlertEntry } from '@/lib/api'
 import { EMPTY_TREE, parseNeboLink } from '@/lib/api'
 import type { WsEvent } from '@/lib/ws'
 import { assignColor } from '@/lib/colors'
@@ -143,6 +143,9 @@ export interface RunState {
   loggableMetrics: Record<string, Record<string, LoggableMetricSeries>>
   loggableImages: Record<string, ImageEntry[]>
   loggableAudio: Record<string, AudioEntry[]>
+  // Fired alerts. Hydrated lazily (the mobile alerts sheet fetches on
+  // open via setRunAlerts) and appended live from WS `alert` events.
+  alerts: AlertEntry[]
   loaded: boolean
   globalLoggable?: { loggableId: string; kind: 'global' }
   agentLoggable?: { loggableId: string; kind: 'agent' }
@@ -158,6 +161,11 @@ interface NeboStore {
   runs: Map<string, RunState>
   selectedRunId: string | null
   activeRunId: string | null
+  // True once the initial "most recent run" auto-select has happened.
+  // Later setRuns calls (the 5 s poll) must not re-select after the
+  // user deliberately navigated back to the run list (mobile) or
+  // deselected (comparison removal).
+  autoSelected: boolean
 
   runNames: Map<string, string>  // client-side custom display names
   setRunName: (runId: string, name: string) => void
@@ -262,6 +270,7 @@ interface NeboStore {
   setRunMetrics: (runId: string, metrics: Record<string, Record<string, LoggableMetricSeries>>) => void
   setRunImages: (runId: string, images: Record<string, ImageEntry[]>) => void
   setRunAudio: (runId: string, audio: Record<string, AudioEntry[]>) => void
+  setRunAlerts: (runId: string, alerts: AlertEntry[]) => void
   appendMetric: (runId: string, loggableId: string, name: string, entry: MetricEntry, type: MetricType) => void
   updateNodeProgress: (runId: string, nodeId: string, progress: { current: number; total: number; name?: string } | null) => void
   incrementNodeExecCount: (runId: string, loggableId: string) => void
@@ -287,6 +296,7 @@ export const useStore = create<NeboStore>((set, get) => ({
   runs: new Map(),
   selectedRunId: null,
   activeRunId: null,
+  autoSelected: false,
 
   runNames: new Map(),
   setRunName: (runId, name) => set(state => {
@@ -495,17 +505,20 @@ export const useStore = create<NeboStore>((set, get) => ({
           loggableMetrics: {},
           loggableImages: {},
           loggableAudio: {},
+          alerts: [],
           loaded: false,
           globalLoggable: undefined,
         })
       }
     }
-    // Auto-select the most recent run if none selected
+    // Auto-select the most recent run if none was ever selected — once.
     let selectedRunId = state.selectedRunId
-    if (!selectedRunId && summaries.length > 0) {
+    let autoSelected = state.autoSelected
+    if (!selectedRunId && !autoSelected && summaries.length > 0) {
       selectedRunId = activeRunId ?? summaries[summaries.length - 1].id
+      autoSelected = true
     }
-    return { runs, activeRunId, selectedRunId }
+    return { runs, activeRunId, selectedRunId, autoSelected }
   }),
 
   updateRunSummary: (summary) => set(state => {
@@ -622,6 +635,19 @@ export const useStore = create<NeboStore>((set, get) => ({
         merged[loggableId] = [...existing, ...newEntries]
       }
       run.loggableAudio = merged
+    }
+    return { runs }
+  }),
+
+  setRunAlerts: (runId, alerts) => set(state => {
+    const runs = new Map(state.runs)
+    const run = runs.get(runId)
+    if (run) {
+      // Merge with any WS-appended entries, keyed by (timestamp, title)
+      // so the same firing seen on both paths dedupes to one.
+      const key = (a: AlertEntry) => `${a.timestamp}|${a.title}`
+      const seen = new Set(alerts.map(key))
+      run.alerts = [...alerts, ...run.alerts.filter(a => !seen.has(key(a)))]
     }
     return { runs }
   }),
@@ -760,6 +786,7 @@ export const useStore = create<NeboStore>((set, get) => ({
           loggableMetrics: {},
           loggableImages: {},
           loggableAudio: {},
+          alerts: [],
           loaded: false,
           globalLoggable: undefined,
         }
@@ -1025,6 +1052,19 @@ export const useStore = create<NeboStore>((set, get) => ({
             if (scriptPath) patch.script_path = scriptPath
             if (runName !== null) patch.run_name = runName
             run.summary = { ...run.summary, ...patch }
+            break
+          }
+
+          case 'alert': {
+            run.alerts = [...run.alerts, {
+              title: (data.title as string) ?? '',
+              text: (data.text as string) ?? '',
+              level: Number(data.level ?? 20),
+              level_name: (data.level_name as string) ?? '',
+              triggered_by: (data.triggered_by as string) ?? 'code',
+              loggable_id: (event.loggable_id as string | undefined) ?? (data.loggable_id as string | null | undefined) ?? null,
+              timestamp: (data.timestamp as number) ?? (event.timestamp as number) ?? Date.now() / 1000,
+            }]
             break
           }
 

@@ -111,6 +111,14 @@
   }
 }
 
+/* Hidden scrollbar for horizontal chip rails / thumb strips (mobile). */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* React Flow overrides for dark mode */
 .dark .react-flow__background {
   background-color: oklch(0.145 0 0);
