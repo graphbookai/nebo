@@ -1,0 +1,436 @@
+import { useMemo, useState } from 'react'
+import { useStore } from '@/store'
+import type { AudioEntry, ImageEntry } from '@/store'
+import { api, type LogEntry, type LoggableMetricSeries } from '@/lib/api'
+import { DEFAULT_RUN_COLOR } from '@/lib/colors'
+import { useTimelineFilter } from '@/hooks/useTimelineFilter'
+import { SingleRunChart } from '@/components/node-tabs/NodeMetrics'
+import { scatterLabels } from '@/components/charts/scatterShape'
+import { ImageWithLabels } from '@/components/shared/ImageWithLabels'
+import { Modal } from '@/components/ui/modal'
+import { Sparkline } from './Sparkline'
+import { latestMetricLabel, loggableDisplayName } from './util'
+import { cn } from '@/lib/utils'
+
+// Flat feed of everything the run logs: a pipeline-stage chip rail and a
+// type filter on top, then one card per metric / media stream / log tail.
+// Tapping a metric card expands the full chart inline (with the tracker
+// playhead); charts stay mounted per the useChartJs remount invariant.
+
+type TypeFilter = 'all' | 'metrics' | 'media' | 'logs'
+
+const TYPE_FILTERS: { key: TypeFilter; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'metrics', label: 'Metrics' },
+  { key: 'media', label: 'Media' },
+  { key: 'logs', label: 'Logs' },
+]
+
+const LOG_LEVELS = ['All', 'Info', 'Warn', 'Error'] as const
+
+export function MobileFeed({ runId }: { runId: string }) {
+  const run = useStore(s => s.runs).get(runId)
+  const runColor = useStore(s => s.runColors.get(runId)) ?? DEFAULT_RUN_COLOR
+  const [stage, setStage] = useState<string | null>(null)
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
+
+  const globalId = run?.globalLoggable?.loggableId ?? '__global__'
+  const agentId = run?.agentLoggable?.loggableId ?? '__agent__'
+
+  // Stage rail: every DAG node (registration order), then global/agent
+  // when they have content. Computed per render, not memoized — the
+  // store mutates the run in place so no dependency array keys this
+  // correctly, and the walk is cheap at feed scale.
+  const stages: string[] = Object.keys(run?.graph?.nodes ?? {})
+  const hasContent = (id: string) =>
+    Object.keys(run?.loggableMetrics[id] ?? {}).length > 0 ||
+    (run?.loggableImages[id]?.length ?? 0) > 0 ||
+    (run?.loggableAudio[id]?.length ?? 0) > 0 ||
+    (run?.logs.some(l => (l.node ?? globalId) === id) ?? false)
+  for (const extra of [globalId, agentId]) {
+    if (!stages.includes(extra) && hasContent(extra)) stages.push(extra)
+  }
+
+  if (!run) return null
+
+  const visibleStages = stage ? stages.filter(s => s === stage) : stages
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 border-b border-border px-4">
+        <div className="no-scrollbar flex gap-2 overflow-x-auto pb-2.5 pt-3">
+          <StageChip label="All" active={stage === null} onTap={() => setStage(null)} />
+          {stages.map(id => (
+            <StageChip
+              key={id}
+              label={loggableDisplayName(run, id)}
+              active={stage === id}
+              onTap={() => setStage(prev => (prev === id ? null : id))}
+            />
+          ))}
+        </div>
+        <div className="mb-2.5 flex gap-0.5 rounded-[9px] bg-muted p-0.5">
+          {TYPE_FILTERS.map(f => (
+            <button
+              key={f.key}
+              onClick={() => setTypeFilter(f.key)}
+              className={cn(
+                'flex-1 rounded-[7px] py-1 text-xs font-medium',
+                typeFilter === f.key ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground',
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto px-4 pb-5 pt-3">
+        {visibleStages.map(id => (
+          <StageRows
+            key={id}
+            runId={runId}
+            loggableId={id}
+            nodeLabel={loggableDisplayName(run, id)}
+            globalId={globalId}
+            typeFilter={typeFilter}
+            color={runColor}
+          />
+        ))}
+        {visibleStages.length === 0 && (
+          <div className="py-10 text-center text-sm text-muted-foreground">
+            Nothing logged yet
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function StageChip({ label, active, onTap }: { label: string; active: boolean; onTap: () => void }) {
+  return (
+    <button
+      onClick={onTap}
+      className={cn(
+        'shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium',
+        active
+          ? 'border-primary/40 bg-primary/15 text-foreground'
+          : 'border-border bg-card text-muted-foreground',
+      )}
+    >
+      {label}
+    </button>
+  )
+}
+
+function StageRows({
+  runId,
+  loggableId,
+  nodeLabel,
+  globalId,
+  typeFilter,
+  color,
+}: {
+  runId: string
+  loggableId: string
+  nodeLabel: string
+  globalId: string
+  typeFilter: TypeFilter
+  color: string
+}) {
+  const run = useStore(s => s.runs).get(runId)
+  const metrics = run?.loggableMetrics[loggableId] ?? {}
+  const images = run?.loggableImages[loggableId]
+  const audio = run?.loggableAudio[loggableId]
+  const logs = useMemo(
+    () => (run?.logs ?? []).filter(l => (l.node ?? globalId) === loggableId),
+    [run?.logs, globalId, loggableId],
+  )
+
+  const imagesByName = useMemo(() => groupByName(images ?? []), [images])
+  const audioByName = useMemo(() => groupByName(audio ?? []), [audio])
+
+  return (
+    <>
+      {(typeFilter === 'all' || typeFilter === 'metrics') &&
+        Object.entries(metrics).map(([name, series]) => (
+          <MetricFeedCard
+            key={`m:${loggableId}:${name}`}
+            name={name}
+            series={series}
+            nodeLabel={nodeLabel}
+            color={color}
+          />
+        ))}
+      {(typeFilter === 'all' || typeFilter === 'media') && (
+        <>
+          {[...imagesByName.entries()].map(([name, entries]) => (
+            <ImageFeedCard
+              key={`i:${loggableId}:${name}`}
+              runId={runId}
+              loggableId={loggableId}
+              name={name}
+              entries={entries}
+              nodeLabel={nodeLabel}
+            />
+          ))}
+          {[...audioByName.entries()].map(([name, entries]) => (
+            <AudioFeedCard
+              key={`a:${loggableId}:${name}`}
+              runId={runId}
+              name={name}
+              entries={entries}
+              nodeLabel={nodeLabel}
+            />
+          ))}
+        </>
+      )}
+      {(typeFilter === 'all' || typeFilter === 'logs') && logs.length > 0 && (
+        <LogsFeedCard key={`l:${loggableId}`} logs={logs} nodeLabel={nodeLabel} />
+      )}
+    </>
+  )
+}
+
+function groupByName<T extends { name: string }>(entries: T[]): Map<string, T[]> {
+  const out = new Map<string, T[]>()
+  for (const e of entries) {
+    const k = e.name || 'media'
+    const arr = out.get(k)
+    if (arr) arr.push(e)
+    else out.set(k, [e])
+  }
+  return out
+}
+
+function MetricFeedCard({
+  name,
+  series,
+  nodeLabel,
+  color,
+}: {
+  name: string
+  series: LoggableMetricSeries
+  nodeLabel: string
+  color: string
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const spark = useMemo(() => {
+    if (series.type !== 'line') return null
+    const values = series.entries
+      .slice(-80)
+      .map(e => (typeof e.value === 'number' ? e.value : NaN))
+      .filter(v => Number.isFinite(v))
+    return values.length >= 2 ? values : null
+  }, [series.type, series.entries])
+  const allLabels = useMemo(
+    () =>
+      series.type === 'scatter' || series.type === 'histogram'
+        ? scatterLabels(series.entries)
+        : [],
+    [series.type, series.entries],
+  )
+  const activeLabels = useMemo(() => new Set(allLabels), [allLabels])
+
+  return (
+    <div className="rounded-xl border border-border bg-card px-3.5 py-3">
+      <button onClick={() => setExpanded(e => !e)} className="flex min-h-[30px] w-full items-center gap-3 text-left">
+        <div className="min-w-0 flex-1">
+          <div className="text-[13.5px] font-medium">{name}</div>
+          <div className="text-[11px] text-muted-foreground">{nodeLabel} · {series.type}</div>
+        </div>
+        <div className="shrink-0 text-[15px] font-semibold tabular-nums">{latestMetricLabel(series)}</div>
+        {!expanded && spark && <Sparkline values={spark} color={color} width={88} height={26} className="shrink-0" />}
+      </button>
+      {/* Chart canvases must stay mounted while visible (useChartJs mount
+          effect has [] deps) — the whole block toggles, never the canvas
+          within it, so collapse/expand fully remounts the chart. */}
+      {expanded && (
+        <div className="mt-2.5 h-48">
+          <SingleRunChart
+            type={series.type}
+            entries={series.entries}
+            color={color}
+            allLabels={allLabels}
+            activeLabels={series.type === 'histogram' ? activeLabels : undefined}
+            fill
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ImageFeedCard({
+  runId,
+  loggableId,
+  name,
+  entries,
+  nodeLabel,
+}: {
+  runId: string
+  loggableId: string
+  name: string
+  entries: ImageEntry[]
+  nodeLabel: string
+}) {
+  const timelineFilter = useTimelineFilter()
+  const [lightbox, setLightbox] = useState<ImageEntry | null>(null)
+  const visible = useMemo(() => {
+    const filtered = timelineFilter ? entries.filter(e => timelineFilter.matchEntry(e)) : entries
+    return filtered.slice(-24)
+  }, [entries, timelineFilter])
+
+  return (
+    <div className="rounded-xl border border-border bg-card px-3.5 py-3">
+      <div className="mb-2.5 flex items-baseline gap-2">
+        <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium">{name}</span>
+        <span className="shrink-0 text-[11px] text-muted-foreground">{nodeLabel}</span>
+      </div>
+      {visible.length === 0 ? (
+        <div className="text-[11px] text-muted-foreground">No images at this step</div>
+      ) : (
+        <div className="no-scrollbar flex gap-2 overflow-x-auto">
+          {visible.map(e => (
+            <button
+              key={e.mediaId + (e.step ?? '')}
+              onClick={() => setLightbox(e)}
+              className="relative h-24 w-24 shrink-0 overflow-hidden rounded-lg border border-border"
+            >
+              <img
+                src={api.mediaUrl(runId, e.mediaId)}
+                alt={e.name}
+                loading="lazy"
+                className="h-full w-full object-cover"
+              />
+              {e.step != null && (
+                <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 font-mono text-[9px] text-white">
+                  s{e.step}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+      {lightbox && (
+        <Modal
+          open
+          onClose={() => setLightbox(null)}
+          title={`${name}${lightbox.step != null ? ` · step ${lightbox.step}` : ''}`}
+        >
+          <div className="p-3">
+            <ImageWithLabels
+              src={api.mediaUrl(runId, lightbox.mediaId)}
+              labels={lightbox.labels}
+              loggableName={loggableId}
+              imageName={lightbox.name ?? ''}
+              alt={lightbox.name}
+            />
+          </div>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
+function AudioFeedCard({
+  runId,
+  name,
+  entries,
+  nodeLabel,
+}: {
+  runId: string
+  name: string
+  entries: AudioEntry[]
+  nodeLabel: string
+}) {
+  const timelineFilter = useTimelineFilter()
+  const visible = useMemo(() => {
+    const filtered = timelineFilter ? entries.filter(e => timelineFilter.matchEntry(e)) : entries
+    return filtered.slice(-10)
+  }, [entries, timelineFilter])
+
+  return (
+    <div className="rounded-xl border border-border bg-card px-3.5 py-3">
+      <div className="mb-2.5 flex items-baseline gap-2">
+        <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium">{name}</span>
+        <span className="shrink-0 text-[11px] text-muted-foreground">{nodeLabel}</span>
+      </div>
+      {visible.length === 0 ? (
+        <div className="text-[11px] text-muted-foreground">No audio at this step</div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {visible.map(e => (
+            <div key={e.mediaId + (e.step ?? '')} className="flex items-center gap-2">
+              {e.step != null && (
+                <span className="shrink-0 font-mono text-[10px] text-muted-foreground">s{e.step}</span>
+              )}
+              <audio controls preload="none" src={api.mediaUrl(runId, e.mediaId)} className="h-9 w-full" />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function LogsFeedCard({ logs, nodeLabel }: { logs: LogEntry[]; nodeLabel: string }) {
+  const [level, setLevel] = useState<(typeof LOG_LEVELS)[number]>('All')
+  const timelineFilter = useTimelineFilter()
+
+  const visible = useMemo(() => {
+    let filtered = logs
+    if (level !== 'All') {
+      const want = level.toLowerCase()
+      // "warn" chip matches the SDK's "warning" level string too.
+      filtered = filtered.filter(l => l.level === want || (want === 'warn' && l.level === 'warning'))
+    }
+    if (timelineFilter) filtered = filtered.filter(e => timelineFilter.matchEntry(e))
+    return filtered.slice(-100)
+  }, [logs, level, timelineFilter])
+
+  return (
+    <div className="rounded-xl border border-border bg-card px-3.5 py-3">
+      <div className="mb-2 flex items-baseline gap-2">
+        <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium">Logs</span>
+        <span className="shrink-0 text-[11px] text-muted-foreground">{nodeLabel} · tail</span>
+      </div>
+      <div className="mb-2 flex gap-1.5">
+        {LOG_LEVELS.map(lvl => (
+          <button
+            key={lvl}
+            onClick={() => setLevel(lvl)}
+            className={cn(
+              'rounded-full border px-2.5 py-0.5 text-[10.5px] font-medium',
+              level === lvl
+                ? 'border-primary/40 bg-primary/15 text-foreground'
+                : 'border-border bg-transparent text-muted-foreground',
+            )}
+          >
+            {lvl}
+          </button>
+        ))}
+      </div>
+      <div className="no-scrollbar max-h-40 overflow-y-auto font-mono">
+        {visible.length === 0 && (
+          <div className="py-1 text-[11px] text-muted-foreground">No matching log lines</div>
+        )}
+        {visible.map((l, i) => (
+          <div
+            key={i}
+            className={cn(
+              'rounded px-1.5 py-0.5 text-[11px] leading-[1.45]',
+              (l.level === 'error') && 'bg-red-500/10 text-red-400',
+              (l.level === 'warning' || l.level === 'warn') && 'text-yellow-500',
+            )}
+          >
+            <span className="mr-1.5 text-muted-foreground">
+              {new Date(l.timestamp * 1000).toLocaleTimeString([], { hour12: false })}
+            </span>
+            {l.message}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}

@@ -43,13 +43,16 @@ interface StreamCache {
 const cacheByRun = new Map<string, StreamCache>()
 
 export function useStreams(runId: string | null, enabled = true): StreamModel {
-  const run = useStore(s => (runId ? s.runs.get(runId) : undefined))
-  const logs = run?.logs
-  const loggableImages = run?.loggableImages
-  const loggableAudio = run?.loggableAudio
-  const graphNodes = run?.graph?.nodes
-  const globalId = run?.globalLoggable?.loggableId
-  const agentId = run?.agentLoggable?.loggableId
+  // Select the per-field refs, not the run object: REST hydration
+  // (useRunData) replaces these fields on a run mutated in place, so a
+  // `runs.get(runId)` selector would never see the change and the
+  // stream model would stay stale until the next WS clone of the run.
+  const logs = useStore(s => (runId ? s.runs.get(runId)?.logs : undefined))
+  const loggableImages = useStore(s => (runId ? s.runs.get(runId)?.loggableImages : undefined))
+  const loggableAudio = useStore(s => (runId ? s.runs.get(runId)?.loggableAudio : undefined))
+  const graphNodes = useStore(s => (runId ? s.runs.get(runId)?.graph?.nodes : undefined))
+  const globalId = useStore(s => (runId ? s.runs.get(runId)?.globalLoggable?.loggableId : undefined))
+  const agentId = useStore(s => (runId ? s.runs.get(runId)?.agentLoggable?.loggableId : undefined))
 
   return useMemo(() => {
     if (!enabled || !runId) return EMPTY_MODEL
