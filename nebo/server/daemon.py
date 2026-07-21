@@ -780,10 +780,22 @@ class DaemonState:
                 source="watcher",  # file-originated: never open a writer
             )
 
-            events = list(reader.read_entries())
-            event_dicts = [
+            # The file body carries no run_start entry — run_name, group
+            # and started_at live in the header. Synthesize one, the same
+            # way the watcher's shallow registration does.
+            event_dicts: list[dict] = [{
+                "type": "run_start",
+                "data": {
+                    "script_path": meta.get("script_path", ""),
+                    "started_at": meta.get("started_at"),
+                    "run_name": meta.get("run_name"),
+                    "group": meta.get("group"),
+                    "args": meta.get("args", []),
+                },
+            }]
+            event_dicts += [
                 {"type": e["type"], **e["payload"]}
-                for e in events
+                for e in reader.read_entries()
             ]
             # File-originated, like the run itself: never write these events
             # back out through a remote-mode writer.

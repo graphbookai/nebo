@@ -77,6 +77,31 @@ class TestLoadRemote:
     filesystem so the legacy POST /load with a server-side path won't
     work."""
 
+    def _proxy_urllib(self, monkeypatch, client) -> None:
+        """Route the replay helper's urllib traffic into a TestClient so
+        the replay path doesn't actually hit the network."""
+        import urllib.request
+
+        class FakeResp:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *a): pass
+            def read(self): return b""
+
+        def fake_urlopen(req, timeout=None):
+            # TestClient understands relative paths only; strip the
+            # base URL we pass to the replay helper.
+            assert req.full_url.startswith("http://daemon")
+            path = req.full_url[len("http://daemon"):]
+            resp = client.post(
+                path, content=req.data,
+                headers=dict(req.headers),
+            )
+            assert resp.status_code == 200, resp.text
+            return FakeResp()
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
     def test_replay_pushes_events_to_remote(self, tmp_path, monkeypatch) -> None:
         from fastapi.testclient import TestClient
         from nebo.server.daemon import DaemonState, create_daemon_app
@@ -102,32 +127,9 @@ class TestLoadRemote:
             })
             writer.close()
 
-        # Stand up a TestClient daemon and proxy urllib through it so
-        # the replay path doesn't actually hit the network.
         state = DaemonState()
         client = TestClient(create_daemon_app(state=state))
-
-        import urllib.request
-
-        class FakeResp:
-            status = 200
-            def __enter__(self): return self
-            def __exit__(self, *a): pass
-            def read(self): return b""
-
-        def fake_urlopen(req, timeout=None):
-            # TestClient understands relative paths only; strip the
-            # base URL we pass to the replay helper.
-            assert req.full_url.startswith("http://daemon")
-            path = req.full_url[len("http://daemon"):]
-            resp = client.post(
-                path, content=req.data,
-                headers=dict(req.headers),
-            )
-            assert resp.status_code == 200, resp.text
-            return FakeResp()
-
-        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+        self._proxy_urllib(monkeypatch, client)
 
         _replay_nebo_file_to_remote(str(nebo_path), "http://daemon", api_token=None)
 
@@ -137,6 +139,91 @@ class TestLoadRemote:
         assert "train" in run.loggables
         loss = run.loggables["train"].metrics["loss"]
         assert [e["value"] for e in loss["entries"]] == [0.9, 0.4]
+
+    def test_replay_run_with_media(self, tmp_path, monkeypatch) -> None:
+        """Format v4 media entries carry raw PNG/WAV bytes in `data`.
+        The replay wire must move them intact — a JSON body can't
+        (`Object of type bytes is not JSON serializable`), which is
+        exactly how every media-bearing demo run broke CI uploads."""
+        from fastapi.testclient import TestClient
+        from nebo.server.daemon import DaemonState, create_daemon_app
+        from nebo.core.fileformat import NeboFileWriter
+        from nebo.server.cache import media_id_for
+        from nebo.cli import _replay_nebo_file_to_remote
+
+        png = b"\x89PNG\r\n\x1a\n" + bytes(range(256))
+        wav = b"RIFF$\x00\x00\x00WAVE" + bytes(64)
+
+        run_id = "replay_media_run"
+        nebo_path = tmp_path / "media.nebo"
+        with nebo_path.open("wb") as f:
+            writer = NeboFileWriter(f, run_id=run_id, script_path="x.py", args=[])
+            writer.write_header()
+            writer.write_entry("image", {
+                "type": "image", "loggable_id": "__global__",
+                "name": "sample", "data": png, "step": None,
+                "timestamp": 123.0,
+            })
+            writer.write_entry("audio", {
+                "type": "audio", "loggable_id": "__global__",
+                "name": "clip", "data": wav, "sr": 16000, "step": None,
+                "timestamp": 124.0,
+            })
+            writer.close()
+
+        state = DaemonState()
+        client = TestClient(create_daemon_app(state=state))
+        self._proxy_urllib(monkeypatch, client)
+
+        _replay_nebo_file_to_remote(str(nebo_path), "http://daemon", api_token=None)
+
+        run = state.runs[run_id]
+        images = run.loggables["__global__"].images
+        assert [i["media_id"] for i in images] == [media_id_for(png)]
+        audio = run.loggables["__global__"].audio
+        assert [a["media_id"] for a in audio] == [media_id_for(wav)]
+        # The bytes must survive the wire byte-for-byte.
+        resp = client.get(f"/runs/{run_id}/media/{media_id_for(png)}")
+        assert resp.status_code == 200 and resp.content == png
+        resp = client.get(f"/runs/{run_id}/media/{media_id_for(wav)}")
+        assert resp.status_code == 200 and resp.content == wav
+
+    def test_replay_forwards_header_metadata(self, tmp_path, monkeypatch) -> None:
+        """The file body has no run_start entry — run metadata lives in
+        the header. The synthesized run_start must forward it (like the
+        watcher's shallow registration) or the uploaded run lists with
+        the upload time and loses its name/group/args."""
+        from fastapi.testclient import TestClient
+        from nebo.server.daemon import DaemonState, create_daemon_app
+        from nebo.server.tree import TreeStore
+        from nebo.core.fileformat import NeboFileWriter
+        from nebo.cli import _replay_nebo_file_to_remote
+
+        run_id = "replay_meta_run"
+        nebo_path = tmp_path / "meta.nebo"
+        with nebo_path.open("wb") as f:
+            writer = NeboFileWriter(
+                f, run_id=run_id, script_path="train.py",
+                args=["--epochs", "2"], run_name="exp-1",
+                group="demos/vision",
+            )
+            writer._started_at = 1_600_000_000.0
+            writer.write_header()
+            writer.close()
+
+        state = DaemonState()
+        state.tree = TreeStore(tmp_path / "meta_dir")
+        client = TestClient(create_daemon_app(state=state))
+        self._proxy_urllib(monkeypatch, client)
+
+        _replay_nebo_file_to_remote(str(nebo_path), "http://daemon", api_token=None)
+
+        run = state.runs[run_id]
+        assert run.script_path == "train.py"
+        assert run.run_name == "exp-1"
+        assert run.args == ["--epochs", "2"]
+        assert run.started_at.timestamp() == 1_600_000_000.0
+        assert state.tree.to_payload({run_id})["runs"][run_id] == "demos/vision"
 
 
 # ---------------------------------------------------------------------------

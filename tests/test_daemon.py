@@ -1177,3 +1177,44 @@ class TestWsBroadcastQueues:
         assert second["events"][0]["message"] == "two"
         # Client fully cleaned up after disconnect.
         assert state._ws_clients == []
+
+
+class TestLoadNeboFile:
+    """`POST /load` — daemon-side load of a server-visible .nebo file."""
+
+    @pytest.mark.asyncio
+    async def test_load_forwards_header_metadata(self, tmp_path) -> None:
+        """The file body carries no run_start entry — run_name, group and
+        started_at live in the header and must survive the load."""
+        from nebo.core.fileformat import NeboFileWriter
+        from nebo.server.tree import TreeStore
+
+        run_id = "loaded_meta_run"
+        nebo_path = tmp_path / "meta.nebo"
+        with nebo_path.open("wb") as f:
+            writer = NeboFileWriter(
+                f, run_id=run_id, script_path="train.py",
+                args=["--epochs", "2"], run_name="exp-1",
+                group="demos/vision",
+            )
+            writer._started_at = 1_600_000_000.0
+            writer.write_header()
+            writer.write_entry("metric", {
+                "loggable_id": "__global__", "name": "loss",
+                "metric_type": "line", "value": 0.5, "step": 0, "tags": [],
+            })
+            writer.close()
+
+        state = DaemonState()
+        state.tree = TreeStore(tmp_path / "meta_dir")
+        await state.load_nebo_file(str(nebo_path))
+
+        run = state.runs[run_id]
+        assert run.script_path == "train.py"
+        assert run.run_name == "exp-1"
+        assert run.args == ["--epochs", "2"]
+        assert run.started_at.timestamp() == 1_600_000_000.0
+        assert state.tree.to_payload({run_id})["runs"][run_id] == "demos/vision"
+        # The body still ingests normally after the synthesized run_start.
+        entries = run.loggables["__global__"].metrics["loss"]["entries"]
+        assert [e["value"] for e in entries] == [0.5]

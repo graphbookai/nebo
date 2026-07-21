@@ -429,14 +429,19 @@ def _replay_nebo_file_to_remote(filepath: str, base_url: str, api_token: str | N
     The daemon's `POST /load` accepts a server-side filepath, which
     doesn't exist when the daemon is on a Hugging Face Space and the
     file is on the user's machine. This walks the file with the
-    existing reader and pushes events through `/events` instead — same
-    wire shape, same auth header, just a different ingress.
+    existing reader and pushes events through `/events` instead — the
+    SDK's own msgpack wire format (a concatenation of individually
+    packed event maps), because media entries carry raw PNG/WAV bytes
+    that a JSON body cannot represent.
     """
-    import json as _json
+    import urllib.parse
     import urllib.request
+
+    import msgpack
+
     from nebo.core.fileformat import NeboFileReader
 
-    headers = {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/msgpack"}
     if api_token:
         headers["X-Nebo-Token"] = api_token
 
@@ -445,42 +450,50 @@ def _replay_nebo_file_to_remote(filepath: str, base_url: str, api_token: str | N
         meta = reader.read_header()
         run_id = meta["run_id"]
 
-        # Open the run on the remote side. `store=False` so the remote
-        # daemon doesn't write a fresh .nebo copy alongside its other
-        # runs — the source-of-truth is the file we're uploading.
+        # Open the run on the remote side. The file body carries no
+        # run_start entry — name/group/started_at/args live in the
+        # header, so forward them the same way the watcher's shallow
+        # registration does.
         events: list[dict] = [{
             "type": "run_start",
             "data": {
                 "script_path": meta.get("script_path", os.path.basename(filepath)),
-                "store": False,
+                "started_at": meta.get("started_at"),
+                "run_name": meta.get("run_name"),
+                "group": meta.get("group"),
+                "args": meta.get("args", []),
             },
         }]
         while True:
             entry = reader.read_next_entry()
             if entry is None:
                 break
+            # The payload's own "type" key (spread second) wins over the
+            # byte-derived one: alert frames are written as unregistered
+            # byte 255 ("unknown_255") with the full event dict as payload.
             events.append({"type": entry["type"], **entry["payload"]})
 
     # Chunk by encoded byte size so a single POST never balloons past
     # what proxies / WAFs accept. 1 MB matches the SDK's own ceiling.
+    packed = [msgpack.packb(evt, use_bin_type=True) for evt in events]
     chunk_limit = 1024 * 1024
-    chunks: list[list[dict]] = [[]]
+    chunks: list[list[bytes]] = [[]]
     chunk_size = 0
-    for evt in events:
-        encoded_size = len(_json.dumps(evt))
-        if chunks[-1] and chunk_size + encoded_size > chunk_limit:
+    for frame in packed:
+        if chunks[-1] and chunk_size + len(frame) > chunk_limit:
             chunks.append([])
             chunk_size = 0
-        chunks[-1].append(evt)
-        chunk_size += encoded_size
+        chunks[-1].append(frame)
+        chunk_size += len(frame)
 
     target = f"{base_url.rstrip('/')}/events?run_id={urllib.parse.quote(run_id)}"
     sent = 0
     for chunk in chunks:
         if not chunk:
             continue
-        data = _json.dumps(chunk).encode("utf-8")
-        req = urllib.request.Request(target, data=data, method="POST", headers=headers)
+        req = urllib.request.Request(
+            target, data=b"".join(chunk), method="POST", headers=headers,
+        )
         with urllib.request.urlopen(req, timeout=60) as resp:
             if resp.status != 200:
                 raise RuntimeError(f"HTTP {resp.status} from {target}")
