@@ -135,6 +135,10 @@ class NetworkTransport:
         # sharing one interleaves request/getresponse and every collision
         # costs a dropped connection plus a retry sleep.
         self._conn_local = threading.local()
+        # Remote daemons cross the public internet; loopback daemons are
+        # fast. Use the longer timeout whenever a token is in play, since
+        # that's the remote-target signal.
+        self._conn_timeout = 30.0 if api_token else 5.0
         parts = urllib.parse.urlsplit(self._base_url)
         self._conn_scheme = parts.scheme or "http"
         self._conn_host = parts.hostname or "localhost"
@@ -323,7 +327,10 @@ class NetworkTransport:
             })
         self._running = False
         if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=3.0)
+            # Long enough to cover one in-flight POST (the flush loop's
+            # worst-case block); a shorter join races the final drain
+            # against a still-live flush loop on self._buffer.
+            self._thread.join(timeout=self._conn_timeout + 1.0)
         self._flush_remaining()
         self._connected = False
         self._drop_connection()
@@ -515,16 +522,14 @@ class NetworkTransport:
         """This thread's persistent keep-alive connection."""
         conn = getattr(self._conn_local, "conn", None)
         if conn is None:
-            # Remote daemons cross the public internet; loopback daemons
-            # are fast. Use the longer timeout whenever a token is in
-            # play, since that's the remote-target signal.
-            timeout = 30.0 if self._api_token else 5.0
             conn_cls = (
                 http.client.HTTPSConnection
                 if self._conn_scheme == "https"
                 else http.client.HTTPConnection
             )
-            conn = conn_cls(self._conn_host, self._conn_port, timeout=timeout)
+            conn = conn_cls(
+                self._conn_host, self._conn_port, timeout=self._conn_timeout
+            )
             self._conn_local.conn = conn
         return conn
 
@@ -617,6 +622,17 @@ class NetworkTransport:
         been reconfigured by user code by this point; bare stderr is
         the path most likely to actually reach the terminal).
         """
+        # Events parked in the fallback buffer (queued while disconnected)
+        # get a real send attempt too — the daemon may be reachable again
+        # by exit time, and silently discarding them was the old behavior.
+        # They were charged at admit time, so accounting stays consistent
+        # when _drain_with_retry releases them on pull.
+        with self._lock:
+            fallback = self._fallback_buffer[:]
+            self._fallback_buffer.clear()
+        if fallback:
+            self._buffer = fallback + self._buffer
+
         deadline = time.monotonic() + self._shutdown_timeout
         result = self._drain_with_retry(deadline)
         if self._dropped_events > 0:

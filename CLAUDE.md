@@ -292,6 +292,20 @@ on disk (was 116), ~156k scalar events/s end-to-end in file mode (was ~91k).
   natively (no base64 anywhere). Keep-alive `http.client` connections are
   **per-thread** (`_conn_local`) — the flush loop and explicit `flush()`
   post concurrently and `http.client` is not thread-safe.
+- **Shutdown drains to completion, progress-based.** Deferred encoding
+  means seconds of backlog can legally exist at exit, so neither
+  transport uses a fixed drain deadline. `FileTransport.close()` (and
+  the atexit hook, which now *always* closes — only the duplicate
+  `run_completed` emission is guarded) waits while the worker makes
+  progress and gives up only after `NEBO_SHUTDOWN_TIMEOUT` (default
+  10 s) with zero events resolved/written — then warns to stderr and
+  leaves the stream open rather than closing it under the worker; if
+  the worker died, the residue is drained synchronously.
+  `NetworkTransport._flush_remaining` drains the fallback buffer too
+  (exit-while-disconnected events get a final send attempt and are
+  counted in the drop warning), and `disconnect()` joins the flush loop
+  long enough to cover one in-flight POST. Don't reintroduce fixed
+  short timeouts on these paths — that's the v0.3.0 missing-logs bug.
 - **Backpressure**: `send_event` charges an approximate byte budget
   (`NEBO_BUFFER_BUDGET_MB`, default 128) across queue+buffer+fallback;
   over budget, non-structural events drop (progress first at 90%) with a
